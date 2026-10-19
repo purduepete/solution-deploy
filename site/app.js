@@ -15,13 +15,12 @@ async function load() {
     const card = element('article');
     card.append(element('p', inventory.host, 'host'), element('h2', site.name), element('p', site.purpose, 'purpose'));
     const links = element('dl', undefined, 'links');
-    for (const [label, field] of [['Cloudflare', 'cloudflareUrl'], ['Tailscale', 'tailscaleUrl'], ['LAN origin (reference)', 'localUrl']]) {
+    for (const [label, field] of [['Cloudflare', 'cloudflareUrl'], ['Tailscale', 'tailscaleUrl'], ['Local LAN', 'localUrl']]) {
       const url = new URL(site[field]);
       if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`Invalid ${label} URL for ${site.id}.`);
       const value = element('dd');
-      const link = element(field === 'localUrl' ? 'span' : 'a', site[field]);
-      if (field !== 'localUrl') link.href = url.href;
-      else link.title = 'Address reference only. Protected services bind to loopback; use Cloudflare or Tailscale to open the site.';
+      const link = element('a', site[field]);
+      link.href = url.href;
       value.append(link);
       links.append(element('dt', label), value);
     }

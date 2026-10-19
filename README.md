@@ -9,6 +9,10 @@ sites, their purpose, local/Cloudflare/Tailscale URLs, current storage and origi
 data sources. [Private access](https://jimbrownhome1.tail8ad282.ts.net:8798/) uses
 Tailscale. Edit `site/sites.json`; see [directory updates and deployment](docs/Directory.md).
 
+Home LAN access starts at http://192.168.2.14/ without login. The IPv4-only LAN
+proxy restricts clients to `192.168.2.0/24`; HTTP is unencrypted and every device
+on that subnet has application access. See [LAN access](docs/LanAccess.md).
+
 For later same-host releases and new applications, see [Production deployments](docs/Deployment.md).
 
 Application deployment supports `-Target jimbrownhome` and `-Target jimbrownhome1` (the default). Future application hosts can be added to the environment registry. PostgreSQL and central transition authority remain on `jimbrownhome1`.

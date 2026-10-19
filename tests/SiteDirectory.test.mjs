@@ -38,7 +38,10 @@ test('inventory describes every published host and its data source', () => {
     assert.equal(privateUrl.protocol, 'https:');
     assert(!local.has(localUrl.port)); local.add(localUrl.port);
     assert(!privateUrls.has(privateUrl.port)); privateUrls.add(privateUrl.port);
-    assert(routing.includes(`'${publicUrl.hostname}'=${localUrl.port}`), `Route mismatch for ${site.id}`);
+    const originPort = { plex: '18793', 'work-log': '18794', 'web-inventory': '18795',
+      'web-portfolio': '18796', 'web-options': '18797', 'solution-deploy': '18798' }[site.id] ?? localUrl.port;
+    assert(routing.includes(`'${publicUrl.hostname}'=${originPort}`), `Route mismatch for ${site.id}`);
+    assert.equal(localUrl.port, site.id === 'solution-deploy' ? '' : privateUrl.port);
   }
   for (const id of ['web-portfolio', 'web-options']) {
     const site = inventory.sites.find((entry) => entry.id === id);

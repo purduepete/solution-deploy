@@ -1,6 +1,6 @@
 {
   "host": "jimbrownhome1",
-  "updated": "2026-10-18",
+  "updated": "2026-10-19",
   "sites": [
     {
       "id": "ferry-tracker",
@@ -61,7 +61,7 @@
       "id": "plex",
       "name": "Plex Track",
       "purpose": "View, rate and skip the current Plex music track.",
-      "localUrl": "http://192.168.2.14:18793/",
+      "localUrl": "http://192.168.2.14:8793/",
       "cloudflareUrl": "https://plex.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8793/",
       "database": "No separate application database. Volume settings: local PlexWebUI.VolumeState.json.",
@@ -72,7 +72,7 @@
       "id": "work-log",
       "name": "Work Log",
       "purpose": "Track tasks, meetings, time, notes and daily work summaries.",
-      "localUrl": "http://192.168.2.14:18794/app",
+      "localUrl": "http://192.168.2.14:8794/app",
       "cloudflareUrl": "https://work-log.jimlertech.com/app",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8794/app",
       "database": "PostgreSQL on jimbrownhome1:5432 / work_log / public",
@@ -83,7 +83,7 @@
       "id": "web-inventory",
       "name": "Web Inventory",
       "purpose": "Track containers, stored items, photos and QR labels.",
-      "localUrl": "http://192.168.2.14:18795/",
+      "localUrl": "http://192.168.2.14:8795/",
       "cloudflareUrl": "https://web-inventory.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8795/",
       "database": "PostgreSQL on jimbrownhome1:5432 / web_inventory / public",
@@ -94,7 +94,7 @@
       "id": "web-portfolio",
       "name": "Web Portfolio",
       "purpose": "Investment accounts, positions, trading, retirement planning and price alerts.",
-      "localUrl": "http://192.168.2.14:18796/",
+      "localUrl": "http://192.168.2.14:8796/",
       "cloudflareUrl": "https://web-portfolio.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8796/",
       "database": "LIVE Azure SQL: sqlgkhw25ijhyzzy.database.windows.net / webportfolio",
@@ -105,7 +105,7 @@
       "id": "web-options",
       "name": "Web Options",
       "purpose": "Review weekly options signals, contracts and related trade details.",
-      "localUrl": "http://192.168.2.14:18797/",
+      "localUrl": "http://192.168.2.14:8797/",
       "cloudflareUrl": "https://web-options.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8797/",
       "database": "LIVE Azure SQL: sqlgkhw25ijhyzzy.database.windows.net / webportfolio",
@@ -116,12 +116,12 @@
       "id": "solution-deploy",
       "name": "Solution Directory",
       "purpose": "This host directory: site URLs, purpose and database/source inventory.",
-      "localUrl": "http://192.168.2.14:18798/",
+      "localUrl": "http://192.168.2.14/",
       "cloudflareUrl": "https://solution-deploy.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8798/",
       "database": "None. Read-only site/sites.json in the solution-deploy repository.",
       "sourceDatabase": "Deployment manifests and verified migration records; no database connection.",
-      "notes": "Maintained inventory, not a live uptime monitor. Local URLs work only on jimbrownhome1."
+      "notes": "Maintained inventory, not a live uptime monitor. LAN URLs have no login and are restricted to 192.168.2.0/24."
     }
   ]
 }
