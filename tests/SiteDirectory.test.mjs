@@ -8,6 +8,18 @@ test('inventory describes every published host and its data source', () => {
   const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
   assert.equal(inventory.host, 'jimbrownhome1');
   assert.equal(inventory.sites.length, 11);
+  for (const [id, name] of Object.entries({
+    'fit-track': 'Fit Track',
+    'web-options': 'Web Options',
+    'web-portfolio': 'Web Portfolio',
+    'web-bookmarks': 'Web Bookmarks',
+    'web-inventory': 'Web Inventory',
+    'site-dock': 'Site Dock',
+    'solution-deploy': 'Solution Directory',
+    plex: 'Plex Track',
+  })) {
+    assert.equal(inventory.sites.find((site) => site.id === id)?.name, name);
+  }
   const ids = new Set();
   const local = new Set();
   const privateUrls = new Set();
