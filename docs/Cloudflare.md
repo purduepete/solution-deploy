@@ -16,7 +16,19 @@ The helper writes only directory access rules through the .NET ACL API; it does 
 
 The deployment controller must explicitly load this credential under the same Windows identity and machine and pass it to the module in memory. The module does not load it automatically. Never print the decrypted token, put it in process arguments, or include it in a report.
 
-## API contract
+## Public sign-in providers
+
+The six allowlisted public applications accept Microsoft or Google sign-in. Both
+paths retain the existing owner email allowlist. The ferry `/api/catch` bypass is
+unchanged.
+
+Use `scripts\Set-CloudflareHostnames.ps1 -EnableGoogleSignIn` to preview the scope,
+then add `-Apply` to enable the configured Google provider and attach a separate
+Google owner policy. The existing Microsoft policy remains attached. The command
+can be repeated without creating duplicate policies. It does not configure OAuth
+credentials or add hostnames.
+
+## Route API contract
 
 | Function | Effect |
 |---|---|

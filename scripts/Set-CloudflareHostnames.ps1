@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Apply)
+param([switch]$Apply, [switch]$EnableGoogleSignIn)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
@@ -44,6 +44,58 @@ try{
     $extraDns=@($dnsAll|Where-Object {$_.name -notin $allowed.Keys})
     $extraIngress=@($config.ingress|Where-Object {$_.hostname -and $_.hostname -notin $allowed.Keys})
     $apps=@(Api Get "$account/access/apps?per_page=100" $null)
+    if($EnableGoogleSignIn){
+        $google=@(Api Get "$account/access/identity_providers" $null|Where-Object type -eq 'google')
+        if($google.Count -ne 1){throw 'Expected exactly one configured Google identity provider.'}
+        $targets=@($apps|Where-Object {$_.domain -in $allowed.Keys})
+        if($targets.Count -ne $allowed.Count){throw 'Expected one Access application per public hostname.'}
+        $policyName='SolutionDeploy owner - Google'
+        $policies=@(Api Get "$account/access/policies?per_page=100" $null)
+        $googlePolicy=@($policies|Where-Object name -eq $policyName)
+        if($googlePolicy.Count -gt 1){throw 'Duplicate Google owner policies; inspect before applying.'}
+        $source=@($targets[0].policies|Where-Object {$_.decision -eq 'allow' -and $_.name -ne $policyName})
+        if($source.Count -ne 1 -or -not $source[0].include.Count){throw 'Expected a single existing owner allow policy.'}
+        if(@($source[0].require).Count -ne 1 -or -not $source[0].require[0].login_method.id){
+            throw 'Owner policy has additional requirements; inspect before adding Google.'
+        }
+        if(@($source[0].include|Where-Object {-not $_.email.email}).Count){
+            throw 'Owner policy must contain only explicit email addresses.'
+        }
+        foreach($app in $targets){
+            $owner=@($app.policies|Where-Object { $_.decision -eq 'allow' -and $_.name -ne $policyName })
+            if($owner.Count -ne 1 -or (Comparable $owner[0]) -cne (Comparable $source[0])){throw "Owner policy differs on $($app.domain)."}
+        }
+        $body=@{
+            name=$policyName;decision='allow'
+            include=$source[0].include;exclude=$source[0].exclude
+            require=@(@{login_method=@{id=$google[0].id}})
+        }
+        if($googlePolicy.Count){
+            foreach($key in 'include','exclude','require','decision'){
+                if(($googlePolicy[0][$key]|ConvertTo-Json -Depth 20 -Compress) -cne ($body[$key]|ConvertTo-Json -Depth 20 -Compress)){throw "Existing Google policy differs: $key"}
+            }
+        }
+        if($Apply){
+            if(-not $googlePolicy.Count){$googlePolicy=@(Api Post "$account/access/policies" $body)}
+            foreach($app in $targets){
+                $put=[ordered]@{}
+                foreach($key in ($app.Keys|Where-Object {$_ -notin $readOnly})){$put[$key]=$app[$key]}
+                $put.allowed_idps=@(@($app.allowed_idps)+@($google[0].id)|Select-Object -Unique)
+                $put.auto_redirect_to_identity=$false
+                $put.policies=@($app.policies|ForEach-Object {@{id=$_.id;precedence=$_.precedence}})
+                if($googlePolicy[0].id -notin @($app.policies.id)){
+                    $put.policies+=@{id=$googlePolicy[0].id;precedence=([int]($app.policies.precedence|Measure-Object -Maximum).Maximum+1)}
+                }
+                $null=Api Put "$account/access/apps/$($app.id)" $put
+                $read=Api Get "$account/access/apps/$($app.id)" $null
+                if($google[0].id -notin $read.allowed_idps -or $googlePolicy[0].id -notin $read.policies.id -or $read.auto_redirect_to_identity){throw "Google sign-in readback differs on $($app.domain)."}
+                foreach($id in $app.allowed_idps){if($id -notin $read.allowed_idps){throw "Existing identity provider removed on $($app.domain)."}}
+                foreach($id in $app.policies.id){if($id -notin $read.policies.id){throw "Existing policy removed on $($app.domain)."}}
+            }
+        }
+        $report.googleSignIn=@($targets.domain)
+        $apps=@(Api Get "$account/access/apps?per_page=100" $null)
+    }
     $trim=@($apps|Where-Object {@($_.self_hosted_domains|Where-Object {$_ -notin $allowed.Keys -and $_ -notin $catchHosts}).Count})
     $report.dnsRemoved=@($extraDns|ForEach-Object name)
     $report.ingressRemoved=@($extraIngress|ForEach-Object hostname)
