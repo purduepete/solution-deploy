@@ -70,7 +70,7 @@
     },
     {
       "id": "work-log",
-      "name": "WorkLog",
+      "name": "Work Log",
       "purpose": "Track tasks, meetings, time, notes and daily work summaries.",
       "localUrl": "http://127.0.0.1:18794/app",
       "cloudflareUrl": "https://work-log.jimlertech.com/app",

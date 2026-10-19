@@ -14,6 +14,7 @@ test('inventory describes every published host and its data source', () => {
     'web-portfolio': 'Web Portfolio',
     'web-bookmarks': 'Web Bookmarks',
     'web-inventory': 'Web Inventory',
+    'work-log': 'Work Log',
     'site-dock': 'Site Dock',
     'solution-deploy': 'Solution Directory',
     plex: 'Plex Track',
