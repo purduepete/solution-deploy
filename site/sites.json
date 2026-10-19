@@ -76,7 +76,7 @@
       "cloudflareUrl": "https://work-log.jimlertech.com/app",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8794/app",
       "database": "PostgreSQL on jimbrownhome1:5432 / work_log / public",
-      "sourceDatabase": "Migrated from the Azure SQL-backed WorkLog Azure Functions application.",
+      "sourceDatabase": "Migrated from the Azure SQL-backed Work Log Azure Functions application.",
       "notes": "The old Azure application is stopped. CLI and browser use the new host."
     },
     {

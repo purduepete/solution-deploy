@@ -188,7 +188,7 @@ export function createLanProxy(config = productionConfig, logger = console) {
       if (upgrade && req.headers.upgrade?.toLowerCase() !== 'websocket') return reject(req, res, 400, 'Only WebSocket upgrades are supported');
       if (item.privatePort === 8794 && req.method === 'HEAD') {
         if (!upgrade) res.setHeader('Allow', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-        return reject(req, res, 405, 'WorkLog does not support HEAD');
+        return reject(req, res, 405, 'Work Log does not support HEAD');
       }
       if (item.privatePort === 8794 && req.url === '/' && !upgrade && req.method === 'GET') {
         res.writeHead(302, { Location: '/app', 'Content-Length': 0 }).end();
