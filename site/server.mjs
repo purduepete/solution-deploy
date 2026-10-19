@@ -9,6 +9,8 @@ const files = new Map([
   ['/theme.js', ['theme.js', 'text/javascript; charset=utf-8']],
   ['/app.js', ['app.js', 'text/javascript; charset=utf-8']],
   ['/sites.json', ['sites.json', 'application/json; charset=utf-8']],
+  ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
+  ['/apple-touch-icon.png', ['apple-touch-icon.png', 'image/png']],
 ]);
 
 export function createServer() {

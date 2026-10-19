@@ -70,7 +70,7 @@ test('server exposes only fixed read-only assets with protective headers', async
     req.end();
   });
   try {
-    for (const path of ['/', '/style.css', '/theme.js', '/app.js', '/sites.json', '/health']) {
+    for (const path of ['/', '/style.css', '/theme.js', '/app.js', '/sites.json', '/favicon.svg', '/apple-touch-icon.png', '/health']) {
       const response = await get(path);
       assert.equal(response.statusCode, 200);
       assert.equal(response.headers['cache-control'], 'no-store');
