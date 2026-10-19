@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog)
+param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
@@ -11,7 +11,10 @@ $allowed=[ordered]@{
     'web-bookmarks.jimlertech.com'=8792
     'plex.jimlertech.com'=18793  # internal port; Tailscale serve owns 8793 on the tailnet address
     'work-log.jimlertech.com'=18794  # HttpListener origin is separate from Tailscale HTTPS 8794
+    'web-inventory.jimlertech.com'=18795
 }
+if($PublishWorkLog -and $PublishWebInventory){throw 'Publish one application at a time.'}
+$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}else{''}
 $catchHosts=@('ferry-tracker.jimlertech.com/api/catch')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
 $zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'
@@ -36,7 +39,7 @@ $report=[ordered]@{applied=[bool]$Apply;dnsRemoved=@();ingressRemoved=@();access
 try{
     # Every allowlisted name must already be fully published; this script only removes extras.
     $dnsAll=@(Api Get "$zone/dns_records?type=CNAME&content=$tunnelId.cfargotunnel.com&per_page=100" $null)
-    $existingNames=@($allowed.Keys|Where-Object {-not ($PublishWorkLog -and $_ -eq 'work-log.jimlertech.com')})
+    $existingNames=@($allowed.Keys|Where-Object {$_ -ne $publishName})
     foreach($name in $existingNames){if(@($dnsAll|Where-Object name -eq $name).Count -ne 1){$report.missing+="dns:$name"}}
     $config=(Api Get $tunnel $null).config
     foreach($name in $existingNames){if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq "http://127.0.0.1:$($allowed[$name])"}).Count -ne 1){$report.missing+="ingress:$name"}}
@@ -44,9 +47,10 @@ try{
     if($config.ingress[-1].service -cne 'http_status:404' -or $config.ingress[-1].hostname){throw 'Tunnel terminal fallback changed.'}
 
     $apps=@(Api Get "$account/access/apps?per_page=100" $null)
-    if($PublishWorkLog){
-        if(-not $Apply){$report.publish='work-log.jimlertech.com';return}
-        $name='work-log.jimlertech.com'
+    if($publishName){
+        if(-not $Apply){$report.publish=$publishName;return}
+        $name=$publishName
+        $service="http://127.0.0.1:$($allowed[$name])"
         $template=@($apps|Where-Object domain -eq 'site-dock.jimlertech.com')
         if($template.Count -ne 1){throw 'Expected the SiteDock Access policy template.'}
         $app=@($apps|Where-Object domain -eq $name)
@@ -54,7 +58,7 @@ try{
         if(-not $app.Count){
             $policies=@($template[0].policies|Where-Object decision -eq 'allow')
             if($policies.Count -ne 2 -or @($template[0].allowed_idps).Count -ne 2){throw 'Template must support both owner sign-in methods.'}
-            $body=@{name='WorkLog';type='self_hosted';domain=$name;self_hosted_domains=@($name)
+            $body=@{name=($name -replace '\.jimlertech\.com$','');type='self_hosted';domain=$name;self_hosted_domains=@($name)
                 destinations=@(@{type='public';uri=$name});session_duration=$template[0].session_duration
                 allowed_idps=$template[0].allowed_idps;auto_redirect_to_identity=$false
                 policies=@($policies|ForEach-Object {@{id=$_.id;precedence=[int]$_.precedence}})}
@@ -65,14 +69,15 @@ try{
             ($secured.allowed_idps|Sort-Object) -join ',' -cne (($template[0].allowed_idps|Sort-Object) -join ',') -or
             @($secured.policies|Where-Object decision -ne 'allow').Count){throw 'WorkLog Access readback differs from owner policies.'}
         $rules=@($config.ingress|Where-Object hostname -eq $name)
-        if($rules.Count -gt 1 -or ($rules.Count -eq 1 -and $rules[0].service -notin 'http://127.0.0.1:8794','http://127.0.0.1:18794')){throw 'Conflicting WorkLog tunnel rule.'}
-        if(-not $rules.Count -or $rules[0].service -ne 'http://127.0.0.1:18794'){
+        $legacy=if($PublishWorkLog){'http://127.0.0.1:8794'}else{$service}
+        if($rules.Count -gt 1 -or ($rules.Count -eq 1 -and $rules[0].service -notin $legacy,$service)){throw "Conflicting tunnel rule: $name"}
+        if(-not $rules.Count -or $rules[0].service -ne $service){
             $before=$config|ConvertTo-Json -Depth 60 -Compress
-            $config.ingress=@($config.ingress|Where-Object {$_.hostname -and $_.hostname -ne $name})+@(@{hostname=$name;service='http://127.0.0.1:18794'},@{service='http_status:404'})
+            $config.ingress=@($config.ingress|Where-Object {$_.hostname -and $_.hostname -ne $name})+@(@{hostname=$name;service=$service},@{service='http_status:404'})
             if(((Api Get $tunnel $null).config|ConvertTo-Json -Depth 60 -Compress) -cne $before){throw 'Tunnel changed concurrently.'}
             $null=Api Put $tunnel @{config=$config}
             $config=(Api Get $tunnel $null).config
-            if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq 'http://127.0.0.1:18794'}).Count -ne 1){throw 'WorkLog tunnel readback differs.'}
+            if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq $service}).Count -ne 1){throw "Tunnel readback differs: $name"}
         }
         $dns=@(Api Get "$zone/dns_records?name=$name" $null)
         if($dns.Count -gt 1 -or ($dns.Count -eq 1 -and ($dns[0].type -ne 'CNAME' -or $dns[0].content -ne "$tunnelId.cfargotunnel.com" -or -not $dns[0].proxied))){throw 'Conflicting WorkLog DNS record.'}

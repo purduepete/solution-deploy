@@ -1,8 +1,8 @@
 $script:hostnamesScript=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Set-CloudflareHostnames.ps1'
 Describe 'Google sign-in on allowlisted applications' {
     BeforeEach {
-        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log')
-        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794)
+        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory')
+        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795)
         $global:cfTest_owner=@{
             id='owner';name='Owner';decision='allow';precedence=1
             include=@(@{email=@{email='owner@example.com'}})
@@ -42,6 +42,7 @@ Describe 'Google sign-in on allowlisted applications' {
             }elseif($Uri -match '/dns_records'){
                 $result=@($global:cfTest_names|ForEach-Object {@{name="$_.jimlertech.com";type='CNAME';content='209bf0e7-20c1-45b9-bba9-fca92fc58344.cfargotunnel.com';proxied=$true}})
                 if($Uri -match '\?name=work-log\.jimlertech\.com$'){$result=@($result|Where-Object name -eq 'work-log.jimlertech.com')}
+                if($Uri -match '\?name=web-inventory\.jimlertech\.com$'){$result=@($result|Where-Object name -eq 'web-inventory.jimlertech.com')}
             }elseif($Uri -match '/configurations$'){
                 $ingress=@(for($i=0;$i -lt $global:cfTest_names.Count;$i++){@{hostname="$($global:cfTest_names[$i]).jimlertech.com";service="http://127.0.0.1:$($global:cfTest_ports[$i])"}})
                 $result=@{config=@{ingress=($ingress+@(@{service='http_status:404'}))}}
@@ -58,15 +59,27 @@ Describe 'Google sign-in on allowlisted applications' {
             @{success=$true;result=$result}
         }
     }
-    It 'previews all seven applications without writing' {
+    It 'previews all eight applications without writing' {
         $report=& $script:hostnamesScript -EnableGoogleSignIn|ConvertFrom-Json
-        $report.googleSignIn.Count|Should Be 7
+        $report.googleSignIn.Count|Should Be 8
         $global:cfTest_writes|Should Be 0
     }
     It 'previews WorkLog publication without writing' {
         $report=& $script:hostnamesScript -PublishWorkLog|ConvertFrom-Json
         $report.publish|Should Be 'work-log.jimlertech.com'
         $global:cfTest_writes|Should Be 0
+    }
+    It 'previews WebInventory publication without writing' {
+        $report=& $script:hostnamesScript -PublishWebInventory|ConvertFrom-Json
+        $report.publish|Should Be 'web-inventory.jimlertech.com'
+        $global:cfTest_writes|Should Be 0
+    }
+    It 'preserves an already published WebInventory route without writes' {
+        $null=& $script:hostnamesScript -EnableGoogleSignIn -Apply
+        $before=$global:cfTest_writes
+        $report=& $script:hostnamesScript -PublishWebInventory -Apply|ConvertFrom-Json
+        $report.publish|Should Be 'web-inventory.jimlertech.com'
+        $global:cfTest_writes|Should Be $before
     }
     It 'preserves an already published WorkLog route without writes' {
         $null=& $script:hostnamesScript -EnableGoogleSignIn -Apply
