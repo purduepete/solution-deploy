@@ -1,5 +1,6 @@
 [CmdletBinding()]
-param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory)
+param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
+    [switch]$PublishWebPortfolio, [switch]$PublishWebOptions)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
@@ -12,9 +13,11 @@ $allowed=[ordered]@{
     'plex.jimlertech.com'=18793  # internal port; Tailscale serve owns 8793 on the tailnet address
     'work-log.jimlertech.com'=18794  # HttpListener origin is separate from Tailscale HTTPS 8794
     'web-inventory.jimlertech.com'=18795
+    'web-portfolio.jimlertech.com'=18796
+    'web-options.jimlertech.com'=18797
 }
-if($PublishWorkLog -and $PublishWebInventory){throw 'Publish one application at a time.'}
-$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}else{''}
+if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
+$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}else{''}
 $catchHosts=@('ferry-tracker.jimlertech.com/api/catch')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
 $zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'
@@ -39,7 +42,8 @@ $report=[ordered]@{applied=[bool]$Apply;dnsRemoved=@();ingressRemoved=@();access
 try{
     # Every allowlisted name must already be fully published; this script only removes extras.
     $dnsAll=@(Api Get "$zone/dns_records?type=CNAME&content=$tunnelId.cfargotunnel.com&per_page=100" $null)
-    $existingNames=@($allowed.Keys|Where-Object {$_ -ne $publishName})
+    # Portfolio is published first; Options remains pending during that single cutover.
+    $existingNames=@($allowed.Keys|Where-Object {$_ -ne $publishName -and -not ($PublishWebPortfolio -and $_ -eq 'web-options.jimlertech.com')})
     foreach($name in $existingNames){if(@($dnsAll|Where-Object name -eq $name).Count -ne 1){$report.missing+="dns:$name"}}
     $config=(Api Get $tunnel $null).config
     foreach($name in $existingNames){if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq "http://127.0.0.1:$($allowed[$name])"}).Count -ne 1){$report.missing+="ingress:$name"}}
@@ -94,7 +98,8 @@ try{
         $google=@(Api Get "$account/access/identity_providers" $null|Where-Object type -eq 'google')
         if($google.Count -ne 1){throw 'Expected exactly one configured Google identity provider.'}
         $targets=@($apps|Where-Object {$_.domain -in $allowed.Keys})
-        if($targets.Count -ne $allowed.Count){throw 'Expected one Access application per public hostname.'}
+        $expectedCount=if($PublishWebPortfolio){$allowed.Count-1}else{$allowed.Count}
+        if($targets.Count -ne $expectedCount){throw 'Expected one Access application per published public hostname.'}
         $policyName='SolutionDeploy owner - Google'
         $policies=@(Api Get "$account/access/policies?per_page=100" $null)
         $googlePolicy=@($policies|Where-Object name -eq $policyName)

@@ -18,7 +18,7 @@ The deployment controller must explicitly load this credential under the same Wi
 
 ## Public sign-in providers
 
-The six allowlisted public applications accept Microsoft or Google sign-in. Both
+The ten allowlisted public applications accept Microsoft or Google sign-in. Both
 paths retain the existing owner email allowlist. The ferry `/api/catch` bypass is
 unchanged.
 
@@ -27,6 +27,15 @@ then add `-Apply` to enable the configured Google provider and attach a separate
 Google owner policy. The existing Microsoft policy remains attached. The command
 can be repeated without creating duplicate policies. It does not configure OAuth
 credentials or add hostnames.
+
+Publish Web Portfolio before Web Options with
+`-PublishWebPortfolio -Apply`, then `-PublishWebOptions -Apply`.
+Portfolio uses origin `127.0.0.1:18796` and private Tailscale HTTPS port `8796`;
+Options uses origin `127.0.0.1:18797` and private HTTPS port `8797`.
+Both keep their existing Azure SQL database. Publication creates the owner
+Access application before tunnel ingress and DNS. During Portfolio publication
+only, the Options hostname may still be pending. A normal final verification
+requires all ten hostnames.
 
 ## Route API contract
 
