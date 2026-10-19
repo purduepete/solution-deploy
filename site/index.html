@@ -18,7 +18,7 @@
     </header>
     <section class="guide" aria-label="Access guide">
       <p><strong>Cloudflare</strong> uses your allowed Google or Microsoft account. <strong>Tailscale</strong> needs a connected device on your tailnet.</p>
-      <p>Local URLs use loopback and work only on <b>jimbrownhome1</b>. Database names are informational; this page never connects to a database.</p>
+      <p>Local LAN URLs work on the home subnet (192.168.2.0/24) without login. HTTP is unencrypted; every device on that subnet can access the apps. Database names are informational; this page never connects to a database.</p>
     </section>
     <div class="toolbar">
       <label for="search">Find a site <input id="search" type="search" placeholder="Name, purpose, database or URL" autocomplete="off"></label>
