@@ -8,13 +8,14 @@ It reads no application database and contains no credentials.
 |---|---|
 | Cloudflare, Google or Microsoft owner sign-in | https://solution-deploy.jimlertech.com/ |
 | Private Tailscale | https://jimbrownhome1.tail8ad282.ts.net:8798/ |
-| Host-local only | http://127.0.0.1:18798/ |
+| LAN origin reference (not a direct access link) | http://192.168.2.14:18798/ |
 
 `site/sites.json` is the maintained inventory. It is separate from the framework's
 three-app lifecycle registry in `environments/production.json`. The directory
 includes all ten migrated web apps and itself. It is not a live uptime monitor.
-Loopback links refer to the computer running the browser, so use those links only
-on jimbrownhome1. Use Cloudflare or Tailscale from another computer.
+The LAN origin row displays jimbrownhome1's IP, `192.168.2.14`, as reference text.
+It is not clickable: protected origins remain loopback-only and aren't exposed
+on the LAN. Use Cloudflare or Tailscale links to open each site.
 
 Portfolio and Options **still use live Azure SQL**. Other migrated applications
 name their destination PostgreSQL databases and former data sources. Plex's media

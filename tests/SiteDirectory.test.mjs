@@ -33,7 +33,7 @@ test('inventory describes every published host and its data source', () => {
     const privateUrl = new URL(site.tailscaleUrl);
     assert.equal(publicUrl.hostname, `${site.id}.jimlertech.com`);
     assert.equal(publicUrl.protocol, 'https:');
-    assert.equal(localUrl.hostname, '127.0.0.1');
+    assert.equal(localUrl.hostname, '192.168.2.14');
     assert.equal(privateUrl.hostname, 'jimbrownhome1.tail8ad282.ts.net');
     assert.equal(privateUrl.protocol, 'https:');
     assert(!local.has(localUrl.port)); local.add(localUrl.port);
