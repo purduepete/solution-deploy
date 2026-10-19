@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$Apply, [switch]$EnableGoogleSignIn)
+param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
@@ -10,6 +10,7 @@ $allowed=[ordered]@{
     'fit-track.jimlertech.com'=8791
     'web-bookmarks.jimlertech.com'=8792
     'plex.jimlertech.com'=18793  # internal port; Tailscale serve owns 8793 on the tailnet address
+    'work-log.jimlertech.com'=18794  # HttpListener origin is separate from Tailscale HTTPS 8794
 }
 $catchHosts=@('ferry-tracker.jimlertech.com/api/catch')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
@@ -35,15 +36,55 @@ $report=[ordered]@{applied=[bool]$Apply;dnsRemoved=@();ingressRemoved=@();access
 try{
     # Every allowlisted name must already be fully published; this script only removes extras.
     $dnsAll=@(Api Get "$zone/dns_records?type=CNAME&content=$tunnelId.cfargotunnel.com&per_page=100" $null)
-    foreach($name in $allowed.Keys){if(@($dnsAll|Where-Object name -eq $name).Count -ne 1){$report.missing+="dns:$name"}}
+    $existingNames=@($allowed.Keys|Where-Object {-not ($PublishWorkLog -and $_ -eq 'work-log.jimlertech.com')})
+    foreach($name in $existingNames){if(@($dnsAll|Where-Object name -eq $name).Count -ne 1){$report.missing+="dns:$name"}}
     $config=(Api Get $tunnel $null).config
-    foreach($name in $allowed.Keys){if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq "http://127.0.0.1:$($allowed[$name])"}).Count -ne 1){$report.missing+="ingress:$name"}}
+    foreach($name in $existingNames){if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq "http://127.0.0.1:$($allowed[$name])"}).Count -ne 1){$report.missing+="ingress:$name"}}
     if($report.missing.Count){throw "Allowlisted names are not fully published: $($report.missing -join ', ')"}
     if($config.ingress[-1].service -cne 'http_status:404' -or $config.ingress[-1].hostname){throw 'Tunnel terminal fallback changed.'}
 
+    $apps=@(Api Get "$account/access/apps?per_page=100" $null)
+    if($PublishWorkLog){
+        if(-not $Apply){$report.publish='work-log.jimlertech.com';return}
+        $name='work-log.jimlertech.com'
+        $template=@($apps|Where-Object domain -eq 'site-dock.jimlertech.com')
+        if($template.Count -ne 1){throw 'Expected the SiteDock Access policy template.'}
+        $app=@($apps|Where-Object domain -eq $name)
+        if($app.Count -gt 1){throw 'Duplicate WorkLog Access applications.'}
+        if(-not $app.Count){
+            $policies=@($template[0].policies|Where-Object decision -eq 'allow')
+            if($policies.Count -ne 2 -or @($template[0].allowed_idps).Count -ne 2){throw 'Template must support both owner sign-in methods.'}
+            $body=@{name='WorkLog';type='self_hosted';domain=$name;self_hosted_domains=@($name)
+                destinations=@(@{type='public';uri=$name});session_duration=$template[0].session_duration
+                allowed_idps=$template[0].allowed_idps;auto_redirect_to_identity=$false
+                policies=@($policies|ForEach-Object {@{id=$_.id;precedence=[int]$_.precedence}})}
+            $app=@(Api Post "$account/access/apps" $body)
+        }
+        $secured=Api Get "$account/access/apps/$($app[0].id)" $null
+        if(($secured.policies.id|Sort-Object) -join ',' -cne (($template[0].policies.id|Sort-Object) -join ',') -or
+            ($secured.allowed_idps|Sort-Object) -join ',' -cne (($template[0].allowed_idps|Sort-Object) -join ',') -or
+            @($secured.policies|Where-Object decision -ne 'allow').Count){throw 'WorkLog Access readback differs from owner policies.'}
+        $rules=@($config.ingress|Where-Object hostname -eq $name)
+        if($rules.Count -gt 1 -or ($rules.Count -eq 1 -and $rules[0].service -notin 'http://127.0.0.1:8794','http://127.0.0.1:18794')){throw 'Conflicting WorkLog tunnel rule.'}
+        if(-not $rules.Count -or $rules[0].service -ne 'http://127.0.0.1:18794'){
+            $before=$config|ConvertTo-Json -Depth 60 -Compress
+            $config.ingress=@($config.ingress|Where-Object {$_.hostname -and $_.hostname -ne $name})+@(@{hostname=$name;service='http://127.0.0.1:18794'},@{service='http_status:404'})
+            if(((Api Get $tunnel $null).config|ConvertTo-Json -Depth 60 -Compress) -cne $before){throw 'Tunnel changed concurrently.'}
+            $null=Api Put $tunnel @{config=$config}
+            $config=(Api Get $tunnel $null).config
+            if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq 'http://127.0.0.1:18794'}).Count -ne 1){throw 'WorkLog tunnel readback differs.'}
+        }
+        $dns=@(Api Get "$zone/dns_records?name=$name" $null)
+        if($dns.Count -gt 1 -or ($dns.Count -eq 1 -and ($dns[0].type -ne 'CNAME' -or $dns[0].content -ne "$tunnelId.cfargotunnel.com" -or -not $dns[0].proxied))){throw 'Conflicting WorkLog DNS record.'}
+        if(-not $dns.Count){$null=Api Post "$zone/dns_records" @{type='CNAME';name=$name;content="$tunnelId.cfargotunnel.com";proxied=$true;ttl=1}}
+        $dns=@(Api Get "$zone/dns_records?name=$name" $null)
+        if($dns.Count -ne 1 -or $dns[0].content -ne "$tunnelId.cfargotunnel.com" -or -not $dns[0].proxied){throw 'WorkLog DNS readback differs.'}
+        $dnsAll=@(Api Get "$zone/dns_records?type=CNAME&content=$tunnelId.cfargotunnel.com&per_page=100" $null)
+        $apps=@(Api Get "$account/access/apps?per_page=100" $null)
+        $report.publish=$name
+    }
     $extraDns=@($dnsAll|Where-Object {$_.name -notin $allowed.Keys})
     $extraIngress=@($config.ingress|Where-Object {$_.hostname -and $_.hostname -notin $allowed.Keys})
-    $apps=@(Api Get "$account/access/apps?per_page=100" $null)
     if($EnableGoogleSignIn){
         $google=@(Api Get "$account/access/identity_providers" $null|Where-Object type -eq 'google')
         if($google.Count -ne 1){throw 'Expected exactly one configured Google identity provider.'}
