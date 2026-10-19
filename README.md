@@ -15,6 +15,9 @@ on that subnet has application access. See [LAN access](docs/LanAccess.md).
 
 For later same-host releases and new applications, see [Production deployments](docs/Deployment.md).
 
+For the nightly PostgreSQL backup schedule, off-host copies, restore checks and
+recovery procedure, see [PostgreSQL backups](docs/PostgreSQLBackups.md).
+
 Application deployment supports `-Target jimbrownhome` and `-Target jimbrownhome1` (the default). Future application hosts can be added to the environment registry. PostgreSQL and central transition authority remain on `jimbrownhome1`.
 
 ## Current status
