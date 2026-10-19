@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "name": "production",
+  "host": "jimbrownhome1",
+  "address": "192.168.2.14",
+  "root": "C:\\ProgramData\\SolutionDeploy",
+  "defaultTarget": "jimbrownhome1",
+  "hosts": {
+    "jimbrownhome": { "host": "jimbrownhome", "address": "192.168.2.11", "root": "C:\\ProgramData\\SolutionDeploy", "routeProfile": "jimbrownhome" },
+    "jimbrownhome1": { "host": "jimbrownhome1", "address": "192.168.2.14", "root": "C:\\ProgramData\\SolutionDeploy", "routeProfile": "jimbrownhome1" }
+  },
+  "databaseTarget": { "host": "jimbrownhome1", "address": "192.168.2.14", "root": "C:\\ProgramData\\SolutionDeploy", "port": 5432, "serverName": "jimbrownhome1", "remoteSslMode": "verify-full" },
+  "storagePolicy": {
+    "engine": "postgresql",
+    "host": "127.0.0.1",
+    "port": 5432,
+    "separateDatabasePerApp": true,
+    "scope": "all-structured-data",
+    "databases": {
+      "ferry-tracker": "ferry_tracker",
+      "home-automation": "home_automation",
+      "site-dock": "site_dock"
+    },
+    "implementationStatus": "validated"
+  },
+  "apps": {
+    "ferry-tracker": { "manifest": "..\\ferrytracker\\deploy\\application.json", "observedHost": "jimbrownhome1", "account": "sd-ferry", "port": 8787 },
+    "home-automation": { "manifest": "..\\home_automation\\deploy\\application.json", "observedHost": "jimbrownhome1", "account": "sd-home", "port": 8788 },
+    "site-dock": { "manifest": "..\\sitedock\\deploy\\application.json", "observedHost": "jimbrownhome1", "account": "sd-dock", "port": 8790 }
+  }
+}

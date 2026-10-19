@@ -1,0 +1,84 @@
+[CmdletBinding()]
+param([switch]$Apply)
+# Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
+# Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
+$ErrorActionPreference='Stop'
+$allowed=[ordered]@{
+    'ferry-tracker.jimlertech.com'=8787
+    'home-automation.jimlertech.com'=8788
+    'site-dock.jimlertech.com'=8790
+    'fit-track.jimlertech.com'=8791
+    'web-bookmarks.jimlertech.com'=8792
+    'plex.jimlertech.com'=18793  # internal port; Tailscale serve owns 8793 on the tailnet address
+}
+$catchHosts=@('ferry-tracker.jimlertech.com/api/catch')
+$account='/accounts/ec74856ed4fe9f15833c5419011f2507'
+$zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'
+$tunnelId='209bf0e7-20c1-45b9-bba9-fca92fc58344'
+$tunnel="$account/cfd_tunnel/$tunnelId/configurations"
+$readOnly=@('id','uid','aud','created_at','updated_at')
+$token=Import-Clixml (Join-Path $env:LOCALAPPDATA 'JimlerTech\SolutionDeploy\cloudflare-token.dpapi.xml')
+function Api([string]$Method,[string]$Path,$Body){
+    $a=@{Uri=('https://api.cloudflare.com/client/v4'+$Path);Authentication='Bearer';Token=$token;Method=$Method;TimeoutSec=20;MaximumRetryCount=0}
+    if($null -ne $Body){$a.Body=$Body|ConvertTo-Json -Depth 60 -Compress;$a.ContentType='application/json'}
+    try{$v=Invoke-RestMethod @a}catch{throw "Cloudflare $Method $Path failed; inspect before retry. Response withheld."}
+    if(-not $v.success){throw "Cloudflare $Method refused."}
+    $v.result|ConvertTo-Json -Depth 60|ConvertFrom-Json -AsHashtable -DateKind String
+}
+function Comparable($App){
+    $c=[ordered]@{}
+    foreach($k in ($App.Keys|Where-Object {$_ -notin $readOnly -and $_ -notin 'domain','self_hosted_domains','destinations','policies'}|Sort-Object)){$c[$k]=$App[$k]}
+    $c.policies=(@($App.policies|ForEach-Object {"$($_.id):$($_.precedence)"})|Sort-Object) -join ','
+    $c|ConvertTo-Json -Depth 60 -Compress
+}
+$report=[ordered]@{applied=[bool]$Apply;dnsRemoved=@();ingressRemoved=@();accessTrimmed=@();missing=@()}
+try{
+    # Every allowlisted name must already be fully published; this script only removes extras.
+    $dnsAll=@(Api Get "$zone/dns_records?type=CNAME&content=$tunnelId.cfargotunnel.com&per_page=100" $null)
+    foreach($name in $allowed.Keys){if(@($dnsAll|Where-Object name -eq $name).Count -ne 1){$report.missing+="dns:$name"}}
+    $config=(Api Get $tunnel $null).config
+    foreach($name in $allowed.Keys){if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq "http://127.0.0.1:$($allowed[$name])"}).Count -ne 1){$report.missing+="ingress:$name"}}
+    if($report.missing.Count){throw "Allowlisted names are not fully published: $($report.missing -join ', ')"}
+    if($config.ingress[-1].service -cne 'http_status:404' -or $config.ingress[-1].hostname){throw 'Tunnel terminal fallback changed.'}
+
+    $extraDns=@($dnsAll|Where-Object {$_.name -notin $allowed.Keys})
+    $extraIngress=@($config.ingress|Where-Object {$_.hostname -and $_.hostname -notin $allowed.Keys})
+    $apps=@(Api Get "$account/access/apps?per_page=100" $null)
+    $trim=@($apps|Where-Object {@($_.self_hosted_domains|Where-Object {$_ -notin $allowed.Keys -and $_ -notin $catchHosts}).Count})
+    $report.dnsRemoved=@($extraDns|ForEach-Object name)
+    $report.ingressRemoved=@($extraIngress|ForEach-Object hostname)
+    $report.accessTrimmed=@($trim|ForEach-Object {"$($_.name): $(@($_.self_hosted_domains|Where-Object {$_ -notin $allowed.Keys -and $_ -notin $catchHosts}) -join ',')"})
+    if(-not $Apply){return}
+
+    # 1. DNS first, so extra names stop resolving while Access still covers them.
+    foreach($d in $extraDns){
+        $null=Api Delete "$zone/dns_records/$($d.id)" $null
+        if(@(Api Get "$zone/dns_records?name=$($d.name)" $null).Count){throw "DNS delete readback differs for $($d.name)."}
+    }
+    # 2. Tunnel ingress, with a concurrent-writer check because the API has no revision guard.
+    if($extraIngress.Count){
+        $snapshotJson=$config|ConvertTo-Json -Depth 60 -Compress
+        $config.ingress=@($config.ingress|Where-Object {-not $_.hostname -or $_.hostname -in $allowed.Keys})
+        $expectedJson=$config|ConvertTo-Json -Depth 60 -Compress
+        if(((Api Get $tunnel $null).config|ConvertTo-Json -Depth 60 -Compress) -cne $snapshotJson){throw 'Tunnel config changed concurrently; nothing written to the tunnel.'}
+        $null=Api Put $tunnel @{config=$config}
+        if(((Api Get $tunnel $null).config|ConvertTo-Json -Depth 60 -Compress) -cne $expectedJson){throw 'Tunnel readback differs from expected config.'}
+    }
+    # 3. Access apps: drop extra hostnames only, keeping every other setting.
+    foreach($app in $trim){
+        $keepHosts=@($app.self_hosted_domains|Where-Object {$_ -in $allowed.Keys -or $_ -in $catchHosts})
+        if(-not $keepHosts.Count){throw "Access app $($app.name) would have no hostnames left; inspect manually."}
+        $put=[ordered]@{}
+        foreach($k in ($app.Keys|Where-Object {$_ -notin $readOnly})){$put[$k]=$app[$k]}
+        $put.domain=$keepHosts[0]
+        $put.self_hosted_domains=$keepHosts
+        $put.destinations=@($keepHosts|ForEach-Object {@{type='public';uri=$_}})
+        $put.policies=@($app.policies|ForEach-Object {@{id=$_.id;precedence=$_.precedence}})
+        $null=Api Put "$account/access/apps/$($app.id)" $put
+        $read=Api Get "$account/access/apps/$($app.id)" $null
+        if((@($read.self_hosted_domains) -join ',') -cne ($keepHosts -join ',') -or (@($read.destinations|ForEach-Object uri) -join ',') -cne ($keepHosts -join ',') -or (Comparable $read) -cne (Comparable $app)){throw "Access readback differs for $($app.name)."}
+    }
+}finally{
+    $token.Dispose()
+    $report|ConvertTo-Json -Depth 5
+}

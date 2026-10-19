@@ -1,0 +1,7 @@
+{
+  "image": "postgres:18",
+  "cpus": 2,
+  "memory": "1g",
+  "databaseNames": ["sd_test_ferry", "sd_test_home", "sd_test_sitedock"],
+  "purpose": "Disposable synthetic integration data only; never production credentials or source data."
+}
