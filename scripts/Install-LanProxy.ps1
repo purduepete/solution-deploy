@@ -16,6 +16,16 @@ if(-not([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity
 if(-not(Test-Path "$SourcePath\site\lan-proxy.mjs") -or -not(Test-Path "$SourcePath\scripts\Start-LanProxy.ps1") -or -not(Test-Path $NodePath)){
     throw 'LAN proxy source, launcher or Node executable is missing.'
 }
+function Resolve-FinalPath([string]$Path){
+    $item=Get-Item -LiteralPath $Path -Force
+    if($item.LinkType){$Path=$item.ResolveLinkTarget($true).FullName}
+    $parent=Split-Path -Parent $Path
+    if(-not $parent){return $Path}
+    Join-Path (Resolve-FinalPath $parent) (Split-Path -Leaf $Path)
+}
+# Windows Firewall matches the final image path; Scoop's current folder is a junction.
+$firewallProgram=Resolve-FinalPath ([IO.Path]::GetFullPath($NodePath))
+if(-not(Test-Path -LiteralPath $firewallProgram -PathType Leaf)){throw "Resolved Node path is invalid: $firewallProgram"}
 $ip=Get-NetIPAddress -AddressFamily IPv4 -IPAddress $address
 if($ip.InterfaceAlias -ne 'Ethernet'){throw '192.168.2.14 must be assigned to the Ethernet interface.'}
 $profile=Get-NetConnectionProfile -InterfaceIndex $ip.InterfaceIndex
@@ -31,8 +41,11 @@ if(Test-Path -LiteralPath $pidFile){
     if($existing){
         $expected='(?i)(?:^|\s)"?'+[regex]::Escape($entry)+'"?(?:\s|$)'
         if($existing.ExecutablePath -ne $NodePath -or $existing.CommandLine -notmatch $expected){throw 'Recorded PID is not the LAN proxy.'}
-        Stop-Process -Id $serverId -Force
-        Wait-Process -Id $serverId -Timeout 10 -ErrorAction SilentlyContinue
+        $old=Get-Process -Id $serverId -ErrorAction SilentlyContinue
+        if($old){
+            $old.Kill()
+            if(-not $old.WaitForExit(10000)){throw "LAN proxy PID $serverId did not exit within 10 seconds."}
+        }
     }
     Remove-Item -LiteralPath $pidFile -Force
 }
@@ -52,7 +65,7 @@ $rule=Get-NetFirewallRule -Name $ruleName -ErrorAction SilentlyContinue
 if($rule){Remove-NetFirewallRule -Name $ruleName}
 New-NetFirewallRule -Name $ruleName -DisplayName 'SolutionDeploy LAN proxy (Ethernet subnet only)' `
     -Direction Inbound -Action Allow -Protocol TCP -LocalPort $ports -LocalAddress $address `
-    -RemoteAddress '192.168.2.0/24' -InterfaceAlias 'Ethernet' -Profile Private -Program $NodePath -EdgeTraversalPolicy Block|Out-Null
+    -RemoteAddress '192.168.2.0/24' -InterfaceAlias 'Ethernet' -Profile Private -Program $firewallProgram -EdgeTraversalPolicy Block|Out-Null
 $pwsh=(Get-Process -Id $PID).Path
 $action=New-ScheduledTaskAction -Execute $pwsh `
     -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$root\Start-LanProxy.ps1`" -NodePath `"$NodePath`"" -WorkingDirectory $root
@@ -112,4 +125,4 @@ try{
     }
     throw
 }
-[pscustomobject]@{Host=$env:COMPUTERNAME;Pid=$serverId;Address=$address;Ports=($ports -join ',');Task=$taskName;FirewallRule=$ruleName}
+[pscustomobject]@{Host=$env:COMPUTERNAME;Pid=$serverId;Address=$address;Ports=($ports -join ',');Task=$taskName;FirewallRule=$ruleName;FirewallProgram=$firewallProgram}

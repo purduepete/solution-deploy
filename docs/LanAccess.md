@@ -87,7 +87,10 @@ entry-script path before it can be reused or stopped.
 
 The owned firewall rule `SolutionDeploy-LanProxy-Ethernet` allows TCP on exactly
 the listed ports, local address `192.168.2.14`, Ethernet, Private profile, and
-remote subnet `192.168.2.0/24`. It does not disable the firewall or remove unrelated
+remote subnet `192.168.2.0/24`. Its Program is Node's final path after junction
+resolution, such as Scoop's versioned directory. Process identity checks still use
+the configured junction path. Rerun the installer after a Node upgrade. It does not
+disable the firewall or remove unrelated
 rules. The application source check remains active even if another Node firewall
 rule is broader. Router forwarding, UPnP, other network devices, and existing rules
 are outside this installer's control. **Absence of external reachability is not
