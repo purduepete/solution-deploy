@@ -1,8 +1,8 @@
 $script:hostnamesScript=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Set-CloudflareHostnames.ps1'
 Describe 'Google sign-in on allowlisted applications' {
     BeforeEach {
-        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options')
-        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797)
+        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options','solution-deploy')
+        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798)
         $global:cfTest_owner=@{
             id='owner';name='Owner';decision='allow';precedence=1
             include=@(@{email=@{email='owner@example.com'}})
@@ -58,9 +58,9 @@ Describe 'Google sign-in on allowlisted applications' {
             @{success=$true;result=$result}
         }
     }
-    It 'previews all ten applications without writing' {
+    It 'previews all eleven applications without writing' {
         $report=& $script:hostnamesScript -EnableGoogleSignIn|ConvertFrom-Json
-        $report.googleSignIn.Count|Should Be 10
+        $report.googleSignIn.Count|Should Be 11
         $global:cfTest_writes|Should Be 0
     }
     It 'previews WorkLog publication without writing' {
@@ -75,6 +75,7 @@ Describe 'Google sign-in on allowlisted applications' {
     }
     It 'previews Portfolio publication with Options still pending' {
         $global:cfTest_names=@($global:cfTest_names|Where-Object {$_ -ne 'web-options'})
+        $global:cfTest_ports=@($global:cfTest_ports|Where-Object {$_ -ne 18797})
         $report=& $script:hostnamesScript -PublishWebPortfolio|ConvertFrom-Json
         $report.publish|Should Be 'web-portfolio.jimlertech.com'
         $global:cfTest_writes|Should Be 0
@@ -83,6 +84,19 @@ Describe 'Google sign-in on allowlisted applications' {
         $report=& $script:hostnamesScript -PublishWebOptions|ConvertFrom-Json
         $report.publish|Should Be 'web-options.jimlertech.com'
         $global:cfTest_writes|Should Be 0
+    }
+    It 'previews directory publication without requiring its existing route' {
+        $global:cfTest_names=@($global:cfTest_names|Where-Object {$_ -ne 'solution-deploy'})
+        $report=& $script:hostnamesScript -PublishDirectory|ConvertFrom-Json
+        $report.publish|Should Be 'solution-deploy.jimlertech.com'
+        $global:cfTest_writes|Should Be 0
+    }
+    It 'preserves an already published directory and its owner policies' {
+        $null=& $script:hostnamesScript -EnableGoogleSignIn -Apply
+        $before=$global:cfTest_writes
+        $report=& $script:hostnamesScript -PublishDirectory -Apply|ConvertFrom-Json
+        $report.publish|Should Be 'solution-deploy.jimlertech.com'
+        $global:cfTest_writes|Should Be $before
     }
     It 'rejects simultaneous publication requests' {
         $thrown=$false

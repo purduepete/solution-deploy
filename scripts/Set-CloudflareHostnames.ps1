@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
-    [switch]$PublishWebPortfolio, [switch]$PublishWebOptions)
+    [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
@@ -15,9 +15,10 @@ $allowed=[ordered]@{
     'web-inventory.jimlertech.com'=18795
     'web-portfolio.jimlertech.com'=18796
     'web-options.jimlertech.com'=18797
+    'solution-deploy.jimlertech.com'=18798
 }
-if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
-$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}else{''}
+if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
+$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}else{''}
 $catchHosts=@('ferry-tracker.jimlertech.com/api/catch')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
 $zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'

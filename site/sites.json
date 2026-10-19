@@ -1,0 +1,127 @@
+{
+  "host": "jimbrownhome1",
+  "updated": "2026-10-18",
+  "sites": [
+    {
+      "id": "ferry-tracker",
+      "name": "Ferry Tracker",
+      "purpose": "Washington ferry arrivals, departures, crossing history and catch-a-ferry requests.",
+      "localUrl": "http://127.0.0.1:8787/",
+      "cloudflareUrl": "https://ferry-tracker.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8787/",
+      "database": "PostgreSQL on jimbrownhome1:5432 / ferry_tracker / public",
+      "sourceDatabase": "Migrated from SQLite ferry-capture.db on jimbrownhome.",
+      "notes": "Raw capture archives remain protected files. The catch API retains its token requirement."
+    },
+    {
+      "id": "home-automation",
+      "name": "Home Automation",
+      "purpose": "Control home devices, shades and automations; view weather and device status.",
+      "localUrl": "http://127.0.0.1:8788/",
+      "cloudflareUrl": "https://home-automation.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8788/",
+      "database": "PostgreSQL on jimbrownhome1:5432 / home_automation / public",
+      "sourceDatabase": "Migrated from weather.sqlite3 and JSON configuration/state on jimbrownhome.",
+      "notes": "Device discovery and control depend on the home network."
+    },
+    {
+      "id": "site-dock",
+      "name": "SiteDock",
+      "purpose": "Personal launch page and embedded views of favorite websites.",
+      "localUrl": "http://127.0.0.1:8790/",
+      "cloudflareUrl": "https://site-dock.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8790/",
+      "database": "PostgreSQL on jimbrownhome1:5432 / site_dock / public",
+      "sourceDatabase": "Migrated from favorites.json on jimbrownhome.",
+      "notes": "Favorite order, groups and embed settings are application data."
+    },
+    {
+      "id": "fit-track",
+      "name": "FitTrack",
+      "purpose": "Health metrics, workouts and Apple Health export ingestion.",
+      "localUrl": "http://127.0.0.1:8791/",
+      "cloudflareUrl": "https://fit-track.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8791/",
+      "database": "PostgreSQL on jimbrownhome1:5432 / fit_track / public",
+      "sourceDatabase": "Migrated from Azure SQL; the destination uses public rather than the former fit schema.",
+      "notes": "The upload watcher runs on jimbrownhome1 while JimBrown is signed in, reading Google Drive."
+    },
+    {
+      "id": "web-bookmarks",
+      "name": "WebBookmarks",
+      "purpose": "Save, search and organize web bookmarks, including Tampermonkey captures.",
+      "localUrl": "http://127.0.0.1:8792/",
+      "cloudflareUrl": "https://web-bookmarks.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8792/",
+      "database": "PostgreSQL on jimbrownhome1:5432 / web_bookmarks / public",
+      "sourceDatabase": "Migrated from Azure SQL webportfolio on sqlgkhw25ijhyzzy.database.windows.net.",
+      "notes": "The Tampermonkey capture script uses the private Tailscale API."
+    },
+    {
+      "id": "plex",
+      "name": "Plex web UI",
+      "purpose": "View, rate and skip the current Plex music track.",
+      "localUrl": "http://127.0.0.1:18793/",
+      "cloudflareUrl": "https://plex.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8793/",
+      "database": "No separate application database. Volume settings: local PlexWebUI.VolumeState.json.",
+      "sourceDatabase": "Live media source remains Plex Media Server on jimbrownhome:32400.",
+      "notes": "Only the web UI moved. The media server remains on the original host."
+    },
+    {
+      "id": "work-log",
+      "name": "WorkLog",
+      "purpose": "Track tasks, meetings, time, notes and daily work summaries.",
+      "localUrl": "http://127.0.0.1:18794/app",
+      "cloudflareUrl": "https://work-log.jimlertech.com/app",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8794/app",
+      "database": "PostgreSQL on jimbrownhome1:5432 / work_log / public",
+      "sourceDatabase": "Migrated from the Azure SQL-backed WorkLog Azure Functions application.",
+      "notes": "The old Azure application is stopped. CLI and browser use the new host."
+    },
+    {
+      "id": "web-inventory",
+      "name": "WebInventory",
+      "purpose": "Track containers, stored items, photos and QR labels.",
+      "localUrl": "http://127.0.0.1:18795/",
+      "cloudflareUrl": "https://web-inventory.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8795/",
+      "database": "PostgreSQL on jimbrownhome1:5432 / web_inventory / public",
+      "sourceDatabase": "Migrated from Azure SQL and Azure Blob images; retained source is a backup.",
+      "notes": "Images: D:\\SolutionDeploy\\apps\\web-inventory\\images on jimbrownhome1. Azure OpenAI remains an external integration."
+    },
+    {
+      "id": "web-portfolio",
+      "name": "Web Portfolio",
+      "purpose": "Investment accounts, positions, trading, retirement planning and price alerts.",
+      "localUrl": "http://127.0.0.1:18796/",
+      "cloudflareUrl": "https://web-portfolio.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8796/",
+      "database": "LIVE Azure SQL: sqlgkhw25ijhyzzy.database.windows.net / webportfolio",
+      "sourceDatabase": "Existing Azure SQL retained unchanged. No PostgreSQL migration.",
+      "notes": "Retirement plan and Fidelity profile are local protected files. Telegram pull: daily 07:30 local; Azure backstop retained."
+    },
+    {
+      "id": "web-options",
+      "name": "Web Options",
+      "purpose": "Review weekly options signals, contracts and related trade details.",
+      "localUrl": "http://127.0.0.1:18797/",
+      "cloudflareUrl": "https://web-options.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8797/",
+      "database": "LIVE Azure SQL: sqlgkhw25ijhyzzy.database.windows.net / webportfolio",
+      "sourceDatabase": "Existing Azure SQL retained unchanged. No PostgreSQL migration.",
+      "notes": "Owned-contract data also uses the existing Azure Portfolio API and its server-side service credential."
+    },
+    {
+      "id": "solution-deploy",
+      "name": "Solution directory",
+      "purpose": "This host directory: site URLs, purpose and database/source inventory.",
+      "localUrl": "http://127.0.0.1:18798/",
+      "cloudflareUrl": "https://solution-deploy.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8798/",
+      "database": "None. Read-only site/sites.json in the solution-deploy repository.",
+      "sourceDatabase": "Deployment manifests and verified migration records; no database connection.",
+      "notes": "Maintained inventory, not a live uptime monitor. Local URLs work only on jimbrownhome1."
+    }
+  ]
+}

@@ -18,7 +18,7 @@ The deployment controller must explicitly load this credential under the same Wi
 
 ## Public sign-in providers
 
-The ten allowlisted public applications accept Microsoft or Google sign-in. Both
+The eleven allowlisted public applications accept Microsoft or Google sign-in. Both
 paths retain the existing owner email allowlist. The ferry `/api/catch` bypass is
 unchanged.
 
@@ -35,7 +35,9 @@ Options uses origin `127.0.0.1:18797` and private HTTPS port `8797`.
 Both keep their existing Azure SQL database. Publication creates the owner
 Access application before tunnel ingress and DNS. During Portfolio publication
 only, the Options hostname may still be pending. A normal final verification
-requires all ten hostnames.
+requires all eleven hostnames. The read-only solution directory uses
+`-PublishDirectory -Apply`, origin `127.0.0.1:18798` and private Tailscale HTTPS
+port `8798`. Its public hostname is `solution-deploy.jimlertech.com`.
 
 ## Route API contract
 

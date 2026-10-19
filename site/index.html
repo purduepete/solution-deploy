@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#10111a">
+  <title>jimbrownhome1 | Solution directory</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/theme.js"></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">SolutionDeploy / host directory</p><h1>jimbrownhome1</h1>
+      <p class="intro">Your hosted sites, access paths and data sources.</p></div>
+      <button id="theme" type="button" aria-label="Toggle light and dark theme">Change theme</button>
+    </header>
+    <section class="guide" aria-label="Access guide">
+      <p><strong>Cloudflare</strong> uses your allowed Google or Microsoft account. <strong>Tailscale</strong> needs a connected device on your tailnet.</p>
+      <p>Local URLs use loopback and work only on <b>jimbrownhome1</b>. Database names are informational; this page never connects to a database.</p>
+    </section>
+    <div class="toolbar">
+      <label for="search">Find a site <input id="search" type="search" placeholder="Name, purpose, database or URL" autocomplete="off"></label>
+      <p id="summary" role="status">Loading inventory...</p>
+    </div>
+    <p id="error" role="alert" hidden></p>
+    <div id="sites"></div>
+    <p id="empty" hidden>No matching sites.</p>
+    <footer><span id="updated"></span> Maintained inventory, not a live uptime monitor. Source: <a href="https://github.com/purduepete/solution-deploy">solution-deploy</a>, <code>site/sites.json</code>.</footer>
+  </main>
+</body>
+</html>

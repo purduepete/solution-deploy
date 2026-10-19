@@ -1,6 +1,13 @@
 # SolutionDeploy
 
-Windows deployment and migration framework for Ferry Tracker, Home Automation, and SiteDock.
+Windows deployment tools, migration procedures and the hosted solution directory.
+
+## Hosted solution directory
+
+The [solution directory](https://solution-deploy.jimlertech.com/) lists all hosted
+sites, their purpose, local/Cloudflare/Tailscale URLs, current storage and original
+data sources. [Private access](https://jimbrownhome1.tail8ad282.ts.net:8798/) uses
+Tailscale. Edit `site/sites.json`; see [directory updates and deployment](docs/Directory.md).
 
 For later same-host releases and new applications, see [Production deployments](docs/Deployment.md).
 
@@ -8,21 +15,29 @@ Application deployment supports `-Target jimbrownhome` and `-Target jimbrownhome
 
 ## Current status
 
-The local framework, application adapters, and PostgreSQL schemas are implemented. **No production migration has been performed.** Production changes still require the exact per-app review below.
+Ten application websites have moved to `jimbrownhome1`. The directory also runs
+there. Public access uses Cloudflare Access with Google/Microsoft owner sign-in;
+each site has a separate private Tailscale HTTPS port. The maintained
+[`site/sites.json`](site/sites.json) records the actual URLs and storage.
 
-The storage requirement changed during implementation: PostgreSQL on `jimbrownhome1` must hold each solution's structured application data, with a separate database and restricted runtime identity per app:
-
-| Application | Proposed database |
+| Application | Current database / storage |
 | --- | --- |
-| Ferry Tracker | `ferry_tracker` |
-| Home Automation | `home_automation` |
-| SiteDock | `site_dock` |
+| Ferry Tracker | PostgreSQL `ferry_tracker.public` |
+| Home Automation | PostgreSQL `home_automation.public` |
+| SiteDock | PostgreSQL `site_dock.public` |
+| FitTrack | PostgreSQL `fit_track.public` |
+| WebBookmarks | PostgreSQL `web_bookmarks.public` |
+| WorkLog | PostgreSQL `work_log.public` |
+| WebInventory | PostgreSQL `web_inventory.public`; images on destination `D:` |
+| Web Portfolio and Web Options | Existing Azure SQL `webportfolio`, retained unchanged |
+| Plex web UI | Local JSON settings; existing media server on `jimbrownhome:32400` |
+| Solution directory | Read-only JSON inventory; no database |
 
-These are intended production allocations. The existing destination service and listeners were inspected read-only. No production PostgreSQL login, database creation, schema migration, or import has been performed.
-
-The environment's `storagePolicy.implementationStatus` records completed local PostgreSQL validation. Exact production provisioning, import, restore, and activation approvals remain separate mandatory gates. This status does not certify destination-host readiness or authorize production changes.
-
-Working storage scope: all structured durable records, including current JSON-backed application state, move to PostgreSQL. Private service/connection secrets, logs, raw gzip archives, and backup artifacts remain protected files. The owner's existing hashed credential record is application data and must retain its authentication semantics. This scope detail awaits operator review.
+PostgreSQL is on `jimbrownhome1:5432`, with a separate database per application
+and tables in `public`. Private secrets, logs and raw archives remain protected
+files. The framework lifecycle registry still covers its original three apps;
+it is not the complete hosted inventory. The component and approval contracts
+below remain requirements for future operations, not proof of a new deployment.
 
 ## Local components
 
