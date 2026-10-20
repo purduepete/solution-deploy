@@ -21,13 +21,25 @@
     <header>
       <div><p class="eyebrow">Solution Directory</p><h1>jimbrownhome1</h1>
       <p class="intro">Your hosted sites, access paths and data sources.</p></div>
-      <label class="theme-setting" for="theme">Theme
-        <select id="theme">
-          <option value="system">System</option>
-          <option value="light">Light</option>
-          <option value="midnight">Midnight</option>
-        </select>
-      </label>
+      <div class="theme-setting">
+        <span id="theme-label">Theme</span>
+        <button id="theme" type="button" aria-haspopup="menu" aria-expanded="false"
+          aria-controls="theme-menu" aria-labelledby="theme-label theme-value">
+          <span id="theme-value">Midnight</span>
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+        </button>
+        <div id="theme-menu" role="menu" aria-labelledby="theme-label" hidden>
+          <button type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-theme-preference="system">
+            <span>System</span><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
+          </button>
+          <button type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-theme-preference="light">
+            <span>Light</span><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
+          </button>
+          <button type="button" role="menuitemradio" aria-checked="true" tabindex="-1" data-theme-preference="midnight">
+            <span>Midnight</span><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
+          </button>
+        </div>
+      </div>
     </header>
   <main>
     <section class="guide" aria-label="Access guide">

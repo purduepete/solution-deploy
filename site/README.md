@@ -1,9 +1,16 @@
 # Directory appearance
 
-The header's Theme select lists System, Light and Midnight. Midnight is the
+The header's custom Theme menu lists System, Light and Midnight. Midnight is the
 default. System follows OS changes live; fixed choices stay fixed. Preferences
 persist in `solution-deploy-theme` as `system`, `light` or `midnight`. A saved
 legacy `dark` choice resolves to Midnight.
+
+The menu uses radio-menu semantics and a stroke checkmark for the saved choice.
+Enter or Space opens the menu and selects the focused choice. Arrow keys move
+between choices; Home and End jump to the first and last. Escape dismisses the
+menu and returns focus to its button. Tab or Shift+Tab dismisses it and continues
+through the page. Clicking or focusing outside dismisses it without moving focus.
+The opaque, square menu and its scrollbar use the current theme's color tokens.
 
 Light uses a white page and header. Midnight uses a `#020617` page and opaque
 `#0f172a` header. The header is full-width and sticky. Roboto Flex loads from
