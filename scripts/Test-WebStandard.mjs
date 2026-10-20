@@ -31,7 +31,7 @@ const apps = {
     plex: { key: 'plex-theme' },
     'work-log': { key: 'wl_theme', skip: ['api'], hide: '#helpbar' }, // api/ is the retired Azure Functions copy; helpbar is a first-visit overlay
     'web-inventory': { key: 'theme' },
-    'web-portfolio': { key: 'config_theme_preference', json: true, excluded: true, skip: ['scripts'] },
+    'web-portfolio': { key: 'config_theme_preference', json: true, skip: ['scripts'] },
     'web-options': { key: 'config_theme_preference' },
     'solution-deploy': { key: 'solution-deploy-theme', source: 'solution-deploy/site' },
 };
@@ -76,7 +76,8 @@ const skipDirs = new Set([
     'test-results',
 ]);
 const srcExt = new Set(['.html', '.tsx', '.jsx', '.ts', '.js', '.mjs', '.ps1', '.psm1', '.py', '.cshtml', '.razor']);
-const nativeRe = /<(select|datalist)[\s>]|createElement\(\s*['"](select|datalist)['"]/;
+const nativeRe = /<(select|datalist)(\s|>|$)|createElement\(\s*['"](select|datalist)['"]/;
+const commentRe = /^\s*(\/\/|\/\*|\*|\{\/\*|#|<!--)/;
 function scanNative(dir, skip = [], found = []) {
     let entries;
     try {
@@ -95,7 +96,7 @@ function scanNative(dir, skip = [], found = []) {
         readFileSync(p, 'utf8')
             .split('\n')
             .forEach((line, i) => {
-                if (nativeRe.test(line)) found.push(`${relative(devRoot, p)}:${i + 1}`);
+                if (nativeRe.test(line) && !commentRe.test(line)) found.push(`${relative(devRoot, p)}:${i + 1}`);
             });
     }
     return found;
