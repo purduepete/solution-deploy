@@ -13,20 +13,20 @@ Use the existing HTTPS access paths when confidentiality or browser secure-conte
 APIs are required. HTTP cannot support secure-only cookies or every installed PWA,
 passkey, service worker, or browser permission flow.
 
-| LAN port | Loopback HTTP destination | Trusted private HTTPS port |
-| --- | --- | --- |
-| 80 | 127.0.0.1:18798 (directory) | 8798 |
-| 8787 | 127.0.0.1:8787 | 8787 |
-| 8788 | 127.0.0.1:8788 | 8788 |
-| 8790 | 127.0.0.1:8790 | 8790 |
-| 8791 | 127.0.0.1:8791 | 8791 |
-| 8792 | 127.0.0.1:8792 | 8792 |
-| 8793 | 127.0.0.1:18793 | 8793 |
-| 8794 | 127.0.0.1:18794 | 8794 |
-| 8795 | 127.0.0.1:18795 | 8795 |
-| 8796 | 127.0.0.1:18796 | 8796 |
-| 8797 | 127.0.0.1:18797 | 8797 |
-| 8798 | 127.0.0.1:18798 (directory) | 8798 |
+| LAN port | Loopback HTTP destination   | Trusted private HTTPS port |
+| -------- | --------------------------- | -------------------------- |
+| 80       | 127.0.0.1:18798 (directory) | 8798                       |
+| 8787     | 127.0.0.1:8787              | 8787                       |
+| 8788     | 127.0.0.1:8788              | 8788                       |
+| 8790     | 127.0.0.1:8790              | 8790                       |
+| 8791     | 127.0.0.1:8791              | 8791                       |
+| 8792     | 127.0.0.1:8792              | 8792                       |
+| 8793     | 127.0.0.1:18793             | 8793                       |
+| 8794     | 127.0.0.1:18794             | 8794                       |
+| 8795     | 127.0.0.1:18795             | 8795                       |
+| 8796     | 127.0.0.1:18796             | 8796                       |
+| 8797     | 127.0.0.1:18797             | 8797                       |
+| 8798     | 127.0.0.1:18798 (directory) | 8798                       |
 
 The trusted upstream origin is
 `https://jimbrownhome1.tail8ad282.ts.net:<private-port>`. The proxy sets Origin

@@ -3,14 +3,35 @@
   "title": "SolutionDeploy application",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "id", "repository", "runtime", "build", "launch", "readiness", "state", "routes", "source", "database"],
+  "required": [
+    "schemaVersion",
+    "id",
+    "repository",
+    "runtime",
+    "build",
+    "launch",
+    "readiness",
+    "state",
+    "routes",
+    "source",
+    "database"
+  ],
   "properties": {
     "schemaVersion": { "const": 1 },
     "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,39}$" },
     "repository": { "type": "string", "pattern": "^https://github\\.com/purduepete/[A-Za-z0-9_.-]+(?:\\.git)?$" },
     "database": {
-      "type": "object", "additionalProperties": false,
-      "required": ["engine", "name", "connectionEnvironment", "backendEnvironment", "schemaVersion", "migrationsDirectory", "backupFormat"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "engine",
+        "name",
+        "connectionEnvironment",
+        "backendEnvironment",
+        "schemaVersion",
+        "migrationsDirectory",
+        "backupFormat"
+      ],
       "properties": {
         "engine": { "const": "postgresql" },
         "name": { "type": "string", "pattern": "^[a-z][a-z0-9_]{1,39}$" },
@@ -22,25 +43,36 @@
       }
     },
     "runtime": {
-      "type": "object", "additionalProperties": false, "required": ["kind", "minimumVersion"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "minimumVersion"],
       "properties": { "kind": { "enum": ["node", "python"] }, "minimumVersion": { "type": "string" } }
     },
     "build": {
-      "type": "object", "additionalProperties": false, "required": ["commands"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commands"],
       "properties": {
         "excludePaths": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
-        "commands": { "type": "array", "items": {
-          "type": "object", "additionalProperties": false, "required": ["tool", "arguments"],
-          "properties": {
-            "tool": { "enum": ["npm", "python"] },
-            "arguments": { "type": "array", "items": { "type": "string" } },
-            "workingDirectory": { "type": "string" }
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tool", "arguments"],
+            "properties": {
+              "tool": { "enum": ["npm", "python"] },
+              "arguments": { "type": "array", "items": { "type": "string" } },
+              "workingDirectory": { "type": "string" }
+            }
           }
-        } }
+        }
       }
     },
     "launch": {
-      "type": "object", "additionalProperties": false, "required": ["entrypoint", "arguments", "port", "environment"],
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "arguments", "port", "environment"],
       "properties": {
         "entrypoint": { "type": "string" },
         "arguments": { "type": "array", "items": { "type": "string" } },
@@ -51,36 +83,64 @@
       }
     },
     "readiness": {
-      "type": "object", "additionalProperties": false, "required": ["path", "expected"],
-      "properties": { "path": { "type": "string", "pattern": "^/[^?#]*$" }, "expected": { "type": "object" }, "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300 } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "expected"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/[^?#]*$" },
+        "expected": { "type": "object" },
+        "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300 }
+      }
     },
     "state": {
-      "type": "array", "items": {
-        "type": "object", "additionalProperties": false, "required": ["source", "target", "kind", "required"],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "target", "kind", "required"],
         "properties": {
-          "source": { "type": "string" }, "target": { "type": "string" },
-          "kind": { "enum": ["file", "directory", "secret", "sqlite"] }, "required": { "type": "boolean" }
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "kind": { "enum": ["file", "directory", "secret", "sqlite"] },
+          "required": { "type": "boolean" }
         }
       }
     },
     "managedState": {
-      "type": "array", "items": {
-        "type": "object", "additionalProperties": false, "required": ["source", "target", "kind", "required"],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "target", "kind", "required"],
         "properties": {
-          "source": { "type": "string" }, "target": { "type": "string" },
-          "kind": { "enum": ["file", "directory", "secret"] }, "required": { "type": "boolean" }
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "kind": { "enum": ["file", "directory", "secret"] },
+          "required": { "type": "boolean" }
         }
       }
     },
     "routes": {
-      "type": "array", "items": {
-        "type": "object", "additionalProperties": false, "required": ["hostname"],
-        "properties": { "hostname": { "type": "string", "pattern": "^[a-z0-9-]+\\.jimlertech\\.com$" }, "catchPath": { "const": "/api/catch" } }
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["hostname"],
+        "properties": {
+          "hostname": { "type": "string", "pattern": "^[a-z0-9-]+\\.jimlertech\\.com$" },
+          "catchPath": { "const": "/api/catch" }
+        }
       }
     },
     "source": {
-      "type": "object", "additionalProperties": false, "required": ["host", "root", "tasks"],
-      "properties": { "host": { "type": "string" }, "root": { "type": "string" }, "tasks": { "type": "array", "items": { "type": "string" } } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "root", "tasks"],
+      "properties": {
+        "host": { "type": "string" },
+        "root": { "type": "string" },
+        "tasks": { "type": "array", "items": { "type": "string" } }
+      }
     }
   }
 }

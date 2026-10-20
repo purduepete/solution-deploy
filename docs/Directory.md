@@ -4,11 +4,11 @@ The read-only directory runs on **jimbrownhome1**. It lists site purposes, acces
 URLs, current databases/storage, and original sources or retained dependencies.
 It reads no application database and contains no credentials.
 
-| Access | URL |
-|---|---|
-| Cloudflare, Google or Microsoft owner sign-in | https://solution-deploy.jimlertech.com/ |
-| Private Tailscale | https://jimbrownhome1.tail8ad282.ts.net:8798/ |
-| Home LAN, no login | http://192.168.2.14/ |
+| Access                                        | URL                                           |
+| --------------------------------------------- | --------------------------------------------- |
+| Cloudflare, Google or Microsoft owner sign-in | https://solution-deploy.jimlertech.com/       |
+| Private Tailscale                             | https://jimbrownhome1.tail8ad282.ts.net:8798/ |
+| Home LAN, no login                            | http://192.168.2.14/                          |
 
 `site/sites.json` is the maintained inventory. It is separate from the framework's
 three-app lifecycle registry in `environments/production.json`. The directory
@@ -37,13 +37,14 @@ The directory needs no database of its own.
    `C:\Files\Dev\main\solution-deploy` without overwriting local changes.
 4. On jimbrownhome1 in elevated PowerShell 7, run:
 
-   ```powershell
-   & C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1
-   ```
+    ```powershell
+    & C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1
+    ```
 
-   The installer updates only this directory service. It checks the recorded
-   process identity before stopping it, installs permanent files, starts the
-   task, and verifies the exact served inventory and private URL.
+    The installer updates only this directory service. It checks the recorded
+    process identity before stopping it, installs permanent files, starts the
+    task, and verifies the exact served inventory and private URL.
+
 5. Verify both published URLs and refresh the browser. Assets use `no-store`.
    The inventory is loaded at process start, so edits need redeployment.
 

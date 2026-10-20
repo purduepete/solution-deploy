@@ -33,18 +33,18 @@ there. Public access uses Cloudflare Access with Google/Microsoft owner sign-in;
 each site has a separate private Tailscale HTTPS port. The maintained
 [`site/sites.json`](site/sites.json) records the actual URLs and storage.
 
-| Application | Current database / storage |
-| --- | --- |
-| Ferry Tracker | PostgreSQL `ferry_tracker.public` |
-| Home Automation | PostgreSQL `home_automation.public` |
-| SiteDock | PostgreSQL `site_dock.public` |
-| FitTrack | PostgreSQL `fit_track.public` |
-| WebBookmarks | PostgreSQL `web_bookmarks.public` |
-| WorkLog | PostgreSQL `work_log.public` |
-| WebInventory | PostgreSQL `web_inventory.public`; images on destination `D:` |
-| Web Portfolio and Web Options | Existing Azure SQL `webportfolio`, retained unchanged |
-| Plex web UI | Local JSON settings; existing media server on `jimbrownhome:32400` |
-| Solution directory | Read-only JSON inventory; no database |
+| Application                   | Current database / storage                                         |
+| ----------------------------- | ------------------------------------------------------------------ |
+| Ferry Tracker                 | PostgreSQL `ferry_tracker.public`                                  |
+| Home Automation               | PostgreSQL `home_automation.public`                                |
+| SiteDock                      | PostgreSQL `site_dock.public`                                      |
+| FitTrack                      | PostgreSQL `fit_track.public`                                      |
+| WebBookmarks                  | PostgreSQL `web_bookmarks.public`                                  |
+| WorkLog                       | PostgreSQL `work_log.public`                                       |
+| WebInventory                  | PostgreSQL `web_inventory.public`; images on destination `D:`      |
+| Web Portfolio and Web Options | Existing Azure SQL `webportfolio`, retained unchanged              |
+| Plex web UI                   | Local JSON settings; existing media server on `jimbrownhome:32400` |
+| Solution directory            | Read-only JSON inventory; no database                              |
 
 PostgreSQL is on `jimbrownhome1:5432`, with a separate database per application
 and tables in `public`. Private secrets, logs and raw archives remain protected
@@ -57,6 +57,7 @@ below remain requirements for future operations, not proof of a new deployment.
 - `Deploy.ps1`: read-only Plan and Status, with gated Stage/PrepareCutover/Deploy/Cutover/Verify/Rollback entrypoints. Verify checks the current protected executor result, process/listener ownership, readiness, and PostgreSQL evidence. External Access and reboot acceptance remain separate production checks.
 
 Lifecycle listener ownership checks cover loopback and wildcard bindings. A Tailscale HTTPS listener on its own interface can use the same port as the loopback origin without blocking app startup.
+
 - `src\Deployment.psm1`: manifest/environment validation, plan hashing, locks, staged releases, inventory checks, stopped junction switching, reports.
 - `src\Controller.psm1`: protected SMB submission and CIM/DCOM fixed-task invocation. Requires separately provisioned host executor.
 - `src\Lifecycle.psm1`: limited-account launcher/watchdog, readiness, process identity checks, maintenance, graceful stop.

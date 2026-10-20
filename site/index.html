@@ -1,59 +1,146 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
-  <title>Solution Directory | jimbrownhome1</title>
-  <meta name="apple-mobile-web-app-title" content="Solution Directory">
-  <meta name="mobile-web-app-capable" content="yes">
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <!-- iOS ignores an SVG favicon when adding to the home screen and needs this PNG. -->
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,100..1000&amp;display=swap">
-  <script src="/theme.js"></script>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/app.js" defer></script>
-</head>
-<body>
-    <header>
-      <div><p class="eyebrow">Solution Directory</p><h1>jimbrownhome1</h1>
-      <p class="intro">Your hosted sites, access paths and data sources.</p></div>
-      <div class="theme-setting">
-        <span id="theme-label">Theme</span>
-        <button id="theme" type="button" aria-haspopup="menu" aria-expanded="false"
-          aria-controls="theme-menu" aria-labelledby="theme-label theme-value">
-          <span id="theme-value">Midnight</span>
-          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
-        </button>
-        <div id="theme-menu" role="menu" aria-labelledby="theme-label" hidden>
-          <button type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-theme-preference="system">
-            <span>System</span><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
-          </button>
-          <button type="button" role="menuitemradio" aria-checked="false" tabindex="-1" data-theme-preference="light">
-            <span>Light</span><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
-          </button>
-          <button type="button" role="menuitemradio" aria-checked="true" tabindex="-1" data-theme-preference="midnight">
-            <span>Midnight</span><svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4L19 6"/></svg>
-          </button>
-        </div>
-      </div>
-    </header>
-  <main>
-    <section class="guide" aria-label="Access guide">
-      <p><strong>Cloudflare</strong> uses your allowed Google or Microsoft account. <strong>Tailscale</strong> needs a connected device on your tailnet.</p>
-      <p>Local LAN URLs work on the home subnet (192.168.2.0/24) without login. HTTP is unencrypted; every device on that subnet can access the apps. Database names are informational; this page never connects to a database.</p>
-    </section>
-    <div class="toolbar">
-      <label for="search">Find a site <input id="search" type="search" placeholder="Name, purpose, database or URL" autocomplete="off"></label>
-      <p id="summary" role="status">Loading inventory...</p>
-    </div>
-    <p id="error" role="alert" hidden></p>
-    <div id="sites"></div>
-    <p id="empty" hidden>No matching sites.</p>
-    <footer><span id="updated"></span> Maintained inventory, not a live uptime monitor. Source: <a href="https://github.com/purduepete/solution-deploy">solution-deploy</a>, <code>site/sites.json</code>.</footer>
-  </main>
-</body>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        <meta name="theme-color" content="#0f172a" />
+        <title>Solution Directory | jimbrownhome1</title>
+        <meta name="apple-mobile-web-app-title" content="Solution Directory" />
+        <meta name="mobile-web-app-capable" content="yes" />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <!-- iOS ignores an SVG favicon when adding to the home screen and needs this PNG. -->
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,100..1000&amp;display=swap"
+        />
+        <script src="/theme.js"></script>
+        <link rel="stylesheet" href="/style.css" />
+        <script src="/app.js" defer></script>
+    </head>
+    <body>
+        <header>
+            <div>
+                <p class="eyebrow">Solution Directory</p>
+                <h1>jimbrownhome1</h1>
+                <p class="intro">Your hosted sites, access paths and data sources.</p>
+            </div>
+            <div class="theme-setting">
+                <span id="theme-label">Theme</span>
+                <button
+                    id="theme"
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded="false"
+                    aria-controls="theme-menu"
+                    aria-labelledby="theme-label theme-value"
+                >
+                    <span id="theme-value">Midnight</span>
+                    <svg
+                        aria-hidden="true"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path d="m6 9 6 6 6-6" />
+                    </svg>
+                </button>
+                <div id="theme-menu" role="menu" aria-labelledby="theme-label" hidden>
+                    <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked="false"
+                        tabindex="-1"
+                        data-theme-preference="system"
+                    >
+                        <span>System</span
+                        ><svg
+                            aria-hidden="true"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="m5 12 4 4L19 6" />
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked="false"
+                        tabindex="-1"
+                        data-theme-preference="light"
+                    >
+                        <span>Light</span
+                        ><svg
+                            aria-hidden="true"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="m5 12 4 4L19 6" />
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked="true"
+                        tabindex="-1"
+                        data-theme-preference="midnight"
+                    >
+                        <span>Midnight</span
+                        ><svg
+                            aria-hidden="true"
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                        >
+                            <path d="m5 12 4 4L19 6" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </header>
+        <main>
+            <section class="guide" aria-label="Access guide">
+                <p>
+                    <strong>Cloudflare</strong> uses your allowed Google or Microsoft account.
+                    <strong>Tailscale</strong> needs a connected device on your tailnet.
+                </p>
+                <p>
+                    Local LAN URLs work on the home subnet (192.168.2.0/24) without login. HTTP is unencrypted; every
+                    device on that subnet can access the apps. Database names are informational; this page never
+                    connects to a database.
+                </p>
+            </section>
+            <div class="toolbar">
+                <label for="search"
+                    >Find a site
+                    <input id="search" type="search" placeholder="Name, purpose, database or URL" autocomplete="off"
+                /></label>
+                <p id="summary" role="status">Loading inventory...</p>
+            </div>
+            <p id="error" role="alert" hidden></p>
+            <div id="sites"></div>
+            <p id="empty" hidden>No matching sites.</p>
+            <footer>
+                <span id="updated"></span> Maintained inventory, not a live uptime monitor. Source:
+                <a href="https://github.com/purduepete/solution-deploy">solution-deploy</a>,
+                <code>site/sites.json</code>.
+            </footer>
+        </main>
+    </body>
 </html>

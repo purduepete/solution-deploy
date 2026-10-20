@@ -96,7 +96,7 @@ cluster as a test.
    with a separate temporary superuser such as `recovery_admin` so restoring
    the original `postgres` role does not collide with an existing role.
 3. Review `roles.sql`, then restore it into the empty cluster with `psql -X
-   -v ON_ERROR_STOP=1`. This restores original role names, memberships and
+-v ON_ERROR_STOP=1`. This restores original role names, memberships and
    password hashes. Use a protected password file, never passwords in commands.
 4. Restore each application dump with `pg_restore --create --exit-on-error`
    connected to the replacement cluster's maintenance database. Keep ownership

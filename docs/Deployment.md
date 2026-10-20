@@ -172,6 +172,7 @@ write file-based heartbeats with elapsed time; never depend on the console for
 progress or liveness.
 
 ### Continuous export fencing
+
 Export performs full source checks at both endpoints. Between them a same-process
 runspace continuously repeats the full fence, with one batched task enumeration
 per pass. Per-file checks consume only its synchronized verified heartbeat.
@@ -194,9 +195,9 @@ bounded job runner for cancellation of a stalled SQLite/copy operation.
 2. Review and commit the complete change. Staging uses a clean checkout and a pinned Git archive, not working-tree files.
 3. Generate an online plan from the controller:
 
-   ```powershell
-   .\Deploy.ps1 -Action Plan -App ferry-tracker -Environment production -Target jimbrownhome1 -OpenReport
-   ```
+    ```powershell
+    .\Deploy.ps1 -Action Plan -App ferry-tracker -Environment production -Target jimbrownhome1 -OpenReport
+    ```
 
 4. Inspect the exact commit, application host identity, separate database host identity, current release, manifest/environment hashes, database/schema compatibility, route profile/tunnel, and rollback. Approve that saved plan only. Approvals include `databaseHostIdentity` and `routeProfile`; `Cutover` also requires `sourceHostIdentity`.
 5. Stage with reviewed absolute runtime/tool paths and its separate Stage approval. The build runs in the final release directory and produces a sealed file inventory.

@@ -2,11 +2,11 @@
 
 The existing PostgreSQL instance on `jimbrownhome1` is shared host infrastructure. The framework must not reinstall it, restart it, change global authentication, or expose its loopback listener as part of an app deployment.
 
-| App | Production database | Runtime role | Migration role | Owner role |
-| --- | --- | --- | --- | --- |
-| Ferry Tracker | `ferry_tracker` | `sd_ferry_tracker_runtime` | `sd_ferry_tracker_migrator` | `sd_ferry_tracker_owner` |
-| Home Automation | `home_automation` | `sd_home_automation_runtime` | `sd_home_automation_migrator` | `sd_home_automation_owner` |
-| SiteDock | `site_dock` | `sd_site_dock_runtime` | `sd_site_dock_migrator` | `sd_site_dock_owner` |
+| App             | Production database | Runtime role                 | Migration role                | Owner role                 |
+| --------------- | ------------------- | ---------------------------- | ----------------------------- | -------------------------- |
+| Ferry Tracker   | `ferry_tracker`     | `sd_ferry_tracker_runtime`   | `sd_ferry_tracker_migrator`   | `sd_ferry_tracker_owner`   |
+| Home Automation | `home_automation`   | `sd_home_automation_runtime` | `sd_home_automation_migrator` | `sd_home_automation_owner` |
+| SiteDock        | `site_dock`         | `sd_site_dock_runtime`       | `sd_site_dock_migrator`       | `sd_site_dock_owner`       |
 
 Names are allocations, not proof that any database or role has been created.
 
@@ -75,13 +75,13 @@ This only stores a credential. It does not change a database, reset the password
 
 `scripts\Manage-Postgres.ps1` exposes:
 
-| Action | Behavior |
-| --- | --- |
-| `Preflight` | Read server identity/version/catalog metadata and write a local evidence file. Requires operator-provisioned administrative connectivity. |
-| `PlanProvisioning` | Produce exact nontransactional database/role SQL and separate post-schema runtime-grant SQL. No SQL is executed. Existing names are conflicts. |
-| `ApplySql` | Preview by default. Execution requires exact script/tool hashes, host/role/database binding, unexpired independent review, and a freshly compared preflight snapshot. |
-| `Evidence` | Read schema fingerprint and role/isolation evidence using the app runtime role. |
-| `Backup` | Preview by default. Approved execution writes a new custom-format `pg_dump` artifact, without overwriting existing files. |
+| Action              | Behavior                                                                                                                                                                |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Preflight`         | Read server identity/version/catalog metadata and write a local evidence file. Requires operator-provisioned administrative connectivity.                               |
+| `PlanProvisioning`  | Produce exact nontransactional database/role SQL and separate post-schema runtime-grant SQL. No SQL is executed. Existing names are conflicts.                          |
+| `ApplySql`          | Preview by default. Execution requires exact script/tool hashes, host/role/database binding, unexpired independent review, and a freshly compared preflight snapshot.   |
+| `Evidence`          | Read schema fingerprint and role/isolation evidence using the app runtime role.                                                                                         |
+| `Backup`            | Preview by default. Approved execution writes a new custom-format `pg_dump` artifact, without overwriting existing files.                                               |
 | `RestoreValidation` | Preview by default. Approved execution restores only into an empty, separately approved `sd_validate_*` database. It does not report parity verification automatically. |
 
 Database creation cannot run inside a transaction. Every operation is journaled before execution. A failed or interrupted operation needs inspection and an explicit resume plan; it must never rerun blindly.
@@ -120,20 +120,20 @@ The activation approval requires:
 
 Every record contains `planHash`, `database`, `sourceTransferSHA256`, `migrationSqlSHA256`, `schemaFingerprint`, `parityValidated`, `backupRestoredAndValidated`, and `independentReview`. Schema 2 adds:
 
-| Field | Value |
-| --- | --- |
-| `transitionKind` | `LegacyConversion`, `ManagedMove`, `ManagedDeploy`, or `FirstInstall` |
-| `databaseHost` | `plan.databaseTarget.host` |
-| `databaseHostIdentity` | `plan.databaseHostSnapshot.identity` |
-| `legacyImportPerformed` | Fixed by `transitionKind`, see below |
-| `centralDatabasePreserved` | `ManagedMove` only, must be `true` |
+| Field                      | Value                                                                 |
+| -------------------------- | --------------------------------------------------------------------- |
+| `transitionKind`           | `LegacyConversion`, `ManagedMove`, `ManagedDeploy`, or `FirstInstall` |
+| `databaseHost`             | `plan.databaseTarget.host`                                            |
+| `databaseHostIdentity`     | `plan.databaseHostSnapshot.identity`                                  |
+| `legacyImportPerformed`    | Fixed by `transitionKind`, see below                                  |
+| `centralDatabasePreserved` | `ManagedMove` only, must be `true`                                    |
 
-| `transitionKind` | `legacyImportPerformed` | `sourceTransferSHA256` | Extra requirement |
-| --- | --- | --- | --- |
-| `LegacyConversion` | `true` | Must equal the approved source transfer hash | None |
-| `ManagedMove` | `false` | `null` | `centralDatabasePreserved=true` |
-| `ManagedDeploy` | `false` | `null` | None |
-| `FirstInstall` | `false` | `null` | None |
+| `transitionKind`   | `legacyImportPerformed` | `sourceTransferSHA256`                       | Extra requirement               |
+| ------------------ | ----------------------- | -------------------------------------------- | ------------------------------- |
+| `LegacyConversion` | `true`                  | Must equal the approved source transfer hash | None                            |
+| `ManagedMove`      | `false`                 | `null`                                       | `centralDatabasePreserved=true` |
+| `ManagedDeploy`    | `false`                 | `null`                                       | None                            |
+| `FirstInstall`     | `false`                 | `null`                                       | None                            |
 
 A managed move relocates the app between app hosts. The database stays on the central host, so there is no import, and the record must claim that the existing database was preserved. These claims require the actual reviewed validation results, not manually invented success values.
 

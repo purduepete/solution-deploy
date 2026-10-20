@@ -45,25 +45,58 @@ const sites = JSON.parse(readFileSync(join(repo, 'site', 'sites.json'), 'utf8'))
 function hex(rgb) {
     const m = String(rgb).match(/\d+(\.\d+)?/g);
     if (!m) return String(rgb).toLowerCase();
-    return '#' + m.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, '0')).join('');
+    return (
+        '#' +
+        m
+            .slice(0, 3)
+            .map((n) => Number(n).toString(16).padStart(2, '0'))
+            .join('')
+    );
 }
 
 // Native <select>/<datalist> in app source. Tests, docs and build output are skipped.
-const skipDirs = new Set(['node_modules', 'dist', 'build', 'coverage', '.git', 'test', 'tests', 'docs', 'wwwroot',
-    'bin', 'obj', '.venv', '__pycache__', 'reports', 'artifacts', '.local', 'playwright-report', 'test-results']);
+const skipDirs = new Set([
+    'node_modules',
+    'dist',
+    'build',
+    'coverage',
+    '.git',
+    'test',
+    'tests',
+    'docs',
+    'wwwroot',
+    'bin',
+    'obj',
+    '.venv',
+    '__pycache__',
+    'reports',
+    'artifacts',
+    '.local',
+    'playwright-report',
+    'test-results',
+]);
 const srcExt = new Set(['.html', '.tsx', '.jsx', '.ts', '.js', '.mjs', '.ps1', '.psm1', '.py', '.cshtml', '.razor']);
 const nativeRe = /<(select|datalist)[\s>]|createElement\(\s*['"](select|datalist)['"]/;
 function scanNative(dir, skip = [], found = []) {
     let entries;
-    try { entries = readdirSync(dir); } catch { return found; }
+    try {
+        entries = readdirSync(dir);
+    } catch {
+        return found;
+    }
     for (const name of entries) {
         const p = join(dir, name);
         const st = statSync(p);
-        if (st.isDirectory()) { if (!skipDirs.has(name) && !skip.includes(name)) scanNative(p, [], found); continue; }
+        if (st.isDirectory()) {
+            if (!skipDirs.has(name) && !skip.includes(name)) scanNative(p, [], found);
+            continue;
+        }
         if (!srcExt.has(extname(name)) || /\.(test|spec)\./.test(name) || st.size > 2e6) continue;
-        readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
-            if (nativeRe.test(line)) found.push(`${relative(devRoot, p)}:${i + 1}`);
-        });
+        readFileSync(p, 'utf8')
+            .split('\n')
+            .forEach((line, i) => {
+                if (nativeRe.test(line)) found.push(`${relative(devRoot, p)}:${i + 1}`);
+            });
     }
     return found;
 }
@@ -129,15 +162,23 @@ async function checkApp(context, site, cfg) {
         add('Page loads', true, page.url());
 
         if (cfg.key) {
-            const setPref = (v) => page.evaluate(([k, val]) => {
-                if (val === null) localStorage.removeItem(k); else localStorage.setItem(k, val);
-            }, [cfg.key, v === null ? null : cfg.json ? JSON.stringify(v) : v]);
+            const setPref = (v) =>
+                page.evaluate(
+                    ([k, val]) => {
+                        if (val === null) localStorage.removeItem(k);
+                        else localStorage.setItem(k, val);
+                    },
+                    [cfg.key, v === null ? null : cfg.json ? JSON.stringify(v) : v]
+                );
             await setPref(null);
             await load();
             let s = await pageState(page, cfg.hide);
             add('Default is Midnight (OS light)', resolvedAs(s, 'midnight'), `theme-color ${s.themeColor}`);
-            add('theme-color matches top bar', hex(s.topColor) === s.themeColor.toLowerCase(),
-                `top ${hex(s.topColor)}, meta ${s.themeColor}`);
+            add(
+                'theme-color matches top bar',
+                hex(s.topColor) === s.themeColor.toLowerCase(),
+                `top ${hex(s.topColor)}, meta ${s.themeColor}`
+            );
             await page.emulateMedia({ colorScheme: 'dark' });
             await setPref('system');
             await load();
@@ -147,8 +188,11 @@ async function checkApp(context, site, cfg) {
             await page.waitForTimeout(600);
             s = await pageState(page, cfg.hide);
             add('System follows live OS change', resolvedAs(s, 'light'), `theme-color ${s.themeColor}`);
-            add('theme-color matches top bar (light)', hex(s.topColor) === s.themeColor.toLowerCase(),
-                `top ${hex(s.topColor)}, meta ${s.themeColor}`);
+            add(
+                'theme-color matches top bar (light)',
+                hex(s.topColor) === s.themeColor.toLowerCase(),
+                `top ${hex(s.topColor)}, meta ${s.themeColor}`
+            );
             await setPref(null);
             await page.emulateMedia({ colorScheme: 'dark' });
             await load();
@@ -171,9 +215,11 @@ async function checkApp(context, site, cfg) {
         });
         add('Title has display name', head.title.includes(site.name), head.title);
         add('apple-mobile-web-app-title', head.appTitle === site.name, head.appTitle ?? 'missing');
-        add('viewport-fit=cover, no zoom lock',
+        add(
+            'viewport-fit=cover, no zoom lock',
             /viewport-fit=cover/.test(head.viewport) && !/user-scalable=no|maximum-scale=1(\.0)?\b/.test(head.viewport),
-            head.viewport);
+            head.viewport
+        );
         add('No status-bar-style meta', head.statusBar === null, head.statusBar ?? '');
         add('theme-color meta', Boolean(head.themeColor), head.themeColor ?? 'missing');
         add('mobile-web-app-capable', head.capable === 'yes', head.capable ?? 'missing');
@@ -181,8 +227,11 @@ async function checkApp(context, site, cfg) {
         add('SVG favicon link', Boolean(head.svgIcon), head.svgIcon ?? 'missing');
 
         const svg = await context.request.get(origin + '/favicon.svg');
-        add('/favicon.svg', svg.status() === 200 && /svg/.test(svg.headers()['content-type'] ?? ''),
-            `${svg.status()} ${svg.headers()['content-type'] ?? ''}`);
+        add(
+            '/favicon.svg',
+            svg.status() === 200 && /svg/.test(svg.headers()['content-type'] ?? ''),
+            `${svg.status()} ${svg.headers()['content-type'] ?? ''}`
+        );
         const png = await context.request.get(origin + '/apple-touch-icon.png');
         const bytes = png.status() === 200 ? await png.body() : Buffer.alloc(0);
         const size = bytes.length > 24 ? `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}` : 'none';
@@ -190,10 +239,16 @@ async function checkApp(context, site, cfg) {
 
         const font = await page.evaluate(async () => {
             await document.fonts.ready;
-            return { family: getComputedStyle(document.body).fontFamily, loaded: document.fonts.check('16px "Roboto Flex"') };
+            return {
+                family: getComputedStyle(document.body).fontFamily,
+                loaded: document.fonts.check('16px "Roboto Flex"'),
+            };
         });
-        add('Roboto Flex body font', /^["']?Roboto Flex/.test(font.family) && !/\bInter\b/.test(font.family),
-            font.family.slice(0, 80));
+        add(
+            'Roboto Flex body font',
+            /^["']?Roboto Flex/.test(font.family) && !/\bInter\b/.test(font.family),
+            font.family.slice(0, 80)
+        );
         add('Roboto Flex loaded', font.loaded);
 
         const native = await page.locator('select, datalist').count();
@@ -207,15 +262,21 @@ async function checkApp(context, site, cfg) {
                 .filter(({ e }, i, a) => !a.some((o, j) => j !== i && o.e.contains(e)));
             const label = (e) => `${e.getAttribute('aria-label') ?? ''} ${e.title ?? ''} ${e.textContent ?? ''}`.trim();
             const theme = vis.filter(({ e }) => /\btheme\b|appearance|^(system|light|midnight|dark)\b/i.test(label(e)));
-            if (theme.length !== 1) return { count: theme.length, labels: theme.map(({ e }) => label(e).slice(0, 30)), off: [] };
+            if (theme.length !== 1)
+                return { count: theme.length, labels: theme.map(({ e }) => label(e).slice(0, 30)), off: [] };
             const t = theme[0].r;
-            const off = vis.filter(({ r }) => r.bottom > t.top && r.top < t.bottom)
+            const off = vis
+                .filter(({ r }) => r.bottom > t.top && r.top < t.bottom)
                 .filter(({ r }) => Math.abs(r.top - t.top) > 2 || Math.abs(r.height - t.height) > 2)
                 .map(({ e, r }) => `${label(e).slice(0, 20)} top ${Math.round(r.top)} h ${Math.round(r.height)}`);
             return { count: 1, labels: [], off, at: `top ${Math.round(t.top)} h ${Math.round(t.height)}` };
         });
         add('One header theme control', bar.count <= 1, bar.labels.join(' | '));
-        add('Header controls aligned', bar.off.length === 0, bar.off.length ? `theme ${bar.at}; ${bar.off.join(', ')}` : '');
+        add(
+            'Header controls aligned',
+            bar.off.length === 0,
+            bar.off.length ? `theme ${bar.at}; ${bar.off.join(', ')}` : ''
+        );
 
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(400);
@@ -227,22 +288,34 @@ async function checkApp(context, site, cfg) {
         await page.close();
     }
     const src = scanNative(join(devRoot, cfg.source ?? site.id), cfg.skip);
-    add('No native dropdowns in source', src.length === 0, src.slice(0, 8).join(', ') + (src.length > 8 ? ` +${src.length - 8}` : ''));
+    add(
+        'No native dropdowns in source',
+        src.length === 0,
+        src.slice(0, 8).join(', ') + (src.length > 8 ? ` +${src.length - 8}` : '')
+    );
     add('No console or CSP errors', errors.length === 0, errors.slice(0, 3).join(' | '));
     add('No write requests', writes === 0, writes ? `${writes} blocked` : '');
     return { site, cfg, checks, errors, writes };
 }
 
 function report(results, started) {
-    const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+    const esc = (s) =>
+        String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     const fails = results.filter((r) => !r.cfg.excluded).flatMap((r) => r.checks.filter((c) => !c.ok)).length;
-    const rows = results.map((r) => {
-        const bad = r.checks.filter((c) => !c.ok).length;
-        const k = r.cfg.excluded ? 'na' : bad ? 'bad' : 'ok';
-        const items = r.checks.map((c) => `<li class="${c.ok ? 'ok' : r.cfg.excluded ? 'na' : 'bad'}"><span class="dot"></span>` +
-            `<b>${esc(c.name)}</b>${c.detail ? ` <code>${esc(c.detail)}</code>` : ''}</li>`).join('');
-        return `<div class="card ${k}"><header><h3>${esc(r.site.name)}</h3><span class="pill">${r.cfg.excluded ? 'excluded' : bad ? `${bad} failing` : 'pass'}</span></header><ul>${items}</ul></div>`;
-    }).join('');
+    const rows = results
+        .map((r) => {
+            const bad = r.checks.filter((c) => !c.ok).length;
+            const k = r.cfg.excluded ? 'na' : bad ? 'bad' : 'ok';
+            const items = r.checks
+                .map(
+                    (c) =>
+                        `<li class="${c.ok ? 'ok' : r.cfg.excluded ? 'na' : 'bad'}"><span class="dot"></span>` +
+                        `<b>${esc(c.name)}</b>${c.detail ? ` <code>${esc(c.detail)}</code>` : ''}</li>`
+                )
+                .join('');
+            return `<div class="card ${k}"><header><h3>${esc(r.site.name)}</h3><span class="pill">${r.cfg.excluded ? 'excluded' : bad ? `${bad} failing` : 'pass'}</span></header><ul>${items}</ul></div>`;
+        })
+        .join('');
     const when = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
     return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Web standard check</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -286,17 +359,26 @@ try {
         const r = await Promise.race([
             checkApp(context, site, cfg),
             new Promise((done) => {
-                timer = setTimeout(() => done({
-                    site, cfg, errors: [], writes: 0,
-                    checks: [{ name: 'Run', ok: false, detail: `No result after ${APP_TIMEOUT_MS / 1000}s` }],
-                }), APP_TIMEOUT_MS);
+                timer = setTimeout(
+                    () =>
+                        done({
+                            site,
+                            cfg,
+                            errors: [],
+                            writes: 0,
+                            checks: [{ name: 'Run', ok: false, detail: `No result after ${APP_TIMEOUT_MS / 1000}s` }],
+                        }),
+                    APP_TIMEOUT_MS
+                );
             }),
         ]);
         clearTimeout(timer);
         for (const p of context.pages()) if (p !== anchor) await p.close().catch(() => {});
         const bad = r.checks.filter((c) => !c.ok);
-        console.log(`${bad.length ? (cfg.excluded ? 'INFO' : 'FAIL') : 'PASS'} ${site.name}` +
-            bad.map((c) => `\n     - ${c.name}${c.detail ? `: ${c.detail}` : ''}`).join(''));
+        console.log(
+            `${bad.length ? (cfg.excluded ? 'INFO' : 'FAIL') : 'PASS'} ${site.name}` +
+                bad.map((c) => `\n     - ${c.name}${c.detail ? `: ${c.detail}` : ''}`).join('')
+        );
         results.push(r);
     }
     const outDir = join(repo, 'reports');
