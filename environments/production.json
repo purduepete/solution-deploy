@@ -42,19 +42,19 @@
   },
   "apps": {
     "ferry-tracker": {
-      "manifest": "..\\ferrytracker\\deploy\\application.json",
+      "manifest": "..\\ferry-tracker\\deploy\\application.json",
       "observedHost": "jimbrownhome1",
       "account": "sd-ferry",
       "port": 8787
     },
     "home-automation": {
-      "manifest": "..\\home_automation\\deploy\\application.json",
+      "manifest": "..\\home-automation\\deploy\\application.json",
       "observedHost": "jimbrownhome1",
       "account": "sd-home",
       "port": 8788
     },
     "site-dock": {
-      "manifest": "..\\sitedock\\deploy\\application.json",
+      "manifest": "..\\site-dock\\deploy\\application.json",
       "observedHost": "jimbrownhome1",
       "account": "sd-dock",
       "port": 8790
