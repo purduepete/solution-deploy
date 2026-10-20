@@ -67,6 +67,7 @@ Lifecycle listener ownership checks cover loopback and wildcard bindings. A Tail
 - `src\Cloudflare.psm1`: exact owned-route planning and guarded execution. See [Cloudflare contract](docs/Cloudflare.md).
 - `scripts\sqlite_snapshot.py`: reviewed synthetic-test source-export helper, not a PostgreSQL migration implementation. Real-source use remains gated on exact writer inventory/action review.
 - `scripts\Install-Host.ps1`: protected executor installation with code inventory and fixed dispatch. Not run or accepted for production.
+- `scripts\Update-HostExecutor.ps1 -HostName <host>`: upgrades the installed executor code from a clean commit over the admin share and rewrites the code inventory in `control\installation.json`. Use it after any framework change instead of copying files by hand; a hand copy makes the executor refuse every operation.
 - `scripts\Manage-Postgres.ps1`: reviewed, pinned database-tool operations. Preview is the default for mutating actions.
 - `scripts\Invoke-ReviewedNodeImport.ps1`: exact-action Ferry import wrapper. Default validation opens no database. Execution requires protected inputs, a prepared receipt, fresh source continuity, dedicated migrator credentials, a separate operation directory, a create-only attempt journal and a bounded deadline.
 - `scripts\Invoke-CloudflareTransition.ps1`: exact route-plan execution bound to the verified application deployment.
