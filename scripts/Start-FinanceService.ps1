@@ -4,7 +4,7 @@ param(
 )
 $ErrorActionPreference='Stop'
 $root="C:\ProgramData\SolutionDeploy\apps\$Application"
-$release="$root\releases\20261018"
+$release=if(Test-Path "$root\current"){"$root\current"}else{"$root\releases\20261018"}
 $log="$root\shared\logs\service.log"
 $launcher=if($Application -eq 'web-portfolio'){"$release\deploy\Start-PortfolioService.ps1"}else{"$release\scripts\Start-Deployment.ps1"}
 try{
