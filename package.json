@@ -1,1 +1,33 @@
-{"name":"solution-deploy","private":true,"type":"module","scripts":{"check:web":"node scripts/Test-WebStandard.mjs","check:web:public":"node scripts/Test-WebStandard.mjs --public"},"devDependencies":{"playwright-core":"^1.64.1"}}
+{
+  "name": "solution-deploy",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:web": "node scripts/Test-WebStandard.mjs",
+    "check:web:public": "node scripts/Test-WebStandard.mjs --public",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test site/Theme.test.mjs tests/SiteDirectory.test.mjs tests/LanProxy.test.mjs",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "playwright-core": "^1.64.1",
+    "prettier": "^3.9.10"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs}": [
+      "prettier --write",
+      "eslint --max-warnings 0 --no-warn-ignored"
+    ],
+    "*.{json,css,md,html,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}
