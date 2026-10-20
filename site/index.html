@@ -3,24 +3,33 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#10111a">
+  <meta name="theme-color" content="#0f172a">
   <title>Solution Directory | jimbrownhome1</title>
   <meta name="apple-mobile-web-app-title" content="Solution Directory">
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <!-- iOS ignores an SVG favicon when adding to the home screen and needs this PNG. -->
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,100..1000&amp;display=swap">
   <script src="/theme.js"></script>
+  <link rel="stylesheet" href="/style.css">
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <main>
     <header>
       <div><p class="eyebrow">Solution Directory</p><h1>jimbrownhome1</h1>
       <p class="intro">Your hosted sites, access paths and data sources.</p></div>
-      <button id="theme" type="button" aria-label="Toggle light and dark theme">Change theme</button>
+      <label class="theme-setting" for="theme">Theme
+        <select id="theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="midnight">Midnight</option>
+        </select>
+      </label>
     </header>
+  <main>
     <section class="guide" aria-label="Access guide">
       <p><strong>Cloudflare</strong> uses your allowed Google or Microsoft account. <strong>Tailscale</strong> needs a connected device on your tailnet.</p>
       <p>Local LAN URLs work on the home subnet (192.168.2.0/24) without login. HTTP is unencrypted; every device on that subnet can access the apps. Database names are informational; this page never connects to a database.</p>
