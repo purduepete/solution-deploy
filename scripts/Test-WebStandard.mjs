@@ -199,6 +199,24 @@ async function checkApp(context, site, cfg) {
         const native = await page.locator('select, datalist').count();
         add('No native dropdowns on page', native === 0, native ? `${native} found` : '');
 
+        // One theme control in the top bar, aligned with the controls next to it.
+        const bar = await page.evaluate(() => {
+            const vis = [...document.querySelectorAll('button,[role=combobox],[aria-haspopup]')]
+                .map((e) => ({ e, r: e.getBoundingClientRect() }))
+                .filter(({ r }) => r.width > 0 && r.height > 0 && r.top < 120 && r.left > innerWidth / 2)
+                .filter(({ e }, i, a) => !a.some((o, j) => j !== i && o.e.contains(e)));
+            const label = (e) => `${e.getAttribute('aria-label') ?? ''} ${e.title ?? ''} ${e.textContent ?? ''}`.trim();
+            const theme = vis.filter(({ e }) => /\btheme\b|appearance|^(system|light|midnight|dark)\b/i.test(label(e)));
+            if (theme.length !== 1) return { count: theme.length, labels: theme.map(({ e }) => label(e).slice(0, 30)), off: [] };
+            const t = theme[0].r;
+            const off = vis.filter(({ r }) => r.bottom > t.top && r.top < t.bottom)
+                .filter(({ r }) => Math.abs(r.top - t.top) > 2 || Math.abs(r.height - t.height) > 2)
+                .map(({ e, r }) => `${label(e).slice(0, 20)} top ${Math.round(r.top)} h ${Math.round(r.height)}`);
+            return { count: 1, labels: [], off, at: `top ${Math.round(t.top)} h ${Math.round(t.height)}` };
+        });
+        add('One header theme control', bar.count <= 1, bar.labels.join(' | '));
+        add('Header controls aligned', bar.off.length === 0, bar.off.length ? `theme ${bar.at}; ${bar.off.join(', ')}` : '');
+
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(400);
         const width = await page.evaluate(() => [document.documentElement.scrollWidth, innerWidth]);
@@ -246,23 +264,36 @@ ${fails} failing checks / ${when} (local) / ${Math.round((Date.now() - started) 
 }
 
 const started = Date.now();
+const APP_TIMEOUT_MS = 120000;
 const launch = { channel: 'msedge', headless: !signIn };
 let browser = null;
 const context = publicMode
     ? await chromium.launchPersistentContext(profileDir, launch)
     : await (browser = await chromium.launch(launch)).newContext();
 try {
+    // Headed Edge shuts down when its last tab closes. Keep an anchor tab between app checks.
+    const anchor = context.pages()[0] ?? (await context.newPage());
     if (signIn) {
-        const page = context.pages()[0] ?? (await context.newPage());
-        await page.goto(sites[0].cloudflareUrl);
+        await anchor.goto(sites[0].cloudflareUrl);
         console.log('Sign in to Cloudflare Access in the Edge window. Waiting up to 5 minutes...');
-        await page.waitForURL((u) => !/cloudflareaccess\.com|accounts\.google\.com/.test(u.host), { timeout: 300000 });
-        await page.close();
+        await anchor.waitForURL((u) => u.origin === new URL(sites[0].cloudflareUrl).origin, { timeout: 300000 });
+        await anchor.goto('about:blank');
     }
     const results = [];
     for (const site of sites) {
         const cfg = apps[site.id] ?? { key: null };
-        const r = await checkApp(context, site, cfg);
+        let timer;
+        const r = await Promise.race([
+            checkApp(context, site, cfg),
+            new Promise((done) => {
+                timer = setTimeout(() => done({
+                    site, cfg, errors: [], writes: 0,
+                    checks: [{ name: 'Run', ok: false, detail: `No result after ${APP_TIMEOUT_MS / 1000}s` }],
+                }), APP_TIMEOUT_MS);
+            }),
+        ]);
+        clearTimeout(timer);
+        for (const p of context.pages()) if (p !== anchor) await p.close().catch(() => {});
         const bad = r.checks.filter((c) => !c.ok);
         console.log(`${bad.length ? (cfg.excluded ? 'INFO' : 'FAIL') : 'PASS'} ${site.name}` +
             bad.map((c) => `\n     - ${c.name}${c.detail ? `: ${c.detail}` : ''}`).join(''));

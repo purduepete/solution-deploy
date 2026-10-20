@@ -15,6 +15,12 @@ on that subnet has application access. See [LAN access](docs/LanAccess.md).
 
 For later same-host releases and new applications, see [Production deployments](docs/Deployment.md).
 
+To preview removal of the stale response-header rule for the retired
+`ferry.jimlertech.com` alias, run
+`.\scripts\Set-CloudflareHostnames.ps1 -RemoveRetiredFerryHeaderRule`.
+Add `-Apply` to delete only that rule. This mode leaves DNS, tunnel routes,
+Access policies and the current `ferry-tracker.jimlertech.com` hostname unchanged.
+
 For the nightly PostgreSQL backup schedule, off-host copies, restore checks and
 recovery procedure, see [PostgreSQL backups](docs/PostgreSQLBackups.md).
 

@@ -1,9 +1,13 @@
 [CmdletBinding()]
 param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
-    [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory)
+    [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory,
+    [switch]$RemoveRetiredFerryHeaderRule)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
+if($RemoveRetiredFerryHeaderRule -and ($EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory)){
+    throw 'Remove the retired Ferry header rule separately from other changes.'
+}
 $allowed=[ordered]@{
     'ferry-tracker.jimlertech.com'=8787
     'home-automation.jimlertech.com'=8788
@@ -41,6 +45,29 @@ function Comparable($App){
 }
 $report=[ordered]@{applied=[bool]$Apply;dnsRemoved=@();ingressRemoved=@();accessTrimmed=@();missing=@()}
 try{
+    if($RemoveRetiredFerryHeaderRule){
+        $entrypoint="$zone/rulesets/phases/http_response_headers_transform/entrypoint"
+        $ruleset=Api Get $entrypoint $null
+        $expression='(http.host eq "ferry.jimlertech.com" and not starts_with(http.request.uri.path, "/cdn-cgi/"))'
+        $targets=@($ruleset.rules|Where-Object expression -ceq $expression)
+        if($targets.Count -gt 1){throw 'Multiple retired Ferry header rules found; inspect before removing.'}
+        $report.retiredFerryHeaderRule=@($targets|ForEach-Object id)
+        if($Apply -and $targets.Count){
+            $before=$ruleset|ConvertTo-Json -Depth 60 -Compress
+            if(((Api Get $entrypoint $null)|ConvertTo-Json -Depth 60 -Compress) -cne $before){throw 'Header rules changed concurrently; nothing removed.'}
+            $null=Api Delete "$zone/rulesets/$($ruleset.id)/rules/$($targets[0].id)" $null
+            $remaining=Api Get $entrypoint $null
+            if(@($remaining.rules|Where-Object expression -ceq $expression).Count){throw 'Retired Ferry header rule remains after deletion.'}
+            $expected=@($ruleset.rules|Where-Object id -ne $targets[0].id)
+            # Cloudflare omits rules entirely when the last rule is deleted.
+            $actual=@($remaining.rules|Where-Object {$null -ne $_})
+            if((ConvertTo-Json -InputObject $actual -Depth 60 -Compress) -cne (ConvertTo-Json -InputObject $expected -Depth 60 -Compress)){
+                throw 'Other header rules changed during deletion; inspect the ruleset.'
+            }
+            $report.retiredFerryHeaderRuleRemoved=$true
+        }
+        return
+    }
     # Every allowlisted name must already be fully published; this script only removes extras.
     $dnsAll=@(Api Get "$zone/dns_records?type=CNAME&content=$tunnelId.cfargotunnel.com&per_page=100" $null)
     # Portfolio is published first; Options remains pending during that single cutover.
