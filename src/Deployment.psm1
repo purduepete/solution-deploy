@@ -638,10 +638,13 @@ function Set-ActiveRelease {
     if (Test-Path -LiteralPath (Join-Path $AppRoot 'shared\run\process.json')) { throw 'Process ownership record must be cleared by verified graceful stop before switching.' }
     $current = Join-Path $AppRoot 'current'
     $prior = $null
+    $explicitRules = @()
     if (Test-Path -LiteralPath $current) {
         $item = Get-Item -LiteralPath $current
         if ($item.LinkType -ne 'Junction') { throw 'The active path is not an owned junction.' }
         $prior = $item.Target
+        # The limited app account reads the junction through its own non-inherited ACE; a recreated junction must keep it.
+        $explicitRules = @((Get-Acl -LiteralPath $current).Access | Where-Object { -not $_.IsInherited })
         $priorRelative = [IO.Path]::GetRelativePath($AppRoot, [string]$prior)
         if ($priorRelative -notmatch '^releases\\[^\\]+$') { throw 'Current junction points outside the owned release directory.' }
         if($prior -eq $release -and -not (Test-Path -LiteralPath (Join-Path $AppRoot 'state\active.json'))){
@@ -656,6 +659,11 @@ function Set-ActiveRelease {
     Write-DeploymentJson $journalPath @{operationId=$OperationId;phase='Prepared';previous=$prior;next=$release;planHash=$PlanHash}
     if (Test-Path -LiteralPath $current) { [IO.Directory]::Delete($current) }
     New-Item -ItemType Junction -Path $current -Target $release | Out-Null
+    if ($explicitRules.Count) {
+        $acl = Get-Acl -LiteralPath $current
+        foreach ($rule in $explicitRules) { $acl.AddAccessRule($rule) }
+        Set-Acl -LiteralPath $current -AclObject $acl
+    }
     Write-DeploymentJson $journalPath @{operationId=$OperationId;phase='Switched';previous=$prior;next=$release;planHash=$PlanHash}
     Write-DeploymentJson (Join-Path $AppRoot 'state\active.json') @{
         host=$HostName;releaseId=$ReleaseId;sourceCommit=$record.sourceCommit;planHash=$PlanHash

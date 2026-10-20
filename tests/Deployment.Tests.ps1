@@ -140,6 +140,25 @@ Describe 'Locks and sealed releases' {
         (Read-DeploymentJson (Join-Path $app 'state\active.json')).releaseId | Should Be 'abc-123'
         [IO.Directory]::Delete((Join-Path $app 'current'))
     }
+    It 'keeps the app account junction ACE across a release switch' {
+        $app=Join-Path $TestDrive 'switch-acl'
+        foreach($id in 'old-1','new-2'){
+            $release=Join-Path $app "releases\$id"
+            New-Item -ItemType Directory -Path $release | Out-Null
+            Write-DeploymentJson (Join-Path $release 'release.json') @{files=@();sourceCommit='123'}
+        }
+        $current=Join-Path $app 'current'
+        New-Item -ItemType Junction -Path $current -Target (Join-Path $app 'releases\old-1') | Out-Null
+        $sid=[Security.Principal.SecurityIdentifier]'S-1-5-32-545'
+        $acl=Get-Acl -LiteralPath $current
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'ReadAndExecute, Synchronize','None','None','Allow'))
+        Set-Acl -LiteralPath $current -AclObject $acl
+        Write-DeploymentJson (Join-Path $app 'state\maintenance.json') @{reason='test'}
+        Set-ActiveRelease $app 'new-2' 'test-operation' 'test-host' 'digest'
+        [string](Get-Item -LiteralPath $current).Target | Should Be (Join-Path $app 'releases\new-2')
+        @((Get-Acl -LiteralPath $current).Access | Where-Object { -not $_.IsInherited -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]) -eq $sid }).Count | Should Be 1
+        [IO.Directory]::Delete($current)
+    }
 }
 
 Describe 'Data authority and state inventory' {
