@@ -150,7 +150,12 @@ async function checkApp(context, site, cfg) {
     page.on('dialog', (d) => d.dismiss().catch(() => {}));
     await page.setViewportSize({ width: 1024, height: 800 });
     const load = async () => {
-        await page.goto(base, { waitUntil: 'load', timeout: 30000 });
+        // One retry: Tailscale occasionally aborts a single navigation.
+        await page.goto(base, { waitUntil: 'load', timeout: 30000 }).catch(async (e) => {
+            if (!/net::ERR_|Timeout/.test(e.message)) throw e;
+            await page.waitForTimeout(2000);
+            await page.goto(base, { waitUntil: 'load', timeout: 30000 });
+        });
         await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
     };
     try {
