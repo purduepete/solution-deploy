@@ -1,0 +1,1 @@
+{"name":"solution-deploy","private":true,"type":"module","scripts":{"check:web":"node scripts/Test-WebStandard.mjs","check:web:public":"node scripts/Test-WebStandard.mjs --public"},"devDependencies":{"playwright-core":"^1.64.1"}}

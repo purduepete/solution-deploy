@@ -3,3 +3,4 @@ artifacts/
 reports/
 *.user.json
 __pycache__/
+node_modules/

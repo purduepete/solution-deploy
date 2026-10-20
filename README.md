@@ -110,6 +110,25 @@ regressions with the exact source Python/SQLite versions before production use.
 
 Independently reviewed tests against a disposable, pinned PostgreSQL 18 Docker fixture passed all 8 application persistence tests. A separate real-database test passed runtime DML/sequence access, schema/ledger-write denial, cross-database denial, privileged-role denial, and custom-backup restore parity. These synthetic results do not establish production-data parity or destination-host acceptance.
 
+### Web standard check
+
+`scripts/Test-WebStandard.mjs` loads every app in `site/sites.json` in headless Edge and checks it
+against `copilot/global-instructions/web-standards.instructions.md`. It checks the default Midnight
+theme, live System tracking, `theme-color` against the top bar, iOS head tags, both icons, Roboto Flex,
+sideways scroll at 390px, console and CSP errors, and native `<select>`/`<datalist>` in page and source.
+Requests other than GET are blocked, so it never writes app data. Web Portfolio and Web Bookmarks are
+reported but never fail the run. The HTML report goes to `reports/` and opens when the run finishes.
+
+```powershell
+npm install                      # once; installs playwright-core, uses installed Edge
+npm run check:web                # Tailscale URLs, about 1 minute
+node scripts/Test-WebStandard.mjs --public --signin   # first public run: sign in to Access once
+npm run check:web:public         # Cloudflare URLs with the saved Access session (730 hours)
+```
+
+The Access session lives in `%LOCALAPPDATA%\JimlerTech\SolutionDeploy\web-standard-profile`. iPhone and
+iPad rendering still needs a device check.
+
 ## Host account preparation
 
 After approval, use a standalone elevated terminal on the destination to:
