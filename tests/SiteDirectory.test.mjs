@@ -61,6 +61,9 @@ test('inventory describes every published host and its data source', () => {
         assert.match(site.database, /LIVE Azure SQL:.*webportfolio/);
         assert.match(site.sourceDatabase, /retained unchanged/);
     }
+    const webOptions = inventory.sites.find((site) => site.id === 'web-options');
+    assert.match(webOptions.database, /Local PostgreSQL: web_options/);
+    assert.match(webOptions.sourceDatabase, /SELECT-only contract discovery/);
     assert.match(inventory.sites.find((site) => site.id === 'web-inventory').notes, /D:\\SolutionDeploy/);
     assert.match(inventory.sites.find((site) => site.id === 'plex').sourceDatabase, /jimbrownhome:32400/);
 });

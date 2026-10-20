@@ -108,9 +108,9 @@
       "localUrl": "http://192.168.2.14:8797/",
       "cloudflareUrl": "https://web-options.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8797/",
-      "database": "LIVE Azure SQL: sqlgkhw25ijhyzzy.database.windows.net / webportfolio",
-      "sourceDatabase": "Existing Azure SQL retained unchanged. No PostgreSQL migration.",
-      "notes": "Owned-contract data also uses the existing Azure Portfolio API and its server-side service credential."
+      "database": "LIVE Azure SQL: sqlgkhw25ijhyzzy.database.windows.net / webportfolio (dashboard). Local PostgreSQL: web_options on jimbrownhome1 (VADER history).",
+      "sourceDatabase": "Existing Azure SQL retained unchanged for the dashboard and SELECT-only contract discovery. New Tastytrade price, delta and IV collection runs locally.",
+      "notes": "Local collector enabled for half-hour market-session captures and a closing snapshot. First persisted quote history awaits the next market session. Owned-contract dashboard data still uses the existing Azure Portfolio API."
     },
     {
       "id": "solution-deploy",
