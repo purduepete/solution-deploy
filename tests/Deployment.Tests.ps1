@@ -202,7 +202,7 @@ Describe 'Production environment contract' {
     It 'maps production to the destination and preserves current app placement' {
         $environment=(Get-DeploymentEnvironment).Value
         $environment.host | Should Be 'jimbrownhome1'
-        $environment.apps['ferry-tracker'].observedHost | Should Be 'jimbrownhome'
+        $environment.apps['ferry-tracker'].observedHost | Should Be 'jimbrownhome1'
         $environment.storagePolicy.databases['site-dock'] | Should Be 'site_dock'
     }
     It 'rejects unknown environments' {

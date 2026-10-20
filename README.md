@@ -54,7 +54,7 @@ below remain requirements for future operations, not proof of a new deployment.
 
 ## Local components
 
-- `Deploy.ps1`: read-only Plan and Status, with gated Stage/PrepareCutover/Deploy/Cutover/Verify/Rollback entrypoints. Verify checks the current protected executor result, process/listener ownership, readiness, and PostgreSQL evidence. External Access and reboot acceptance remain separate production checks.
+- `Deploy.ps1`: read-only Plan and Status, with gated Stage/PrepareCutover/Deploy/Cutover/Verify/Rollback entrypoints. Verify checks the current protected executor result, process/listener ownership, readiness, and PostgreSQL evidence. External Access and reboot acceptance remain separate production checks. `-TimeoutSeconds` (default 300, range 60 to 1800) sets how long to wait for the host executor; large apps such as Ferry Tracker (about 17k files, Stage about 280 s) need 660.
 
 Lifecycle listener ownership checks cover loopback and wildcard bindings. A Tailscale HTTPS listener on its own interface can use the same port as the loopback origin without blocking app startup.
 

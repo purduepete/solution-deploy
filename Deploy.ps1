@@ -13,6 +13,7 @@ param(
     [string]$TransferDirectory,
     [string]$TransferArchivePath,
     [string]$OutputDirectory=(Join-Path $PSScriptRoot '.local'),
+    [ValidateRange(60,1800)][int]$TimeoutSeconds=300,
     [switch]$Offline,
     [switch]$OpenReport
 )
@@ -44,4 +45,4 @@ if ($Action -eq 'Status') {
 if (-not $ApprovalPath) { throw "$Action requires explicit approval of the exact saved plan." }
 $approval = Assert-DeploymentApproval $plan $ApprovalPath $Action
 Submit-DeploymentOperation -Plan $plan -ApprovalPath $ApprovalPath -Action $Action `
-    -RuntimePath $RuntimePath -NpmPath $NpmPath -TransferDirectory $TransferDirectory -TransferArchivePath $TransferArchivePath
+    -RuntimePath $RuntimePath -NpmPath $NpmPath -TransferDirectory $TransferDirectory     -TransferArchivePath $TransferArchivePath -TimeoutSeconds $TimeoutSeconds
