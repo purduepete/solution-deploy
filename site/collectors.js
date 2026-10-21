@@ -113,14 +113,16 @@ function render(snapshot) {
     const now = Date.now();
     const today = day(now);
 
+    const lastAt = new Map();
     const cards = snapshot.jobs.map((job) => {
         const card = element('article');
-        card.append(element('p', job.app, 'host'), element('h3', job.name), element('p', job.schedule, 'schedule'));
+        card.append(element('h4', job.name), element('p', job.schedule, 'schedule'));
         const facts = element('dl', undefined, 'facts');
         const audits = snapshot.audits.filter((row) => row.job === job.id);
         if (audits.length) {
             const latest = audits.reduce((a, b) => (a.date > b.date ? a : b)).date;
             const rows = audits.filter((row) => row.date === latest);
+            lastAt.set(job.id, new Date(rows[0].writtenAt).getTime());
             const last = element('dd');
             last.append(badge(auditOutcome(rows)), ` ${showDate(latest)} (written ${clock(rows[0].writtenAt)})`);
             facts.append(element('dt', 'Last audit'), last);
@@ -130,6 +132,7 @@ function render(snapshot) {
             const lastRun = runs.find((run) => run.job === job.id);
             const last = element('dd');
             if (lastRun) {
+                lastAt.set(job.id, new Date(lastRun.scheduledAt).getTime());
                 const counts = lastRun.expected ? ` ${lastRun.ok}/${lastRun.expected}` : '';
                 last.append(badge(lastRun.status), ` ${stamp(lastRun.scheduledAt)} ${lastRun.kind}${counts}`);
             } else last.textContent = 'No runs in 7 days';
@@ -145,9 +148,24 @@ function render(snapshot) {
             facts.append(element('dt', 'Heartbeat'), beat);
         }
         card.append(facts);
-        return card;
+        return { job, card };
     });
-    document.getElementById('jobs').replaceChildren(...cards);
+    // One group per app in catalog order; cards inside run newest activity first, never-run jobs last.
+    const apps = [...new Set(snapshot.jobs.map((job) => job.app))];
+    document.getElementById('jobs').replaceChildren(
+        ...apps.map((app) => {
+            const group = element('div', undefined, 'app-group');
+            const grid = element('div', undefined, 'jobs');
+            grid.append(
+                ...cards
+                    .filter(({ job }) => job.app === app)
+                    .sort((a, b) => (lastAt.get(b.job.id) ?? -Infinity) - (lastAt.get(a.job.id) ?? -Infinity))
+                    .map(({ card }) => card)
+            );
+            group.append(element('h3', app, 'app-title'), grid);
+            return group;
+        })
+    );
 
     const runRow = (run) => [
         clock(run.scheduledAt),

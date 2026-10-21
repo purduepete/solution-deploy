@@ -297,6 +297,18 @@ footer {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 20px;
 }
+.app-group + .app-group {
+    margin-top: 24px;
+}
+.app-title {
+    font-size: 16px;
+    color: var(--text);
+    margin: 0 0 12px;
+}
+.jobs h4 {
+    font-size: 16px;
+    margin: 0 0 4px;
+}
 .schedule {
     font-size: 14px;
     color: var(--muted);
