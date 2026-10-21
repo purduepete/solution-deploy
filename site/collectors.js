@@ -37,8 +37,7 @@ const element = (tag, text, className) => {
 };
 const badge = (status) => element('span', status.replace('_', ' '), `badge ${tone[status] ?? 'muted'}`);
 
-function table(id, headers, rows, empty) {
-    const target = document.getElementById(id);
+function table(target, headers, rows, empty) {
     const head = element('thead');
     const headRow = element('tr');
     for (const [label, wide] of headers) headRow.append(element('th', label, wide ? 'wide' : undefined));
@@ -61,6 +60,42 @@ function table(id, headers, rows, empty) {
         body.append(row);
     }
     target.replaceChildren(head, body);
+}
+
+function groupByDay(items, key) {
+    const groups = new Map();
+    for (const item of items) {
+        const date = key(item);
+        if (!groups.has(date)) groups.set(date, []);
+        groups.get(date).push(item);
+    }
+    return [...groups].sort(([a], [b]) => b.localeCompare(a));
+}
+
+// Each day is a collapsed <details>; days the reader opened stay open across refreshes.
+function days(id, groups, empty) {
+    const target = document.getElementById(id);
+    const open = new Set([...target.querySelectorAll('details[open]')].map((node) => node.dataset.date));
+    if (!groups.length) {
+        target.replaceChildren(element('p', empty, 'empty'));
+        return;
+    }
+    target.replaceChildren(
+        ...groups.map((group) => {
+            const details = element('details', undefined, 'day');
+            details.dataset.date = group.date;
+            details.open = open.has(group.date);
+            const summary = element('summary');
+            summary.append(element('span', group.label, 'day-date'));
+            for (const part of group.summary.filter(Boolean)) summary.append(' ', part);
+            const wrap = element('div', undefined, 'table-wrap');
+            const tableNode = element('table');
+            wrap.append(tableNode);
+            table(tableNode, group.headers, group.rows, empty);
+            details.append(summary, wrap);
+            return details;
+        })
+    );
 }
 
 function auditOutcome(rows) {
@@ -112,73 +147,63 @@ function render(snapshot) {
     });
     document.getElementById('jobs').replaceChildren(...cards);
 
-    table(
-        'today',
-        [['Time'], ['Job'], ['Slot', true], ['Status'], ['Result', true], ['Detail', true]],
-        runs
-            .filter((run) => day(run.scheduledAt) === today)
-            .map((run) => [
-                clock(run.scheduledAt),
-                names[run.job] ?? run.job,
-                run.kind,
-                badge(run.status),
-                run.expected ? `${run.ok}/${run.expected}` : '',
-                run.detail ?? '',
-            ]),
-        'No slots have come due today.'
-    );
-
-    const groups = new Map();
-    for (const run of runs) {
-        const key = `${day(run.scheduledAt)}|${run.job}`;
-        const group = groups.get(key) ?? {
-            date: day(run.scheduledAt),
-            job: run.job,
-            total: 0,
-            complete: 0,
-            partial: 0,
-            bad: 0,
-        };
-        group.total++;
-        if (run.status === 'complete') group.complete++;
-        else if (run.status === 'partial') group.partial++;
-        else if (['missed', 'failed'].includes(run.status)) group.bad++;
-        groups.set(key, group);
-    }
-    const order = snapshot.jobs.map((job) => job.id);
-    table(
-        'week',
-        [['Date'], ['Job'], ['Slots'], ['Complete'], ['Partial', true], ['Missed or failed']],
-        [...groups.values()]
-            .sort((a, b) => b.date.localeCompare(a.date) || order.indexOf(a.job) - order.indexOf(b.job))
-            .map((g) => [
-                g.date,
-                names[g.job] ?? g.job,
-                String(g.total),
-                String(g.complete),
-                String(g.partial),
-                g.bad ? element('span', String(g.bad), 'badge bad') : '0',
-            ]),
+    const runRow = (run) => [
+        clock(run.scheduledAt),
+        names[run.job] ?? run.job,
+        run.kind,
+        badge(run.status),
+        run.expected ? `${run.ok}/${run.expected}` : '',
+        run.detail ?? '',
+    ];
+    const runDays = groupByDay(runs, (run) => day(run.scheduledAt));
+    days(
+        'runs',
+        runDays.map(([date, rows]) => {
+            const count = (statuses) => rows.filter((run) => statuses.includes(run.status)).length;
+            const bad = count(['missed', 'failed']);
+            const partial = count(['partial']);
+            return {
+                date,
+                label: date === today ? `${date} (today)` : date,
+                summary: [
+                    `${rows.length} slots, ${count(['complete'])} complete`,
+                    partial ? element('span', `${partial} partial`, 'badge warn') : null,
+                    bad ? element('span', `${bad} missed or failed`, 'badge bad') : null,
+                ],
+                headers: [['Time'], ['Job'], ['Slot', true], ['Status'], ['Result', true], ['Detail', true]],
+                rows: rows.map(runRow),
+            };
+        }),
         'No runs in the last 7 days.'
     );
 
-    table(
+    const audits = [...snapshot.audits].sort(
+        (a, b) => a.audit.localeCompare(b.audit) || a.subject.localeCompare(b.subject)
+    );
+    days(
         'audits',
-        [['Date'], ['Audit'], ['Subject'], ['Result']],
-        [...snapshot.audits]
-            .sort(
-                (a, b) =>
-                    b.date.localeCompare(a.date) || a.audit.localeCompare(b.audit) || a.subject.localeCompare(b.subject)
-            )
-            .map((row) => {
-                const result = element('span');
-                result.append(badge(row.status));
-                if (row.informational) result.append(element('span', ' info', 'note'));
-                return [row.date, row.audit, row.subject, result];
-            }),
+        groupByDay(audits, (row) => row.date).map(([date, rows]) => {
+            const failed = rows.filter(
+                (row) => !row.informational && ['fail', 'unreadable'].includes(row.status)
+            ).length;
+            return {
+                date,
+                label: date,
+                summary: [
+                    `${rows.length} checks`,
+                    failed ? element('span', `${failed} failed`, 'badge bad') : badge(auditOutcome(rows)),
+                ],
+                headers: [['Audit'], ['Subject'], ['Result']],
+                rows: rows.map((row) => {
+                    const result = element('span');
+                    result.append(badge(row.status));
+                    if (row.informational) result.append(element('span', ' info', 'note'));
+                    return [row.audit, row.subject, result];
+                }),
+            };
+        }),
         'No audit reports in the last 14 days.'
     );
-
     const age = now - new Date(snapshot.generatedAt);
     document.getElementById('updated').textContent = `Snapshot built ${stamp(snapshot.generatedAt)}.`;
     const status = document.getElementById('status');
