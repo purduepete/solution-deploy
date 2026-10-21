@@ -13,7 +13,9 @@ const timeFormat = new Intl.DateTimeFormat('en-US', {
 });
 const day = (value) => dayFormat.format(new Date(value));
 const clock = (value) => (value ? timeFormat.format(new Date(value)) : '');
-const stamp = (value) => (value ? `${day(value)} ${clock(value)}` : 'Never');
+// day() returns the ISO yyyy-mm-dd key used for grouping and sorting; showDate() is what readers see.
+const showDate = (iso) => iso.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
+const stamp = (value) => (value ? `${showDate(day(value))} ${clock(value)}` : 'Never');
 const tone = {
     complete: 'good',
     pass: 'good',
@@ -120,7 +122,7 @@ function render(snapshot) {
             const latest = audits.reduce((a, b) => (a.date > b.date ? a : b)).date;
             const rows = audits.filter((row) => row.date === latest);
             const last = element('dd');
-            last.append(badge(auditOutcome(rows)), ` ${latest} (written ${clock(rows[0].writtenAt)})`);
+            last.append(badge(auditOutcome(rows)), ` ${showDate(latest)} (written ${clock(rows[0].writtenAt)})`);
             facts.append(element('dt', 'Last audit'), last);
         } else if (job.id.endsWith('-audit')) {
             facts.append(element('dt', 'Last audit'), element('dd', 'No report yet'));
@@ -164,7 +166,7 @@ function render(snapshot) {
             const partial = count(['partial']);
             return {
                 date,
-                label: date === today ? `${date} (today)` : date,
+                label: date === today ? `${showDate(date)} (today)` : showDate(date),
                 summary: [
                     `${rows.length} slots, ${count(['complete'])} complete`,
                     partial ? element('span', `${partial} partial`, 'badge warn') : null,
@@ -188,7 +190,7 @@ function render(snapshot) {
             ).length;
             return {
                 date,
-                label: date,
+                label: showDate(date),
                 summary: [
                     `${rows.length} checks`,
                     failed ? element('span', `${failed} failed`, 'badge bad') : badge(auditOutcome(rows)),
