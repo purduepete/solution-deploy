@@ -35,20 +35,32 @@ if($listener){
     $owner=Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
     throw "Directory origin port is already in use by PID $($listener.OwningProcess): $($owner.CommandLine)"
 }
-New-Item -ItemType Directory -Path $root,"$root\site","$root\logs" -Force|Out-Null
+New-Item -ItemType Directory -Path $root,"$root\site","$root\logs","$root\data" -Force|Out-Null
 & icacls.exe $root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX'|Out-Null
 if($LASTEXITCODE){throw 'Directory root ACL failed.'}
-& icacls.exe "$root\logs" /grant '*S-1-5-19:(OI)(CI)M'|Out-Null
-if($LASTEXITCODE){throw 'Directory log ACL failed.'}
+foreach($folder in "$root\logs","$root\data"){
+    & icacls.exe $folder /grant '*S-1-5-19:(OI)(CI)M'|Out-Null
+    if($LASTEXITCODE){throw "Directory ACL failed for $folder."}
+}
 Copy-Item "$SourcePath\site\*" "$root\site" -Force
 Copy-Item "$SourcePath\scripts\Start-Directory.ps1" "$root\Start-Directory.ps1" -Force
+Copy-Item "$SourcePath\scripts\Update-CollectorStatus.ps1" "$root\Update-CollectorStatus.ps1" -Force
 $pwsh=(Get-Process -Id $PID).Path
+$principal=New-ScheduledTaskPrincipal -UserId 'S-1-5-19' -LogonType ServiceAccount -RunLevel Limited
+$statusTask='SolutionDeploy-collector-status'
+$statusAction=New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -NonInteractive -File `"$root\Update-CollectorStatus.ps1`"" -WorkingDirectory $root
+$statusTriggers=@(
+    New-ScheduledTaskTrigger -AtStartup
+    New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5)
+)
+$statusSettings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 4) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+Register-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $statusTask -Action $statusAction -Trigger $statusTriggers -Principal $principal -Settings $statusSettings -Description 'Read-only collector run snapshot for the /collectors page.' -Force|Out-Null
+Start-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $statusTask
 $action=New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -NonInteractive -File `"$root\Start-Directory.ps1`" -NodePath `"$NodePath`"" -WorkingDirectory $root
 $triggers=@(
     New-ScheduledTaskTrigger -AtStartup
     New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(5) -RepetitionInterval (New-TimeSpan -Minutes 5)
 )
-$principal=New-ScheduledTaskPrincipal -UserId 'S-1-5-19' -LogonType ServiceAccount -RunLevel Limited
 $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([timespan]::Zero) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $taskName -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Description 'Read-only solution directory; hidden launcher with five-minute recovery check.' -Force|Out-Null
 Enable-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $taskName|Out-Null
@@ -67,4 +79,7 @@ if(($actual|ConvertTo-Json -Depth 10 -Compress) -cne ($inventory|ConvertTo-Json 
 if($LASTEXITCODE){throw 'Directory Tailscale route failed.'}
 $response=Invoke-WebRequest 'https://jimbrownhome1.tail8ad282.ts.net:8798/' -TimeoutSec 20
 if($response.StatusCode -ne 200){throw 'Private directory URL failed.'}
-[pscustomobject]@{Host=$env:COMPUTERNAME;Pid=$serverId;Sites=$actual.sites.Count;PrivateStatus=$response.StatusCode;Task=$taskName}
+for($attempt=0;$attempt -lt 60 -and (Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $statusTask).State -eq 'Running';$attempt++){Start-Sleep -Seconds 1}
+$status=Invoke-RestMethod 'http://127.0.0.1:18798/collector-status.json' -TimeoutSec 10
+if($status.schemaVersion -ne 1){throw 'Collector status snapshot is missing or invalid.'}
+[pscustomobject]@{Host=$env:COMPUTERNAME;Pid=$serverId;Sites=$actual.sites.Count;PrivateStatus=$response.StatusCode;Task=$taskName;StatusRuns=$status.runs.Count;StatusErrors=($status.errors -join '; ')}

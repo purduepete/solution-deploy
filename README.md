@@ -9,6 +9,17 @@ sites, their purpose, local/Cloudflare/Tailscale URLs, current storage and origi
 data sources. [Private access](https://jimbrownhome1.tail8ad282.ts.net:8798/) uses
 Tailscale. Edit `site/sites.json`; see [directory updates and deployment](docs/Directory.md).
 
+The [Collectors page](https://solution-deploy.jimlertech.com/collectors) shows each
+market data job's schedule, last slot and heartbeat, every slot from the last 7 days
+and 14 days of nightly Azure audit results. Times are Pacific. The
+`\JimlerTech\SolutionDeploy-collector-status` task runs
+`scripts\Update-CollectorStatus.ps1` as LOCAL SERVICE every 5 minutes. It reads
+`web_portfolio` and `web_options` through each collector's runtime role in read-only
+sessions, reads the audit JSON under each app's `shared\logs\audit`, and writes
+`data\collector-status.json`. The server reads that file on each request and returns
+503 when it is missing. The job catalog at the top of the script mirrors the
+collector schedules; update it when a schedule changes.
+
 Home LAN access starts at http://192.168.2.14/ without login. The IPv4-only LAN
 proxy restricts clients to `192.168.2.0/24`; HTTP is unencrypted and every device
 on that subnet has application access. See [LAN access](docs/LanAccess.md).
@@ -44,7 +55,7 @@ each site has a separate private Tailscale HTTPS port. The maintained
 | WebInventory                  | PostgreSQL `web_inventory.public`; images on destination `D:`      |
 | Web Portfolio and Web Options | Existing Azure SQL `webportfolio`, retained unchanged              |
 | Plex web UI                   | Local JSON settings; existing media server on `jimbrownhome:32400` |
-| Solution directory            | Read-only JSON inventory; no database                              |
+| Solution directory            | Read-only JSON inventory; Collectors page reads a snapshot file    |
 
 PostgreSQL is on `jimbrownhome1:5432`, with a separate database per application
 and tables in `public`. Private secrets, logs and raw archives remain protected

@@ -19,7 +19,7 @@ export default [
     { files: ['**/*.cjs'], languageOptions: { sourceType: 'commonjs' } },
     {
         // Classic browser scripts loaded with <script src>.
-        files: ['site/app.js', 'site/theme.js'],
+        files: ['site/app.js', 'site/theme.js', 'site/collectors.js'],
         languageOptions: { sourceType: 'script', globals: { ...globals.browser } },
         rules: { 'no-console': ['warn', { allow: ['warn', 'error'] }] },
     },

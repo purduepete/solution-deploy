@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createServer } from '../site/server.mjs';
 
 test('inventory describes every published host and its data source', () => {
@@ -68,6 +70,39 @@ test('inventory describes every published host and its data source', () => {
     assert.match(inventory.sites.find((site) => site.id === 'plex').sourceDatabase, /jimbrownhome:32400/);
 });
 
+test('collector status is read from disk on every request', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'collector-status-'));
+    const statusPath = join(folder, 'collector-status.json');
+    const server = createServer({ statusPath });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}/collector-status.json`;
+    try {
+        let response = await fetch(url);
+        assert.equal(response.status, 503);
+        assert.equal(response.headers.get('cache-control'), 'no-store');
+        writeFileSync(statusPath, '{"schemaVersion":1,"runs":[]}');
+        response = await fetch(url);
+        assert.equal(response.status, 200);
+        assert.deepEqual(await response.json(), { schemaVersion: 1, runs: [] });
+        writeFileSync(statusPath, '{"schemaVersion":1,"runs":[1]}');
+        assert.deepEqual((await (await fetch(url)).json()).runs, [1]);
+        assert.equal((await fetch(url, { method: 'POST' })).status, 405);
+    } finally {
+        server.closeAllConnections();
+        await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+        rmSync(folder, { recursive: true, force: true });
+    }
+});
+
+test('collectors page links back to the directory and loads only its own script', () => {
+    const page = readFileSync(new URL('../site/collectors.html', import.meta.url), 'utf8');
+    assert.match(page, /<script src="\/collectors\.js" defer><\/script>/);
+    assert(!page.includes('/app.js'));
+    assert.match(page, /href="\/"/);
+    assert.match(page, /id="theme-menu"/);
+    assert.match(readFileSync(new URL('../site/index.html', import.meta.url), 'utf8'), /href="\/collectors"/);
+});
+
 test('server exposes only fixed read-only assets with protective headers', async () => {
     const server = createServer();
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -89,6 +124,8 @@ test('server exposes only fixed read-only assets with protective headers', async
             '/style.css',
             '/theme.js',
             '/app.js',
+            '/collectors',
+            '/collectors.js',
             '/sites.json',
             '/favicon.svg',
             '/apple-touch-icon.png',
