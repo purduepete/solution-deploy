@@ -30,6 +30,19 @@ const tone = {
     unreadable: 'bad',
 };
 const staleHeartbeatMs = 10 * 60 * 1000;
+// One reader-facing name per kind of slot, whichever collector stored it.
+const slotLabels = {
+    session: 'Session',
+    open_session: 'Session',
+    close: 'Close',
+    settle: 'Settle',
+    closing_1315: 'Settle',
+    recovery: 'Recovery',
+    earnings: 'Daily',
+    indices: 'Daily',
+    splits: 'Daily',
+};
+const slotLabel = (kind) => slotLabels[kind] ?? kind;
 
 const element = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -134,7 +147,10 @@ function render(snapshot) {
             if (lastRun) {
                 lastAt.set(job.id, new Date(lastRun.scheduledAt).getTime());
                 const counts = lastRun.expected ? ` ${lastRun.ok}/${lastRun.expected}` : '';
-                last.append(badge(lastRun.status), ` ${stamp(lastRun.scheduledAt)} ${lastRun.kind}${counts}`);
+                last.append(
+                    badge(lastRun.status),
+                    ` ${stamp(lastRun.scheduledAt)} ${slotLabel(lastRun.kind)}${counts}`
+                );
             } else last.textContent = 'No runs in 7 days';
             facts.append(element('dt', 'Last slot'), last);
             const health = snapshot.health.find((row) => row.job === job.id);
@@ -170,7 +186,7 @@ function render(snapshot) {
     const runRow = (run) => [
         clock(run.scheduledAt),
         names[run.job] ?? run.job,
-        run.kind,
+        slotLabel(run.kind),
         badge(run.status),
         run.expected ? `${run.ok}/${run.expected}` : '',
         run.detail ?? '',

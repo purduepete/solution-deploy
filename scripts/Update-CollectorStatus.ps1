@@ -15,12 +15,12 @@ $errors = [System.Collections.Generic.List[string]]::new()
 # web-options\collector\model.py. Times are Pacific.
 $jobs = @(
     [ordered]@{ id = 'stock-prices'; name = 'Stock prices'; app = 'Web Portfolio'
-        schedule = 'Trading days every 10 minutes 06:00-12:50, close 13:00, settle 13:10. Every day 13:20 and 17:00.' }
-    [ordered]@{ id = 'indices'; name = 'Index closes'; app = 'Web Portfolio'; schedule = 'Every day 03:00. Weekdays 20:00.' }
-    [ordered]@{ id = 'earnings'; name = 'Earnings dates'; app = 'Web Portfolio'; schedule = 'Every day 05:00.' }
-    [ordered]@{ id = 'splits'; name = 'Stock splits'; app = 'Web Portfolio'; schedule = 'Weekdays 06:45.' }
+        schedule = 'Trading days: Session every 10 minutes 06:00-12:50, Close 13:00, Settle 13:10. Every day: Settle 13:20 and 17:00.' }
+    [ordered]@{ id = 'indices'; name = 'Index closes'; app = 'Web Portfolio'; schedule = 'Daily 03:00. Weekdays: Daily 20:00.' }
+    [ordered]@{ id = 'earnings'; name = 'Earnings dates'; app = 'Web Portfolio'; schedule = 'Daily 05:00.' }
+    [ordered]@{ id = 'splits'; name = 'Stock splits'; app = 'Web Portfolio'; schedule = 'Weekdays: Daily 06:45.' }
     [ordered]@{ id = 'option-quotes'; name = 'Option quotes'; app = 'Web Options'
-        schedule = 'Trading days every 30 minutes from the 06:30 open, close 13:00. Weekdays 13:15 closing.' }
+        schedule = 'Trading days: Session every 30 minutes 06:30-12:30, Close 13:00. Weekdays: Settle 13:15.' }
     [ordered]@{ id = 'stock-audit'; name = 'Stock audit'; app = 'Web Portfolio'; schedule = 'Every day 23:30.' }
     [ordered]@{ id = 'options-audit'; name = 'Options audit'; app = 'Web Options'; schedule = 'Every day 23:30.' }
 )
