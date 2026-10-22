@@ -28,6 +28,14 @@ Google owner policy. The existing Microsoft policy remains attached. The command
 can be repeated without creating duplicate policies. It does not configure OAuth
 credentials or add hostnames.
 
+Fit Track has a public informational exception for `fit-track.jimlertech.com/oauth/*`.
+Preview with `scripts\Set-CloudflareHostnames.ps1 -PublishFitTrackOAuthPages`, then
+add `-Apply` to create its path-specific Access application with an Everyone bypass.
+This command leaves the parent Fit Track application, DNS and tunnel unchanged.
+It checks the exception's scope and policies on readback. Health pages and API
+routes remain behind the parent's owner sign-in policy. The normal hostname
+cleanup preserves this exception. Do not place private files under `/oauth/`.
+
 Publish Web Portfolio before Web Options with
 `-PublishWebPortfolio -Apply`, then `-PublishWebOptions -Apply`.
 Portfolio uses origin `127.0.0.1:18796` and private Tailscale HTTPS port `8796`;

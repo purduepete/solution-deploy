@@ -1,10 +1,13 @@
 [CmdletBinding()]
 param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
     [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory,
-    [switch]$RemoveRetiredFerryHeaderRule)
+    [switch]$RemoveRetiredFerryHeaderRule, [switch]$PublishFitTrackOAuthPages)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
+if($PublishFitTrackOAuthPages -and ($RemoveRetiredFerryHeaderRule -or $EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory)){
+    throw 'Publish the Fit Track OAuth pages separately from other changes.'
+}
 if($RemoveRetiredFerryHeaderRule -and ($EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory)){
     throw 'Remove the retired Ferry header rule separately from other changes.'
 }
@@ -23,7 +26,7 @@ $allowed=[ordered]@{
 }
 if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
 $publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}else{''}
-$catchHosts=@('ferry-tracker.jimlertech.com/api/catch')
+$catchHosts=@('ferry-tracker.jimlertech.com/api/catch','fit-track.jimlertech.com/oauth/*')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
 $zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'
 $tunnelId='209bf0e7-20c1-45b9-bba9-fca92fc58344'
@@ -45,6 +48,38 @@ function Comparable($App){
 }
 $report=[ordered]@{applied=[bool]$Apply;dnsRemoved=@();ingressRemoved=@();accessTrimmed=@();missing=@()}
 try{
+    if($PublishFitTrackOAuthPages){
+        $domain='fit-track.jimlertech.com/oauth/*'
+        $apps=@(Api Get "$account/access/apps?per_page=100" $null)
+        $parent=@($apps|Where-Object domain -eq 'fit-track.jimlertech.com')
+        if($parent.Count -ne 1){throw 'Expected exactly one protected Fit Track application.'}
+        $before=Api Get "$account/access/apps/$($parent[0].id)" $null
+        if(-not @($before.policies|Where-Object decision -eq 'allow').Count -or @($before.policies|Where-Object decision -eq 'bypass').Count){
+            throw 'Fit Track parent access policies require inspection.'
+        }
+        $public=@($apps|Where-Object domain -eq $domain)
+        if($public.Count -gt 1){throw 'Duplicate Fit Track public-page applications.'}
+        $report.publicPages=$domain
+        if(-not $Apply){return}
+        if(-not $public.Count){
+            $body=@{name='Fit Track OAuth information';type='self_hosted';domain=$domain
+                self_hosted_domains=@($domain);destinations=@(@{type='public';uri=$domain})
+                policies=@(@{name='Public informational pages only';decision='bypass';precedence=1;include=@(@{everyone=@{}})})}
+            $public=@(Api Post "$account/access/apps" $body)
+        }
+        $read=Api Get "$account/access/apps/$($public[0].id)" $null
+        if($read.domain -cne $domain -or (@($read.self_hosted_domains) -join ',') -cne $domain -or
+            (@($read.destinations|ForEach-Object uri) -join ',') -cne $domain -or @($read.policies).Count -ne 1){
+            throw 'Public-page Access application readback differs.'
+        }
+        $policy=Api Get "$account/access/apps/$($read.id)/policies/$($read.policies[0].id)" $null
+        if($policy.decision -cne 'bypass' -or @($policy.include).Count -ne 1 -or -not $policy.include[0].ContainsKey('everyone') -or
+            @($policy.require|Where-Object {$null -ne $_}).Count -or @($policy.exclude|Where-Object {$null -ne $_}).Count){throw 'Expected only an Everyone bypass for the informational path.'}
+        if(((Api Get "$account/access/apps/$($parent[0].id)" $null)|ConvertTo-Json -Depth 60 -Compress) -cne
+            ($before|ConvertTo-Json -Depth 60 -Compress)){throw 'Fit Track parent application changed during publication.'}
+        $report.parentUnchanged=$true
+        return
+    }
     if($RemoveRetiredFerryHeaderRule){
         $entrypoint="$zone/rulesets/phases/http_response_headers_transform/entrypoint"
         $ruleset=Api Get $entrypoint $null
