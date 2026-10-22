@@ -21,7 +21,7 @@ param(
     [Parameter(Mandatory)][string]$AppRoot,
     [Parameter(Mandatory)][string]$ReleasePath,
     [Parameter(Mandatory)][string]$ManifestPath,
-    [string]$PowerShellPath = (Join-Path $PSHOME 'pwsh.exe'),
+    [string]$PowerShellPath = 'C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe',
     [pscredential]$Credential,
     [string]$AccountName,
     [ValidateRange(1, 60)][int]$WatchdogIntervalMinutes = 5,

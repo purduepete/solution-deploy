@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$SourcePath=(Split-Path -Parent $PSScriptRoot),
-    [string]$NodePath='C:\Files\ScoopApps\apps\nodejs\current\node.exe'
+    [string]$NodePath='C:\Files\ScoopApps\apps\nodejs\current\node.exe',
+    [string]$PowerShellPath='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
 )
 $ErrorActionPreference='Stop'
 $root='C:\ProgramData\SolutionDeploy\apps\lan-proxy'
@@ -13,8 +14,8 @@ $taskName='SolutionDeploy-lan-proxy'
 if(-not([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
     throw 'Run the installer from an elevated PowerShell terminal.'
 }
-if(-not(Test-Path "$SourcePath\site\lan-proxy.mjs") -or -not(Test-Path "$SourcePath\scripts\Start-LanProxy.ps1") -or -not(Test-Path $NodePath)){
-    throw 'LAN proxy source, launcher or Node executable is missing.'
+if(-not(Test-Path "$SourcePath\site\lan-proxy.mjs") -or -not(Test-Path "$SourcePath\scripts\Start-LanProxy.ps1") -or -not(Test-Path $NodePath) -or -not(Test-Path -LiteralPath $PowerShellPath -PathType Leaf)){
+    throw 'LAN proxy source, launcher, Node executable or managed PowerShell runtime is missing.'
 }
 function Resolve-FinalPath([string]$Path){
     $item=Get-Item -LiteralPath $Path -Force
@@ -66,7 +67,7 @@ if($rule){Remove-NetFirewallRule -Name $ruleName}
 New-NetFirewallRule -Name $ruleName -DisplayName 'SolutionDeploy LAN proxy (Ethernet subnet only)' `
     -Direction Inbound -Action Allow -Protocol TCP -LocalPort $ports -LocalAddress $address `
     -RemoteAddress '192.168.2.0/24' -InterfaceAlias 'Ethernet' -Profile Private -Program $firewallProgram -EdgeTraversalPolicy Block|Out-Null
-$pwsh=(Get-Process -Id $PID).Path
+$pwsh=$PowerShellPath
 $action=New-ScheduledTaskAction -Execute $pwsh `
     -Argument "-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$root\Start-LanProxy.ps1`" -NodePath `"$NodePath`"" -WorkingDirectory $root
 $triggers=@(

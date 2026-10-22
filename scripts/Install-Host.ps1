@@ -4,7 +4,7 @@
 param(
     [Parameter(Mandatory)][string]$Root,
     [Parameter(Mandatory)][string]$ExpectedHostIdentity,
-    [Parameter(Mandatory)][string]$PowerShellPath,
+    [string]$PowerShellPath = (Join-Path $Root 'runtime\powershell\7\pwsh.exe'),
     [Parameter(Mandatory)][string]$ExpectedCodeSHA256,
     [switch]$ApproveProvisioning
 )
@@ -25,7 +25,13 @@ $inventory = @($files | ForEach-Object { @{path=[IO.Path]::GetRelativePath($sour
 $digest = Get-Sha256Text ($inventory | ConvertTo-Json -Depth 10 -Compress)
 if ($digest -ne $ExpectedCodeSHA256) { throw "Reviewed executor code digest differs. Observed digest: $digest" }
 if (-not $PSCmdlet.ShouldProcess("$env:COMPUTERNAME / $Root",'Provision protected SYSTEM deployment executor')) { return }
-if (Test-Path -LiteralPath $Root) { throw 'Deployment root already exists. Executor upgrades require a separate reviewed operation.' }
+if (Test-Path -LiteralPath $Root) {
+    $existing = @(Get-ChildItem -LiteralPath $Root -Force)
+    $runtimeOnly = $existing.Count -eq 1 -and $existing[0].Name -eq 'runtime' -and
+        -not ((Get-Item -LiteralPath $Root -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+        $PowerShellPath -ieq (Join-Path $Root 'runtime\powershell\7\pwsh.exe')
+    if (-not $runtimeOnly) { throw 'Deployment root already exists. Executor upgrades require a separate reviewed operation.' }
+}
 [IO.Directory]::CreateDirectory($Root) | Out-Null
 $acl = [Security.AccessControl.DirectorySecurity]::new()
 $acl.SetAccessRuleProtection($true,$false)

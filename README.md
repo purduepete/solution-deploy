@@ -26,6 +26,9 @@ on that subnet has application access. See [LAN access](docs/LanAccess.md).
 
 For later same-host releases and new applications, see [Production deployments](docs/Deployment.md).
 
+Scheduled tasks use a private, fixed-path PowerShell runtime, independent of
+desktop PowerShell updates. See [runtime updates and rollback](docs/PowerShellRuntime.md).
+
 To preview removal of the stale response-header rule for the retired
 `ferry.jimlertech.com` alias, run
 `.\scripts\Set-CloudflareHostnames.ps1 -RemoveRetiredFerryHeaderRule`.

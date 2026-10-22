@@ -3,13 +3,15 @@
 [CmdletBinding()]
 param(
     [string]$Directory='C:\ProgramData\JimlerTech\PostgreSQL',
-    [Parameter(Mandatory)][string]$PendingCredential
+    [Parameter(Mandatory)][string]$PendingCredential,
+    [string]$PowerShellPath='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $result=Join-Path $Directory 'backup-installation.json'
 try {
     if($env:COMPUTERNAME -ine 'jimbrownhome1'){throw 'Install only on jimbrownhome1.'}
+    if(-not(Test-Path -LiteralPath $PowerShellPath -PathType Leaf)){throw "Managed PowerShell runtime is missing: $PowerShellPath"}
     if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne 'S-1-5-18'){throw 'Run installation as SYSTEM so its encrypted credentials belong to the nightly task.'}
     $acl=Get-Acl -LiteralPath $Directory
     if(-not $acl.AreAccessRulesProtected){throw 'The PostgreSQL configuration directory must have protected permissions.'}
@@ -31,7 +33,7 @@ try {
         [IO.File]::WriteAllText($probe,'Unattended backup access verified')
         Remove-Item -LiteralPath $probe
     } finally {Remove-PSDrive -Name $share.Name -Force}
-    $action=New-ScheduledTaskAction -Execute (Join-Path $PSHOME 'pwsh.exe') -Argument ('-NoProfile -NonInteractive -File "'+(Join-Path $Directory 'Backup-Postgres.ps1')+'"')
+    $action=New-ScheduledTaskAction -Execute $PowerShellPath -Argument ('-NoProfile -NonInteractive -File "'+(Join-Path $Directory 'Backup-Postgres.ps1')+'"')
     $trigger=New-ScheduledTaskTrigger -Daily -At '03:00'
     $principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
     $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 45)

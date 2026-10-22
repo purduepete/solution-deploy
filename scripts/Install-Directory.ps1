@@ -1,12 +1,13 @@
 [CmdletBinding()]
 param(
     [string]$SourcePath=(Split-Path -Parent $PSScriptRoot),
-    [string]$NodePath='C:\Files\ScoopApps\apps\nodejs\current\node.exe'
+    [string]$NodePath='C:\Files\ScoopApps\apps\nodejs\current\node.exe',
+    [string]$PowerShellPath='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
 )
 $ErrorActionPreference='Stop'
 $root='C:\ProgramData\SolutionDeploy\apps\solution-deploy'
 $entry="$root\site\server.mjs"
-if(-not(Test-Path "$SourcePath\site\sites.json") -or -not(Test-Path $NodePath)){throw 'Source inventory or Node executable is missing.'}
+if(-not(Test-Path "$SourcePath\site\sites.json") -or -not(Test-Path $NodePath) -or -not(Test-Path -LiteralPath $PowerShellPath -PathType Leaf)){throw 'Source inventory, Node executable or managed PowerShell runtime is missing.'}
 $inventory=Get-Content "$SourcePath\site\sites.json" -Raw|ConvertFrom-Json
 if($inventory.host -ne $env:COMPUTERNAME.ToLowerInvariant()){throw 'Install on the inventory host only.'}
 $pidFile="$root\logs\server.pid"
@@ -45,7 +46,7 @@ foreach($folder in "$root\logs","$root\data"){
 Copy-Item "$SourcePath\site\*" "$root\site" -Force
 Copy-Item "$SourcePath\scripts\Start-Directory.ps1" "$root\Start-Directory.ps1" -Force
 Copy-Item "$SourcePath\scripts\Update-CollectorStatus.ps1" "$root\Update-CollectorStatus.ps1" -Force
-$pwsh=(Get-Process -Id $PID).Path
+$pwsh=$PowerShellPath
 $principal=New-ScheduledTaskPrincipal -UserId 'S-1-5-19' -LogonType ServiceAccount -RunLevel Limited
 $statusTask='SolutionDeploy-collector-status'
 $statusAction=New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -NonInteractive -File `"$root\Update-CollectorStatus.ps1`"" -WorkingDirectory $root

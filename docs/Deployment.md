@@ -49,6 +49,10 @@ execute on releases and framework code, without write access.
 
 ## Task Scheduler folder and windowless startup
 
+Use the [managed deployment PowerShell runtime](PowerShellRuntime.md) for task
+executables. Its fixed path survives desktop PowerShell updates. The runtime
+has an explicit update command and retained previous releases.
+
 All created tasks belong under **Task Scheduler Library > JimlerTech**:
 
 - `\JimlerTech\SolutionDeploy-Executor`
