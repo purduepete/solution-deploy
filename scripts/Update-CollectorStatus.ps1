@@ -21,8 +21,8 @@ $jobs = @(
     [ordered]@{ id = 'splits'; name = 'Stock splits'; app = 'Web Portfolio'; schedule = 'Weekdays: Daily 06:45.' }
     [ordered]@{ id = 'option-quotes'; name = 'Option quotes'; app = 'Web Options'
         schedule = 'Trading days: Session every 30 minutes 06:30-12:30, Close 13:00. Weekdays: Settle 13:15.' }
-    [ordered]@{ id = 'stock-audit'; name = 'Stock audit'; app = 'Web Portfolio'; schedule = 'Every day 23:30.' }
-    [ordered]@{ id = 'options-audit'; name = 'Options audit'; app = 'Web Options'; schedule = 'Every day 23:30.' }
+    [ordered]@{ id = 'stock-audit'; name = 'Stock audit'; app = 'Web Portfolio'; schedule = 'Daily 23:30.' }
+    [ordered]@{ id = 'options-audit'; name = 'Options audit'; app = 'Web Options'; schedule = 'Daily 23:30.' }
 )
 
 $stockSql = @"
