@@ -1,6 +1,6 @@
 {
   "host": "jimbrownhome1",
-  "updated": "2026-10-19",
+  "updated": "2026-10-22",
   "sites": [
     {
       "id": "ferry-tracker",
@@ -122,6 +122,26 @@
       "database": "None. Read-only site/sites.json in the solution-deploy repository.",
       "sourceDatabase": "Deployment manifests and verified migration records; no database connection.",
       "notes": "Maintained inventory, not a live uptime monitor. LAN URLs have no login and are restricted to 192.168.2.0/24."
+    },
+    {
+      "id": "ride-and-lift",
+      "name": "Ride and Lift",
+      "purpose": "Daily bike and strength workout plan, exercise videos and workout log.",
+      "localUrl": "http://192.168.2.14:8080/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8799/",
+      "database": "No database. data.json in C:\\Users\\JimBrown\\OneDrive\\Health\\ride-and-lift on jimbrownhome1.",
+      "sourceDatabase": "Runs from the OneDrive folder; edits sync to OneDrive when JimBrown signs in on jimbrownhome1.",
+      "notes": "Private only, no Cloudflare path. Task \\JimlerTech\\RideAndLift starts pythonw server.py 8080 at boot as LOCAL SERVICE. No login; the LAN URL is the app itself on port 8080."
+    },
+    {
+      "id": "pgweb",
+      "name": "pgweb",
+      "purpose": "Browse and query the PostgreSQL databases on jimbrownhome1.",
+      "localUrl": "http://192.168.2.14:8081/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8800/",
+      "database": "PostgreSQL on jimbrownhome1:5432, all databases.",
+      "sourceDatabase": "C:\\Files\\Apps\\pgweb\\pgweb.exe; task \\JimlerTech\\pgweb as LOCAL SERVICE.",
+      "notes": "Private only, no Cloudflare path. No login, and it can read and change every database. The LAN URL is pgweb itself on port 8081."
     }
   ]
 }

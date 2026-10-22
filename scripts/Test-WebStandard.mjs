@@ -38,8 +38,9 @@ const apps = {
 const MIDNIGHT = ['#020617', '#0f172a'];
 const LIGHT = ['#ffffff'];
 
+// Private-only tools (no cloudflareUrl, such as pgweb) are outside the web standard.
 const sites = JSON.parse(readFileSync(join(repo, 'site', 'sites.json'), 'utf8')).sites.filter(
-    (s) => !only || only.includes(s.id)
+    (s) => s.cloudflareUrl && (!only || only.includes(s.id))
 );
 
 function hex(rgb) {

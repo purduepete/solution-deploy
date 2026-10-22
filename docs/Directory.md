@@ -12,7 +12,10 @@ It reads no application database and contains no credentials.
 
 `site/sites.json` is the maintained inventory. It is separate from the framework's
 three-app lifecycle registry in `environments/production.json`. The directory
-includes all ten migrated web apps and itself. It is not a live uptime monitor.
+includes all ten migrated web apps, itself, and 2 private-only tools with no
+Cloudflare path: Ride and Lift (Tailscale 8799 → 127.0.0.1:8080) and pgweb
+(Tailscale 8800 → 127.0.0.1:8081). Their Local LAN links go straight to the app
+port, outside the LAN proxy. It is not a live uptime monitor.
 The Local LAN row links through the subnet-restricted LAN proxy. It accepts only
 `192.168.2.0/24` clients on the Ethernet interface at `192.168.2.14`. Anyone on that
 subnet can use the applications without login. HTTP traffic is unencrypted.

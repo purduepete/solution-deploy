@@ -9,7 +9,7 @@ import { createServer } from '../site/server.mjs';
 test('inventory describes every published host and its data source', () => {
     const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
     assert.equal(inventory.host, 'jimbrownhome1');
-    assert.equal(inventory.sites.length, 11);
+    assert.equal(inventory.sites.length, 13);
     const page = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
     assert.match(page, /192\.168\.2\.0\/24/);
     assert(!page.includes('Local URLs use loopback'));
@@ -29,16 +29,14 @@ test('inventory describes every published host and its data source', () => {
     const ids = new Set();
     const local = new Set();
     const privateUrls = new Set();
+    const privateOnly = new Set(['ride-and-lift', 'pgweb']);
     const routing = readFileSync(new URL('../scripts/Set-CloudflareHostnames.ps1', import.meta.url), 'utf8');
     for (const site of inventory.sites) {
         assert(!ids.has(site.id));
         ids.add(site.id);
         for (const field of ['purpose', 'database', 'sourceDatabase', 'notes']) assert(site[field]?.trim());
-        const publicUrl = new URL(site.cloudflareUrl);
         const localUrl = new URL(site.localUrl);
         const privateUrl = new URL(site.tailscaleUrl);
-        assert.equal(publicUrl.hostname, `${site.id}.jimlertech.com`);
-        assert.equal(publicUrl.protocol, 'https:');
         assert.equal(localUrl.hostname, '192.168.2.14');
         assert.equal(privateUrl.hostname, 'jimbrownhome1.tail8ad282.ts.net');
         assert.equal(privateUrl.protocol, 'https:');
@@ -46,6 +44,14 @@ test('inventory describes every published host and its data source', () => {
         local.add(localUrl.port);
         assert(!privateUrls.has(privateUrl.port));
         privateUrls.add(privateUrl.port);
+        if (!site.cloudflareUrl) {
+            assert(privateOnly.has(site.id), `${site.id} needs a Cloudflare URL`);
+            assert.match(site.notes, /no Cloudflare path/);
+            continue;
+        }
+        const publicUrl = new URL(site.cloudflareUrl);
+        assert.equal(publicUrl.hostname, `${site.id}.jimlertech.com`);
+        assert.equal(publicUrl.protocol, 'https:');
         const originPort =
             {
                 plex: '18793',

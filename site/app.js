@@ -26,6 +26,7 @@ async function load() {
                 ['Tailscale', 'tailscaleUrl'],
                 ['Local LAN', 'localUrl'],
             ]) {
+                if (!site[field]) continue;
                 const url = new URL(site[field]);
                 if (!['http:', 'https:'].includes(url.protocol))
                     throw new Error(`Invalid ${label} URL for ${site.id}.`);
