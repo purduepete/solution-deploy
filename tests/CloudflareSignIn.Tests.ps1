@@ -1,8 +1,8 @@
 $script:hostnamesScript=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Set-CloudflareHostnames.ps1'
 Describe 'Google sign-in on allowlisted applications' {
     BeforeEach {
-        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options','solution-deploy')
-        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798)
+        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options','solution-deploy','team-scoreboard')
+        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798,8801)
         $global:cfTest_owner=@{
             id='owner';name='Owner';decision='allow';precedence=1
             include=@(@{email=@{email='owner@example.com'}})
@@ -19,7 +19,16 @@ Describe 'Google sign-in on allowlisted applications' {
         Mock Invoke-RestMethod {
             param($Uri,$Method,$Body)
             $result=$null
-            if($Method -eq 'Post'){
+            if($Uri -match '/policies/([^/?]+)$'){
+                $id=$Matches[1]
+                if($Method -eq 'Put'){
+                    $global:cfTest_writes++
+                    $new=$Body|ConvertFrom-Json -AsHashtable
+                    $new.id=$id
+                    $global:cfTest_fakePolicies=@($global:cfTest_fakePolicies|Where-Object id -ne $id)+@($new)
+                }
+                $result=$global:cfTest_fakePolicies|Where-Object id -eq $id
+            }elseif($Method -eq 'Post'){
                 $global:cfTest_writes++
                 $new=$Body|ConvertFrom-Json -AsHashtable
                 $new.id='google-owner'
@@ -58,9 +67,33 @@ Describe 'Google sign-in on allowlisted applications' {
             @{success=$true;result=$result}
         }
     }
-    It 'previews all eleven applications without writing' {
+    It 'adds a Google-only email once while preserving owner access and app settings' {
+        $google=@{id='google-owner';name='SolutionDeploy owner - Google';decision='allow'
+            include=@(@{email=@{email='owner@example.com'}});exclude=@();require=@(@{login_method=@{id='google'}})}
+        $global:cfTest_fakePolicies+=,$google
+        foreach($app in $global:cfTest_fakeApps|Where-Object id -ne 'catch'){$app.policies+=,$google}
+        $before=$global:cfTest_fakeApps|ConvertTo-Json -Depth 30 -Compress
+        $preview=& $script:hostnamesScript -AddGoogleEmail 'guest@gmail.com'|ConvertFrom-Json
+        $preview.applications.Count|Should Be 12
+        $global:cfTest_writes|Should Be 0
+        $result=& $script:hostnamesScript -AddGoogleEmail 'guest@gmail.com' -Apply|ConvertFrom-Json
+        $result.added|Should Be $true
+        $global:cfTest_writes|Should Be 1
+        ($global:cfTest_fakePolicies|Where-Object id -eq 'google-owner').include.Count|Should Be 2
+        ($global:cfTest_fakePolicies|Where-Object id -eq 'owner').include.Count|Should Be 1
+        ($global:cfTest_fakeApps|ConvertTo-Json -Depth 30 -Compress)|Should Be $before
+        $null=& $script:hostnamesScript -AddGoogleEmail 'guest@gmail.com' -Apply
+        $global:cfTest_writes|Should Be 1
+    }
+    It 'rejects wildcard email access before making API requests' {
+        $rejected=$false
+        try { & $script:hostnamesScript -AddGoogleEmail '*@gmail.com' -Apply } catch { $rejected=$true }
+        $rejected|Should Be $true
+        $global:cfTest_writes|Should Be 0
+    }
+    It 'previews all twelve applications without writing' {
         $report=& $script:hostnamesScript -EnableGoogleSignIn|ConvertFrom-Json
-        $report.googleSignIn.Count|Should Be 11
+        $report.googleSignIn.Count|Should Be 12
         $global:cfTest_writes|Should Be 0
     }
     It 'previews WorkLog publication without writing' {
@@ -87,6 +120,7 @@ Describe 'Google sign-in on allowlisted applications' {
     }
     It 'previews directory publication without requiring its existing route' {
         $global:cfTest_names=@($global:cfTest_names|Where-Object {$_ -ne 'solution-deploy'})
+        $global:cfTest_ports=@($global:cfTest_ports|Where-Object {$_ -ne 18798})
         $report=& $script:hostnamesScript -PublishDirectory|ConvertFrom-Json
         $report.publish|Should Be 'solution-deploy.jimlertech.com'
         $global:cfTest_writes|Should Be 0

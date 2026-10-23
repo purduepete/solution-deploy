@@ -28,6 +28,14 @@ Google owner policy. The existing Microsoft policy remains attached. The command
 can be repeated without creating duplicate policies. It does not configure OAuth
 credentials or add hostnames.
 
+To add an exact email address to the shared Google policy, preview with
+`scripts\Set-CloudflareHostnames.ps1 -AddGoogleEmail person@gmail.com`, then add
+`-Apply` after approval. This grants Google access to every allowlisted application.
+Existing addresses, Google requirements, Microsoft access, DNS, tunnels and public-path
+exceptions remain unchanged. The command verifies the policy and app settings after writing.
+After adding a Google-only address, the Google and Microsoft email lists differ; the
+`-EnableGoogleSignIn` setup command will refuse that difference rather than overwrite it.
+
 Fit Track has a public informational exception for `fit-track.jimlertech.com/oauth/*`.
 Preview with `scripts\Set-CloudflareHostnames.ps1 -PublishFitTrackOAuthPages`, then
 add `-Apply` to create its path-specific Access application with an Everyone bypass.

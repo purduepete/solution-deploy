@@ -1,10 +1,15 @@
 [CmdletBinding()]
 param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
     [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory, [switch]$PublishTeamScoreboard,
-    [switch]$RemoveRetiredFerryHeaderRule, [switch]$PublishFitTrackOAuthPages, [switch]$PublishTeamScoreboardCalendar)
+    [switch]$RemoveRetiredFerryHeaderRule, [switch]$PublishFitTrackOAuthPages, [switch]$PublishTeamScoreboardCalendar,
+    [string]$AddGoogleEmail)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
+if($PSBoundParameters.ContainsKey('AddGoogleEmail')){
+    if($AddGoogleEmail -notmatch '^[^@\s*]+@[^@\s*]+\.[^@\s*]+$'){throw 'AddGoogleEmail requires an exact email address.'}
+    if(@($PSBoundParameters.Keys|Where-Object {$_ -notin 'AddGoogleEmail','Apply'}).Count){throw 'Add a Google email separately from other changes.'}
+}
 if($PublishFitTrackOAuthPages -and ($RemoveRetiredFerryHeaderRule -or $EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory -or $PublishTeamScoreboard -or $PublishTeamScoreboardCalendar)){
     throw 'Publish the Fit Track OAuth pages separately from other changes.'
 }
@@ -52,6 +57,42 @@ function Comparable($App){
 }
 $report=[ordered]@{applied=[bool]$Apply;dnsRemoved=@();ingressRemoved=@();accessTrimmed=@();missing=@()}
 try{
+    if($AddGoogleEmail){
+        $email=$AddGoogleEmail.ToLowerInvariant()
+        $policies=@(Api Get "$account/access/policies?per_page=100" $null)
+        $matches=@($policies|Where-Object name -eq 'SolutionDeploy owner - Google')
+        if($matches.Count -ne 1){throw 'Expected exactly one reusable Google allow policy.'}
+        $policy=$matches[0]
+        if($policy.decision -ne 'allow' -or @($policy.include).Count -eq 0 -or
+            @($policy.include|Where-Object {-not $_.email.email}).Count -or
+            @($policy.require).Count -ne 1 -or -not $policy.require[0].login_method.id){throw 'Unexpected Google policy rules.'}
+        $providers=@(Api Get "$account/access/identity_providers" $null)
+        if(@($providers|Where-Object {$_.id -eq $policy.require[0].login_method.id -and $_.type -eq 'google'}).Count -ne 1){throw 'Policy must require Google sign-in.'}
+        $apps=@(Api Get "$account/access/apps?per_page=100" $null)
+        $targets=@($apps|Where-Object {$_.domain -in $allowed.Keys -and $policy.id -in @($_.policies.id)})
+        if($targets.Count -ne $allowed.Count -or @($apps|Where-Object {$policy.id -in @($_.policies.id)}).Count -ne $targets.Count){throw 'Google policy attachments differ from the public app allowlist.'}
+        $report.googleEmail=$email
+        $report.applications=@($targets.domain)
+        $report.added=$false
+        if(-not $Apply -or $email -in @($policy.include|ForEach-Object {$_.email.email})){return}
+        $before=$policy|ConvertTo-Json -Depth 60 -Compress
+        $path="$account/access/policies/$($policy.id)"
+        if(((Api Get $path $null)|ConvertTo-Json -Depth 60 -Compress) -cne $before){throw 'Google policy changed concurrently; nothing written.'}
+        $body=@{name=$policy.name;decision=$policy.decision;include=@($policy.include)+@(@{email=@{email=$email}})
+            exclude=$policy.exclude;require=$policy.require}
+        $null=Api Put $path $body
+        $read=Api Get $path $null
+        foreach($key in $body.Keys){
+            if(($read[$key]|ConvertTo-Json -Depth 60 -Compress) -cne ($body[$key]|ConvertTo-Json -Depth 60 -Compress)){throw "Google policy readback differs: $key"}
+        }
+        $after=@(Api Get "$account/access/apps?per_page=100" $null)
+        foreach($app in $targets){
+            $updated=@($after|Where-Object id -eq $app.id)
+            if($updated.Count -ne 1 -or (Comparable $updated[0]) -cne (Comparable $app)){throw "Application settings changed: $($app.domain)"}
+        }
+        $report.added=$true
+        return
+    }
     if($PublishFitTrackOAuthPages -or $PublishTeamScoreboardCalendar){
         # Path-specific Everyone bypass beside an owner-protected parent application.
         $bypass=if($PublishFitTrackOAuthPages){
