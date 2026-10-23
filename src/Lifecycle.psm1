@@ -1579,6 +1579,8 @@ function Install-AppBootTask {
     RunLevel Limited. Requires an elevated session and -ApproveProvisioning. Does not start the task.
     ReleasePath must be AppRoot\current and ManifestPath current\deploy\application.json; the runtime is read from the
     active release's release.json on every run. Preflight (logon right, read access) runs before any change.
+    For a first install, where activation has not yet created AppRoot\current, pass -StagedReleasePath releases\<id>
+    so preflight reads the staged release while maintenance is persisted.
     #>
     [CmdletBinding()]
     param(
@@ -1587,6 +1589,7 @@ function Install-AppBootTask {
         [Parameter(Mandatory)][string]$ReleasePath,
         [Parameter(Mandatory)][string]$ManifestPath,
         [string]$RuntimePath,
+        [string]$StagedReleasePath,
         [Parameter(Mandatory)][string]$PowerShellPath,
         [Parameter(Mandatory)][pscredential]$Credential,
         [switch]$ApproveProvisioning,
@@ -1603,9 +1606,19 @@ function Install-AppBootTask {
         throw "The boot task follows the active release: use -ReleasePath $($layout.Current) and -ManifestPath $fixedManifest."
     }
     if ($RuntimePath) { throw 'Do not pass -RuntimePath: the boot task resolves the runtime from the active release on every run.' }
-    $manifest = Read-LifecycleManifest -Path $ManifestPath -AppRoot $layout.Root -ReleasePath $ReleasePath
+    # A first install registers the task before activation creates AppRoot\current, so preflight reads the staged release.
+    $checkRelease = $ReleasePath
+    if ($StagedReleasePath) {
+        if (Test-Path -LiteralPath $layout.Current) { throw 'Omit -StagedReleasePath: AppRoot\current exists, so preflight uses the active release.' }
+        $checkRelease = Resolve-ReleaseDirectory -Layout $layout -ReleasePath $StagedReleasePath
+        if (-not (Test-Path -LiteralPath (Join-Path $layout.State $script:MaintenanceFileName) -PathType Leaf)) {
+            throw 'A first-install task can only be registered while maintenance is persisted.'
+        }
+    }
+    $checkManifestPath = Join-Path $checkRelease 'deploy\application.json'
+    $manifest = Read-LifecycleManifest -Path $checkManifestPath -AppRoot $layout.Root -ReleasePath $checkRelease
     if ($manifest['id'] -cne $AppId) { throw "Manifest id '$($manifest['id'])' does not match AppId '$AppId'." }
-    $checkRuntime = Get-ReleaseRuntimePath -AppRoot $layout.Root -ReleasePath $ReleasePath -Manifest $manifest
+    $checkRuntime = Get-ReleaseRuntimePath -AppRoot $layout.Root -ReleasePath $checkRelease -Manifest $manifest
     $pwsh = Get-NormalizedFullPath -Path $PowerShellPath -Name 'PowerShellPath'
     if ([System.IO.Path]::GetFileName($pwsh) -ne 'pwsh.exe') { throw "PowerShellPath must be pwsh.exe (PowerShell 7.5+): $pwsh" }
     if (-not (Test-Path -LiteralPath $pwsh -PathType Leaf)) { throw "PowerShellPath does not exist: $pwsh" }
@@ -1627,7 +1640,7 @@ function Install-AppBootTask {
     Assert-BatchLogonRight -Account $user -TokenSids $tokenSids
     $readPaths = [System.Collections.Generic.List[string]]::new()
     foreach ($p in $pwsh, (Join-Path (Split-Path -Parent $pwsh) 'System.Management.Automation.dll'), $script, $script:ModulePath) { $readPaths.Add($p) }
-    $checkContext = New-LifecycleContext -AppRoot $layout.Root -ReleasePath $ReleasePath -Manifest $manifest -RuntimePath $checkRuntime
+    $checkContext = New-LifecycleContext -AppRoot $layout.Root -ReleasePath $checkRelease -Manifest $manifest -RuntimePath $checkRuntime
     if (-not (Test-PathIsUnder -Child $checkContext.Runtime -Parent $layout.Root)) { $readPaths.Add($checkContext.Runtime) }
     if ($checkContext.ChildRuntime) { $readPaths.Add($checkContext.ChildRuntime) }
     Assert-AccountCanRead -Account $user -TokenSids $tokenSids -Path $readPaths.ToArray()

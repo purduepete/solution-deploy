@@ -580,6 +580,18 @@ Describe 'Boot task definition and install preflight' {
         { Install-AppBootTask -AppId 'toy-app' -AppRoot 'C:\x\app' -ReleasePath 'C:\x\app\current' -ManifestPath 'C:\x\app\current\deploy\application.json' `
                 -RuntimePath 'C:\node.exe' -PowerShellPath "$PSHOME\pwsh.exe" -Credential $cred -ApproveProvisioning } | Should Throw 'Do not pass -RuntimePath'
     }
+    It 'first-install registration reads the staged release only while maintenance is persisted' {
+        $cred = [pscredential]::new('nobody', (ConvertTo-SecureString 'x' -AsPlainText -Force))
+        $root = New-TestAppRoot -Name 'staged'
+        try {
+            $call = { Install-AppBootTask -AppId 'toy-app' -AppRoot $root -ReleasePath "$root\current" -ManifestPath "$root\current\deploy\application.json" `
+                    -StagedReleasePath "$root\releases\r1" -PowerShellPath "$PSHOME\pwsh.exe" -Credential $cred -ApproveProvisioning }
+            $call | Should Throw 'only be registered while maintenance is persisted'
+            { Install-AppBootTask -AppId 'toy-app' -AppRoot $root -ReleasePath "$root\current" -ManifestPath "$root\current\deploy\application.json" `
+                    -StagedReleasePath "$root\shared\data" -PowerShellPath "$PSHOME\pwsh.exe" -Credential $cred -ApproveProvisioning } | Should Throw 'direct child'
+        }
+        finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 Describe 'Assert-AppBootTask against a fake registered task' {

@@ -159,6 +159,22 @@ Describe 'Locks and sealed releases' {
         @((Get-Acl -LiteralPath $current).Access | Where-Object { -not $_.IsInherited -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]) -eq $sid }).Count | Should Be 1
         [IO.Directory]::Delete($current)
     }
+    It 'gives a first-install junction the app account root ACE' {
+        $app=Join-Path $TestDrive 'first-acl'
+        $release=Join-Path $app 'releases\first-1'
+        New-Item -ItemType Directory -Path $release | Out-Null
+        Write-DeploymentJson (Join-Path $release 'release.json') @{files=@();sourceCommit='123'}
+        $sid=[Security.Principal.SecurityIdentifier]'S-1-5-32-545'
+        $acl=Get-Acl -LiteralPath $app
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid,'ReadAndExecute, Synchronize','None','None','Allow'))
+        Set-Acl -LiteralPath $app -AclObject $acl
+        Write-DeploymentJson (Join-Path $app 'state\maintenance.json') @{reason='test'}
+        Set-ActiveRelease $app 'first-1' 'test-operation' 'test-host' 'digest'
+        $current=Join-Path $app 'current'
+        @((Get-Acl -LiteralPath $current).Access | Where-Object { -not $_.IsInherited -and $_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]) -eq $sid }).Count | Should Be 1
+        (Read-DeploymentJson (Join-Path $app 'state\active.json')).previousRelease | Should Be $null
+        [IO.Directory]::Delete($current)
+    }
 }
 
 Describe 'Data authority and state inventory' {

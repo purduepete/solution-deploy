@@ -24,6 +24,7 @@ param(
     [string]$PowerShellPath = 'C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe',
     [pscredential]$Credential,
     [string]$AccountName,
+    [string]$StagedReleasePath,
     [ValidateRange(1, 60)][int]$WatchdogIntervalMinutes = 5,
     [switch]$ApproveProvisioning,
     [switch]$StartNow,
@@ -35,11 +36,12 @@ Import-Module (Join-Path $PSScriptRoot '..\src\Lifecycle.psm1') -Force
 if (-not $ApproveProvisioning) {
     throw 'This script changes ACLs and registers a scheduled task. Re-run with -ApproveProvisioning to approve.'
 }
+if ($StagedReleasePath -and $StartNow) { throw 'A first-install task starts at activation; omit -StartNow with -StagedReleasePath.' }
 foreach ($pair in @(@('AppRoot', $AppRoot), @('ReleasePath', $ReleasePath), @('ManifestPath', $ManifestPath), @('PowerShellPath', $PowerShellPath))) {
     if (-not [IO.Path]::IsPathFullyQualified($pair[1])) { throw "$($pair[0]) must be an absolute path: $($pair[1])" }
 }
 if (-not (Test-Path -LiteralPath $AppRoot -PathType Container)) { throw "AppRoot does not exist: $AppRoot" }
-if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { throw "ManifestPath does not exist: $ManifestPath" }
+if (-not $StagedReleasePath -and -not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { throw "ManifestPath does not exist: $ManifestPath" }
 
 if (-not $Credential) {
     if (-not [Environment]::UserInteractive -or $Host.Name -ne 'ConsoleHost') {
@@ -53,8 +55,10 @@ elseif ($AccountName -and $Credential.UserName -ne $AccountName) {
     throw "Credential user '$($Credential.UserName)' does not match -AccountName '$AccountName'."
 }
 
+$staged = @{}
+if ($StagedReleasePath) { $staged.StagedReleasePath = $StagedReleasePath }
 $result = Install-AppBootTask -AppId $AppId -AppRoot $AppRoot -ReleasePath $ReleasePath -ManifestPath $ManifestPath `
-    -PowerShellPath $PowerShellPath -Credential $Credential -ApproveProvisioning `
+    -PowerShellPath $PowerShellPath -Credential $Credential -ApproveProvisioning @staged `
     -WatchdogIntervalMinutes $WatchdogIntervalMinutes
 $Credential = $null
 

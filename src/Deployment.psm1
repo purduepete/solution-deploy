@@ -656,6 +656,12 @@ function Set-ActiveRelease {
         }
     }
     $journalPath = Join-Path $AppRoot 'state\switch.json'
+    if (-not $prior -and -not $explicitRules.Count) {
+        # First activation: give the junction the app account's explicit, non-inheriting AppRoot read ACE.
+        $explicitRules = @((Get-Acl -LiteralPath $AppRoot).Access | Where-Object {
+            -not $_.IsInherited -and $_.InheritanceFlags -eq [Security.AccessControl.InheritanceFlags]::None -and
+            $_.AccessControlType -eq 'Allow' })
+    }
     Write-DeploymentJson $journalPath @{operationId=$OperationId;phase='Prepared';previous=$prior;next=$release;planHash=$PlanHash}
     if (Test-Path -LiteralPath $current) { [IO.Directory]::Delete($current) }
     New-Item -ItemType Junction -Path $current -Target $release | Out-Null

@@ -245,7 +245,7 @@ Phase 1 supports Windows-hosted Node and Python services. A static page needs a 
 4. Allocate its own PostgreSQL database and separate owner, migration, and runtime roles. Include a schema ledger and explicit initialization SQL even if the first page has no application records.
 5. Keep `DATABASE_URL` out of source and manifests. Reserve the protected runtime secret file for destination configuration. Any imported source environment belongs under `secrets\source` and cannot overlap runtime secrets.
 6. Implement isolated readiness, storage, shutdown, and import tests. Independently review every database-altering test before running it.
-7. Present the new-app report, obtain provisioning approval, and prepare its account/runtimes/task/database/secrets. Register the task using the staged release manifest; activation creates the `current` junction. Keep maintenance active until activation is approved.
+7. Present the new-app report, obtain provisioning approval, and prepare its account/runtimes/task/database/secrets. Register the task with `Install-AppTask.ps1 -StagedReleasePath <AppRoot>\releases\<id>`, which checks the staged release manifest while the task still targets `current`; activation creates the `current` junction. Keep maintenance active until activation is approved.
 8. Validate initialization and restored backup in place of a legacy import. Record that there was no source snapshot; do not manufacture source-transfer evidence.
 9. Stage, approve, activate, verify, and complete external/reboot acceptance before treating it as production.
 
