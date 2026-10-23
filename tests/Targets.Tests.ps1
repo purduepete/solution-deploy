@@ -111,6 +111,16 @@ Describe 'Host registry and target-aware planning' {
         Write-DeploymentJson $script:environmentPath $script:environment
         (New-DeploymentPlan ferry-tracker -ConfigurationRoot $script:configuration -Offline).transitionKind|Should Be FirstInstall
     }
+    It 'plans a first install without an observed source host' {
+        $script:environment.apps['ferry-tracker'].newInstallation=$true
+        $script:environment.apps['ferry-tracker'].Remove('observedHost')
+        Write-DeploymentJson $script:environmentPath $script:environment
+        $plan=New-DeploymentPlan ferry-tracker -ConfigurationRoot $script:configuration -Offline
+        $plan.transitionKind|Should Be FirstInstall
+        $plan.operation|Should Be Deploy
+        $plan.observedHost|Should Be $null
+        $plan.sourceHostSnapshot|Should Be $null
+    }
     It 'rejects unresolved authority instead of selecting another live host' {
         Mock Read-OptionalRemoteRecord -ModuleName Deployment {
             param($Path)

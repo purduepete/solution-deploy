@@ -241,6 +241,7 @@ Phase 1 supports Windows-hosted Node and Python services. A static page needs a 
 1. Add the application's `deploy\application.json` using the existing schema and adapter conventions. Specify its trusted repository, runtime/build, launch entrypoint, reserved port, JSON readiness, shared-state paths, routes, and graceful-stop environment.
 2. Reserve a unique app ID, account, port, hostname, and database in `environments\production.json`. Add its manifest path under `apps` and its database under `storagePolicy.databases`. Ownership checks compare all application manifests.
 3. For a genuinely new installation, set `newInstallation: true` in its environment app record. Its plan uses `FirstInstall` / `Deploy` with no current release. For an existing app, record its actual `observedHost` and use legacy conversion, including when the selected managed host is the same machine.
+   A new installation may omit `observedHost`; it has no source placement to invent.
 4. Allocate its own PostgreSQL database and separate owner, migration, and runtime roles. Include a schema ledger and explicit initialization SQL even if the first page has no application records.
 5. Keep `DATABASE_URL` out of source and manifests. Reserve the protected runtime secret file for destination configuration. Any imported source environment belongs under `secrets\source` and cannot overlap runtime secrets.
 6. Implement isolated readiness, storage, shutdown, and import tests. Independently review every database-altering test before running it.

@@ -344,7 +344,7 @@ function New-DeploymentPlan {
         $blockers.Add('Offline plan: destination identity and current placement are unverified.')
     } elseif (-not $HostSnapshot) { $HostSnapshot = Get-HostSnapshot $env }
     if (-not $HostSnapshot.verified -or $HostSnapshot.host -ine $env.host -or $HostSnapshot.address -ne $env.address) { $blockers.Add('Target identity/address verification is incomplete.') }
-    $placement = $env.apps[$App].observedHost
+    $placement = $env.apps[$App]['observedHost']
     $active = $null
     $authority=$null
     if (-not $Offline) {
