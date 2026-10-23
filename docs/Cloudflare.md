@@ -36,6 +36,14 @@ It checks the exception's scope and policies on readback. Health pages and API
 routes remain behind the parent's owner sign-in policy. The normal hostname
 cleanup preserves this exception. Do not place private files under `/oauth/`.
 
+Team Scoreboard has the same kind of exception for
+`team-scoreboard.jimlertech.com/calendar/*`, so phone calendar apps can fetch the
+subscription feed without a sign-in. Preview with
+`scripts\Set-CloudflareHostnames.ps1 -PublishTeamScoreboardCalendar`, then add
+`-Apply`. The origin returns 404 unless the path carries the `CALENDAR_TOKEN` from
+the app's `app.env`; rotate that token to revoke old subscriptions. The rest of the
+site, including `/api/*`, stays behind the owner sign-in policy.
+
 Publish Web Portfolio before Web Options with
 `-PublishWebPortfolio -Apply`, then `-PublishWebOptions -Apply`.
 Portfolio uses origin `127.0.0.1:18796` and private Tailscale HTTPS port `8796`;

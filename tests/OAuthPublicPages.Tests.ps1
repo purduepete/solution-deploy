@@ -58,4 +58,17 @@ Describe 'Fit Track public OAuth pages' {
         { & $publisher -PublishFitTrackOAuthPages -Apply } | Should Throw 'readback differs'
         $global:OAuthPagesFixture.Writes | Should Be 0
     }
+    It 'creates the Team Scoreboard calendar bypass beside its own parent' {
+        $global:OAuthPagesFixture.Parent.domain='team-scoreboard.jimlertech.com'
+        $before=$global:OAuthPagesFixture.Parent|ConvertTo-Json -Depth 20 -Compress
+        & $publisher -PublishTeamScoreboardCalendar -Apply | Out-Null
+        $global:OAuthPagesFixture.Writes | Should Be 1
+        $global:OAuthPagesFixture.Public.domain | Should Be 'team-scoreboard.jimlertech.com/calendar/*'
+        $global:OAuthPagesFixture.Public.policies[0].decision | Should Be 'bypass'
+        ($global:OAuthPagesFixture.Parent|ConvertTo-Json -Depth 20 -Compress) | Should Be $before
+    }
+    It 'refuses the calendar bypass combined with another change' {
+        { & $publisher -PublishTeamScoreboardCalendar -PublishTeamScoreboard } | Should Throw 'separately'
+        $global:OAuthPagesFixture.Writes | Should Be 0
+    }
 }
