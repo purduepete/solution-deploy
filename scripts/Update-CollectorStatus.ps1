@@ -20,7 +20,7 @@ $jobs = @(
     [ordered]@{ id = 'earnings'; name = 'Earnings dates'; app = 'Web Portfolio'; schedule = 'Daily 05:00.' }
     [ordered]@{ id = 'splits'; name = 'Stock splits'; app = 'Web Portfolio'; schedule = 'Weekdays: Daily 06:45.' }
     [ordered]@{ id = 'option-quotes'; name = 'Option quotes'; app = 'Web Options'
-        schedule = 'Trading days: Session every 10 minutes 06:35-12:55, Close 13:00. Weekdays: Settle 13:15.' }
+        schedule = 'Trading days: Session every 10 minutes 06:35-12:55, Close 13:00. Weekdays: Settle 13:10.' }
     [ordered]@{ id = 'stock-audit'; name = 'Stock audit'; app = 'Web Portfolio'; schedule = 'Daily 23:30.' }
     [ordered]@{ id = 'options-audit'; name = 'Options audit'; app = 'Web Options'; schedule = 'Daily 23:30.' }
 )

@@ -36,7 +36,6 @@ const slotLabels = {
     open_session: 'Session',
     close: 'Close',
     settle: 'Settle',
-    closing_1315: 'Settle',
     recovery: 'Recovery',
     earnings: 'Daily',
     indices: 'Daily',
