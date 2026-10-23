@@ -36,7 +36,8 @@
     "databases": {
       "ferry-tracker": "ferry_tracker",
       "home-automation": "home_automation",
-      "site-dock": "site_dock"
+      "site-dock": "site_dock",
+      "team-scoreboard": "team_scoreboard"
     },
     "implementationStatus": "validated"
   },
@@ -58,6 +59,12 @@
       "observedHost": "jimbrownhome1",
       "account": "sd-dock",
       "port": 8790
+    },
+    "team-scoreboard": {
+      "manifest": "..\\team-scoreboard\\deploy\\application.json",
+      "newInstallation": true,
+      "account": "sd-scoreboard",
+      "port": 8801
     }
   }
 }

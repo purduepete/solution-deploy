@@ -34,6 +34,7 @@ const apps = {
     'web-portfolio': { key: 'config_theme_preference', json: true, skip: ['scripts'] },
     'web-options': { key: 'config_theme_preference' },
     'solution-deploy': { key: 'solution-deploy-theme', source: 'solution-deploy/site' },
+    'team-scoreboard': { key: 'team-scoreboard-theme' },
 };
 const MIDNIGHT = ['#020617', '#0f172a'];
 const LIGHT = ['#ffffff'];
