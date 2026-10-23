@@ -15,7 +15,7 @@ $errors = [System.Collections.Generic.List[string]]::new()
 # web-options\collector\model.py. Times are Pacific.
 $jobs = @(
     [ordered]@{ id = 'stock-prices'; name = 'Stock prices'; app = 'Web Portfolio'
-        schedule = 'Trading days: Session every 10 minutes 06:00-12:50, Close 13:00, Settle 13:10. Every day: Settle 13:20 and 17:00.' }
+        schedule = 'Trading days: Session every 10 minutes 06:00-12:50, Close 13:00, Settle 13:10. Every day: Final settle 17:00.' }
     [ordered]@{ id = 'indices'; name = 'Index closes'; app = 'Web Portfolio'; schedule = 'Daily 03:00. Weekdays: Daily 20:00.' }
     [ordered]@{ id = 'earnings'; name = 'Earnings dates'; app = 'Web Portfolio'; schedule = 'Daily 05:00.' }
     [ordered]@{ id = 'splits'; name = 'Stock splits'; app = 'Web Portfolio'; schedule = 'Weekdays: Daily 06:45.' }

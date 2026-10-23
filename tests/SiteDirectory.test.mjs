@@ -76,6 +76,16 @@ test('inventory describes every published host and its data source', () => {
     assert.match(inventory.sites.find((site) => site.id === 'plex').sourceDatabase, /jimbrownhome:32400/);
 });
 
+test('stock collector messaging lists the current settlement schedule', () => {
+    const generator = readFileSync(new URL('../scripts/Update-CollectorStatus.ps1', import.meta.url), 'utf8');
+    const schedule = generator.match(/id = 'stock-prices';[\s\S]*?schedule = '([^']+)'/)?.[1];
+    assert.equal(
+        schedule,
+        'Trading days: Session every 10 minutes 06:00-12:50, Close 13:00, Settle 13:10. Every day: Final settle 17:00.'
+    );
+    assert(!schedule.includes('13:20'));
+});
+
 test('collector status is read from disk on every request', async () => {
     const folder = mkdtempSync(join(tmpdir(), 'collector-status-'));
     const statusPath = join(folder, 'collector-status.json');
