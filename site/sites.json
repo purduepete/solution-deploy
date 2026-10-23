@@ -142,6 +142,17 @@
       "database": "PostgreSQL on jimbrownhome1:5432, all databases.",
       "sourceDatabase": "C:\\Files\\Apps\\pgweb\\pgweb.exe; task \\JimlerTech\\pgweb as LOCAL SERVICE.",
       "notes": "Private only, no Cloudflare path. No login, and it can read and change every database. The LAN URL is pgweb itself on port 8081."
+    },
+    {
+      "id": "team-scoreboard",
+      "name": "Team Scoreboard",
+      "purpose": "Schedules and recent results for the Colts, Seahawks, Pacers, Giants and Purdue sports.",
+      "localUrl": "http://192.168.2.14:8801/",
+      "cloudflareUrl": "https://team-scoreboard.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8801/",
+      "database": "PostgreSQL on jimbrownhome1:5432 / team_scoreboard / public",
+      "sourceDatabase": "New in 2026-10. Schedules and scores come from the free TheSportsDB API; only favorites are stored.",
+      "notes": "Framework app, task \\JimlerTech\\SolutionDeploy-team-scoreboard as sd-scoreboard. Origin is 127.0.0.1:8801; the LAN proxy forwards 192.168.2.14:8801."
     }
   ]
 }

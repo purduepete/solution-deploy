@@ -9,7 +9,7 @@ $root='C:\ProgramData\SolutionDeploy\apps\lan-proxy'
 $entry="$root\site\lan-proxy.mjs"
 $pidFile="$root\logs\server.pid"
 $address='192.168.2.14'
-$ports=@(80,8787,8788,8790,8791,8792,8793,8794,8795,8796,8797,8798)
+$ports=@(80,8787,8788,8790,8791,8792,8793,8794,8795,8796,8797,8798,8801)
 $taskName='SolutionDeploy-lan-proxy'
 if(-not([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){
     throw 'Run the installer from an elevated PowerShell terminal.'

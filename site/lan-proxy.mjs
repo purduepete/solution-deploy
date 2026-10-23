@@ -34,6 +34,7 @@ export const productionConfig = Object.freeze({
             [8796, 18796, 8796],
             [8797, 18797, 8797],
             [8798, 18798, 8798],
+            [8801, 8801, 8801],
         ].map(([port, upstreamPort, privatePort]) => Object.freeze({ port, upstreamPort, privatePort }))
     ),
 });

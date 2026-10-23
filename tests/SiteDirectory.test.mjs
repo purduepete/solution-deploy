@@ -9,7 +9,7 @@ import { createServer } from '../site/server.mjs';
 test('inventory describes every published host and its data source', () => {
     const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
     assert.equal(inventory.host, 'jimbrownhome1');
-    assert.equal(inventory.sites.length, 13);
+    assert.equal(inventory.sites.length, 14);
     const page = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
     assert.match(page, /192\.168\.2\.0\/24/);
     assert(!page.includes('Local URLs use loopback'));
