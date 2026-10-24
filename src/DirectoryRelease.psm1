@@ -58,11 +58,11 @@ function Invoke-DirectoryRelease {
         $receipt.previousCommit=Invoke-HostGit @('rev-parse','HEAD') $Repository -Capture
         try{Invoke-HostGit @('merge-base','--is-ancestor','HEAD',$commitId) $Repository}
         catch{throw "The host clone at $($receipt.previousCommit) is not an ancestor of $commitId. Release a newer commit."}
-        $stale=Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed
+        $stale=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
         if($stale.Count -and $receipt.previousCommit -cne $commitId){throw "The installed directory differs from the host clone at $($receipt.previousCommit): $($stale -join ', '). Reinstall by hand before releasing."}
         Invoke-HostGit @('merge','--ff-only','--quiet',$commitId) $Repository
         if((Invoke-HostGit @('rev-parse','HEAD') $Repository -Capture) -cne $commitId){throw 'The host clone did not move to the release commit.'}
-        $changed=Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed
+        $changed=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
         if(-not $changed.Count){
             $receipt.access=Test-HandPlacedReadiness $access $readiness
             $receipt.status='NoChanges';$receipt.completedLocal=(Get-Date).ToString('o')
@@ -94,7 +94,7 @@ catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content 
         $installed=Read-DeploymentJson $result
         if($installed.status -ne 'Succeeded'){throw "The directory installer failed: $($installed['error'])"}
         $receipt.install=$installed
-        $left=Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed
+        $left=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
         if($left.Count){throw "Installed files still differ from $commitId after install: $($left -join ', ')."}
         $receipt.access=Test-HandPlacedReadiness $access $readiness
         Write-DeploymentJson (Join-Path $script:Installed 'state\directory-release.json') @{sourceCommit=$commitId;previousCommit=$receipt.previousCommit;completedLocal=(Get-Date).ToString('o')}
