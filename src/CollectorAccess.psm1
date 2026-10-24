@@ -29,7 +29,8 @@ function Assert-CollectorOutsideRelease {
 
 function Assert-CollectorElevated {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole('Administrator')) {
+    if (-not ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+            [Security.Principal.WindowsBuiltInRole]::Administrator)) {
         throw 'Run collector access preflight elevated on the local host.'
     }
 }
