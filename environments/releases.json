@@ -146,7 +146,9 @@
       "readiness": { "path": "/healthz", "expected": { "status": "ok" } },
       "hostInstall": "npm-production",
       "appliedDatabaseInputs": {
-        "database/postgres/005_history_reader_signal_tier.sql": "2eef4a6ab2d2eb440d2c20a27b1b55b76098fe9949c199f08d98073111ec6574"
+        "database/postgres/005_history_reader_signal_tier.sql": "2eef4a6ab2d2eb440d2c20a27b1b55b76098fe9949c199f08d98073111ec6574",
+        "database/postgres/006_vader_signal_top_pick.sql": "ef4470a3168dff3ffa7607eea17c5a21661c54914947ca92673bac73daf37289",
+        "database/postgres/007_history_signal_entry.sql": "29cada9e3021fbee32140e4a1449595fb5f5dc01e6dd7a196e12cc820db3d6c8"
       },
       "build": "npm ci, build:shared, build:backend, build:frontend:access; host npm ci --omit=dev",
       "preserve": ["shared secrets/configuration", "Azure SQL dashboard", "PostgreSQL web_options", "collector state"],
