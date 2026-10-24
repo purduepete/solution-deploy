@@ -53,7 +53,9 @@ function Wait-PortReleased {
     param([int]$Port,[int]$TimeoutSeconds=60)
     $clock=[Diagnostics.Stopwatch]::StartNew()
     do{
-        $owners=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue|Where-Object OwningProcess -ne 4)
+        # Tailscale serve and the LAN proxy share the port on other addresses; the app binds loopback or wildcard.
+        $owners=@(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue|
+            Where-Object {$_.OwningProcess -ne 4 -and $_.LocalAddress -in @('127.0.0.1','::1','0.0.0.0','::')})
         if($owners.Count -eq 0 -and @(Get-OwnedProcess).Count -eq 0){return}
         Start-Sleep -Seconds 1
     }while($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds)

@@ -252,6 +252,24 @@ Describe 'Hand-placed release boundaries' {
         $runner|Should Not Match 'web-portfolio'
     }
 
+    It 'ignores Tailscale and LAN proxy listeners that share the origin port' {
+        $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts\Invoke-HandPlacedRelease.ps1'),[ref]$null,[ref]$null)
+        $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Wait-PortReleased'},$true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        $app='web-bookmarks'
+        function Get-OwnedProcess {@()}
+        $script:listeners=@(
+            [pscustomobject]@{LocalAddress='100.89.203.69';OwningProcess=6572}
+            [pscustomobject]@{LocalAddress='192.168.2.14';OwningProcess=9632}
+            [pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=4}
+        )
+        function Get-NetTCPConnection {$script:listeners}
+        $outcome={param($port) try{Wait-PortReleased $port 1;'released'}catch{'held'}}
+        & $outcome 8792|Should Be 'released'
+        $script:listeners=@([pscustomobject]@{LocalAddress='127.0.0.1';OwningProcess=1752})
+        & $outcome 8792|Should Be 'held'
+    }
+
     It 'gives the new current junction the old link ACL, since LOCAL SERVICE reads through it' {
         $runner=[IO.File]::ReadAllText((Join-Path $root 'scripts\Invoke-HandPlacedRelease.ps1'))
         $capture=$runner.IndexOf('$linkAcl=Get-Acl -LiteralPath $current')
