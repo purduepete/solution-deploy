@@ -412,13 +412,39 @@ footer {
 .collector-history {
     padding-top: 32px;
 }
-.history-range {
+.history-heading {
     display: flex;
-    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
     gap: 8px;
     margin-bottom: 12px;
 }
-.history-range button[aria-pressed='true'] {
+.history-heading h2 {
+    margin: 0;
+}
+.history-range {
+    position: relative;
+    flex-shrink: 0;
+}
+.history-range > button {
+    min-width: 100px;
+}
+.history-menu {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 4px);
+    right: 0;
+    min-width: 120px;
+    padding: 4px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+}
+.history-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+}
+.history-menu button[aria-checked='true'] {
     border-color: var(--accent);
     font-weight: 700;
 }

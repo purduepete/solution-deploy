@@ -78,7 +78,8 @@ details. A watchdog failure alone does not establish that captured prices are wr
 
 The snapshot includes up to 30 days of runs, audits and alerts. Each history
 group defaults to 7 calendar days including today, with independent 14 and 30-day
-buttons. Range choices survive snapshot refreshes and reset on page reload.
+dropdowns at the right of each section heading. Range choices survive snapshot
+refreshes and reset on page reload.
 
 Audit INFO badges show report counts and comparison errors on hover, focus or
 tap. Counts come from the saved audit report; absent counts display as unavailable.

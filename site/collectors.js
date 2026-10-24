@@ -181,6 +181,74 @@ function auditOutcome(rows) {
 const historyDays = { alerts: 7, runs: 7, audits: 7 };
 let currentSnapshot;
 
+function historyDropdown(controls, group) {
+    const title = document.getElementById(`${group}-title`).textContent;
+    const trigger = element('button', `${historyDays[group]} days \u2304`);
+    trigger.type = 'button';
+    trigger.setAttribute('aria-label', `${title} date range`);
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'false');
+    const menu = element('div', undefined, 'history-menu');
+    menu.id = `${group}-range-menu`;
+    menu.hidden = true;
+    menu.setAttribute('role', 'menu');
+    menu.setAttribute('aria-label', `${title} days`);
+    trigger.setAttribute('aria-controls', menu.id);
+    const options = [7, 14, 30].map((count) => {
+        const option = element('button', `${count} days`);
+        option.type = 'button';
+        option.dataset.days = count;
+        option.tabIndex = -1;
+        option.setAttribute('role', 'menuitemradio');
+        return option;
+    });
+    const close = (focus = false) => {
+        menu.hidden = true;
+        trigger.setAttribute('aria-expanded', 'false');
+        if (focus) trigger.focus();
+    };
+    const open = (index = [7, 14, 30].indexOf(historyDays[group])) => {
+        menu.hidden = false;
+        trigger.setAttribute('aria-expanded', 'true');
+        options[index].focus();
+    };
+    trigger.addEventListener('click', () => (menu.hidden ? open() : close(true)));
+    trigger.addEventListener('keydown', (event) => {
+        if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            event.preventDefault();
+            open(event.key === 'Home' ? 0 : event.key === 'End' ? 2 : undefined);
+        }
+    });
+    options.forEach((option, index) => {
+        option.addEventListener('click', () => {
+            historyDays[group] = Number(option.dataset.days);
+            close(true);
+            render(currentSnapshot);
+        });
+        option.addEventListener('keydown', (event) => {
+            let next;
+            if (event.key === 'ArrowDown') next = (index + 1) % options.length;
+            if (event.key === 'ArrowUp') next = (index + options.length - 1) % options.length;
+            if (event.key === 'Home') next = 0;
+            if (event.key === 'End') next = options.length - 1;
+            if (next !== undefined) {
+                event.preventDefault();
+                options[next].focus();
+            } else if (event.key === 'Escape') {
+                event.preventDefault();
+                close(true);
+            } else if (event.key === 'Tab') close(true);
+        });
+    });
+    for (const name of ['pointerdown', 'focusin']) {
+        document.addEventListener(name, (event) => {
+            if (!controls.contains(event.target)) close();
+        });
+    }
+    menu.append(...options);
+    controls.append(trigger, menu);
+}
+
 function inHistoryRange(date, today, count) {
     const start = new Date(`${today}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate() - count + 1);
@@ -195,20 +263,10 @@ function render(snapshot) {
     const today = day(now);
     for (const group of Object.keys(historyDays)) {
         const controls = document.getElementById(`${group}-range`);
-        if (!controls.children.length) {
-            for (const count of [7, 14, 30]) {
-                const button = element('button', `${count} days`);
-                button.type = 'button';
-                button.dataset.days = count;
-                button.addEventListener('click', () => {
-                    historyDays[group] = count;
-                    render(currentSnapshot);
-                });
-                controls.append(button);
-            }
-        }
-        for (const button of controls.children) {
-            button.setAttribute('aria-pressed', String(Number(button.dataset.days) === historyDays[group]));
+        if (!controls.children.length) historyDropdown(controls, group);
+        controls.firstElementChild.textContent = `${historyDays[group]} days \u2304`;
+        for (const button of controls.querySelectorAll('[role="menuitemradio"]')) {
+            button.setAttribute('aria-checked', String(Number(button.dataset.days) === historyDays[group]));
         }
     }
 

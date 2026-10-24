@@ -21,6 +21,9 @@ test('history ranges include today and exactly the selected number of calendar d
     assert.equal(includes('2026-10-27', '2026-11-02', 7), true);
     const page = readFileSync(new URL('../site/collectors.html', import.meta.url), 'utf8');
     for (const group of ['alerts', 'runs', 'audits']) assert(page.includes(`id="${group}-range"`));
+    assert.equal((page.match(/class="history-heading"/g) ?? []).length, 3);
+    assert.doesNotMatch(page, /<(select|datalist)\b/i);
+    assert.match(source, /option\.setAttribute\('role', 'menuitemradio'\)/);
     assert.match(source, /const historyDays = \{ alerts: 7, runs: 7, audits: 7 \}/);
 });
 
