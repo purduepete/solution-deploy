@@ -115,7 +115,7 @@ InModuleScope CollectorAccess {
             Assert-MockCalled Register-ScheduledTask -Times 1 -Exactly -Scope It -ParameterFilter { $TaskPath -eq '\JimlerTech\' }
             $copiedModule = @($script:probeReadFiles | Where-Object { $_ -like '*\control\*\CollectorAccess.psm1' })
             $copiedModule.Count | Should Be 1
-            Test-Path -LiteralPath $copiedModule[0] | Should Be $true
+            Test-Path -LiteralPath $copiedModule[0] | Should Be $false
             ($script:probeReadFiles -contains (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CollectorAccess.psm1')) | Should Be $false
             Assert-MockCalled Unregister-ScheduledTask -Times 1 -Exactly -Scope It
             foreach ($write in ($script:aclWrites | Where-Object { $_.Path.StartsWith($script:release) })) {

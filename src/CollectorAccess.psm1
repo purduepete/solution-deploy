@@ -364,6 +364,7 @@ function Invoke-CollectorAccessPreflight {
         }
         Remove-Item -LiteralPath (Join-Path $run 'manifest.json') -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $output.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $probeModule -Force -ErrorAction Stop
     }
 }
 

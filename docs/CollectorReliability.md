@@ -91,6 +91,29 @@ collector releases already had explicit inheritable read/execute grants after
 the incident repair. The solution is preflight on each selected release, not
 a blanket grant across every historical release.
 
+The real account probe also found LOCAL SERVICE write access to the pinned
+Scoop Python 3.14.8 installation through inherited Authenticated Users permissions.
+The runtime and its two existing persistent junctions (`Scripts` and
+`Lib\site-packages`) are now checked at their physical targets. Arbitrary links
+in application code remain rejected.
+
+The live repair denies LOCAL SERVICE write/delete/permission-change rights only
+on `C:\Files\ScoopApps\apps\python314\3.14.8` and
+`C:\Files\ScoopApps\persist\python314`. Five containing directories received
+LOCAL SERVICE self-only Delete denies, without inheritance, to prevent replacing
+the runtime's ancestors. Other users' permissions were retained. One runtime
+cache file owned by LOCAL SERVICE was assigned to Administrators, with its DACL
+verified unchanged, because an owner can otherwise change its own permissions.
+The repair required no service restart or task repointing. Recheck a new Scoop
+version before using it; these grants deliberately cover the pinned version.
+
+Task definitions, original ACL/owner records, applied-change results and deployment
+transcripts are retained in
+`C:\ProgramData\SolutionDeploy\archives\collector-hardening-20261023-1935`.
+Independent review: Claude Sonnet 5.5 approved the monitor and access preflight,
+and approved the scoped runtime deny and owner repairs with rollback,
+no-link-traversal and unchanged-DACL conditions.
+
 All 12 configured public app endpoints returned Cloudflare Access redirects;
 all configured private Tailscale endpoints returned HTTP 200 during inspection.
 These are access-path checks, not full application or capture-data tests.
