@@ -72,6 +72,9 @@ Each sent notification is also appended to
 `apps\solution-deploy\data\collector-alerts.json` (14 days kept). The status
 snapshot copies it, and the Collectors page lists it under "Monitor alerts", so
 past alerts are visible without Pushover. A history write failure only warns.
+Task failures use readable job names, explain the possible impact and direct
+the reader to the relevant log. Task names and exit codes remain as technical
+details. A watchdog failure alone does not establish that captured prices are wrong.
 
 Audit INFO badges show report counts and comparison errors on hover, focus or
 tap. Counts come from the saved audit report; absent counts display as unavailable.

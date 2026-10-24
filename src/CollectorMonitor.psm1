@@ -20,7 +20,25 @@ function Get-CollectorMonitorIssue {
         # 267011: registered but not yet run, as after a reinstall. Heartbeat and audit-age checks cover a task that never starts.
         if ($result -eq 267011) { continue }
         if ($result -notin @(0, 267009)) {
-            $issues.Add("$name last result is $result.")
+            $label = switch ($name) {
+                'SolutionDeploy-web-portfolio-stock-watchdog' { 'Stock collector health check' }
+                'SolutionDeploy-web-options-collector-watchdog' { 'Options collector health check' }
+                'SolutionDeploy-web-portfolio-stock-collector' { 'Stock price collection' }
+                'SolutionDeploy-web-options-collector' { 'Option quote collection' }
+                'SolutionDeploy-web-portfolio-reference-earnings' { 'Earnings date collection' }
+                'SolutionDeploy-web-portfolio-reference-indices' { 'Index price collection' }
+                'SolutionDeploy-web-portfolio-reference-splits' { 'Stock split collection' }
+                'SolutionDeploy-web-portfolio-daily-audit' { 'Stock nightly audit' }
+                'SolutionDeploy-web-options-daily-audit' { 'Options nightly audit' }
+                default { $name }
+            }
+            $guidance = if ($name -like '*watchdog') {
+                'The check could not finish successfully; this does not by itself mean collected prices are wrong. Check the collector watchdog log for the cause.'
+            }
+            else {
+                'The scheduled job could not finish successfully. Check its collector log for the cause; collected data may be incomplete.'
+            }
+            $issues.Add("$label failed. $guidance Technical details: task $name; exit code $result.")
         }
         if ($task.Daily) {
             if ($Now - [datetimeoffset]$task.LastRun -gt [timespan]::FromHours(26)) {

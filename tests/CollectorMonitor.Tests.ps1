@@ -26,7 +26,23 @@ Describe 'Independent collector monitoring' {
     }
     It 'detects the original launcher failure even with a fresh heartbeat' {
         $tasks[0].Result = 64
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'result is 64'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'exit code 64'
+    }
+    It 'explains watchdog failures without claiming price data is wrong' {
+        $tasks[0].Name = 'SolutionDeploy-web-portfolio-stock-watchdog'
+        $tasks[0].Result = 1
+        $message = (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';'
+        $message | Should Match '^Stock collector health check failed\.'
+        $message | Should Match 'does not by itself mean collected prices are wrong'
+        $message | Should Match 'watchdog log'
+        $message | Should Match 'exit code 1'
+    }
+    It 'names collection failures and explains the possible impact' {
+        $tasks[0].Name = 'SolutionDeploy-web-options-collector'
+        $tasks[0].Result = 1
+        $message = (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';'
+        $message | Should Match '^Option quote collection failed\.'
+        $message | Should Match 'data may be incomplete'
     }
     It 'does not treat running status as a failed exit' {
         $tasks[0].State = 'Running'; $tasks[0].Result = 267009
