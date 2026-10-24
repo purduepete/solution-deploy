@@ -48,7 +48,6 @@ Describe 'Common release inventory and routing' {
     It 'requires explicit shared-host selection and still blocks unverified procedures' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1} '*explicit -Component*'
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component postgres-backup} '*baseline*'
-        Assert-CommonThrows {Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component web} '*no-downtime*'
     }
     It 'releases the directory and its status publisher together and blocks the other shared components' {
         foreach($name in 'directory','collector-status'){
@@ -58,7 +57,7 @@ Describe 'Common release inventory and routing' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component directory,lan-proxy} '*lan-proxy release blocked*'
     }
     It 'routes hand-placed web apps and sends Web Options jobs to the pinned-job procedure' {
-        foreach($app in @('web-bookmarks','work-log','web-inventory','plex','web-options')){
+        foreach($app in @('web-bookmarks','work-log','web-inventory','plex','web-options','web-portfolio')){
             $route=Get-CommonReleaseRoute -App $app -Target jimbrownhome1
             $route.procedure|Should Be hand-placed
             $route.entry.task|Should Be "SolutionDeploy-$app"
@@ -72,14 +71,18 @@ Describe 'Common release inventory and routing' {
         $job.procedure|Should Be none
         (@($job.jobs) -join ',')|Should Be collector
     }
-    It 'releases Web Portfolio jobs while its web procedure stays blocked' {
+    It 'routes Web Portfolio web to the folder swap and its stock collector to the pinned-job procedure' {
         $route=Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component stock-collector
         $route.procedure|Should Be none
         (@($route.jobs) -join ',')|Should Be stock-collector
-        $all=Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -WarningAction SilentlyContinue
-        $all.procedure|Should Be none
+        $web=Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component web
+        $web.procedure|Should Be hand-placed
+        @($web.jobs).Count|Should Be 0
+        $all=Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1
+        $all.procedure|Should Be hand-placed
         (@($all.jobs) -join ',')|Should Be stock-collector
-        Assert-CommonThrows {Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component web,stock-collector} '*no-downtime*'
+        $all.entry.hostInstallPath|Should Be backend
+        @($all.entry.carryForward) -contains 'telegram_ingest\vader.session'|Should Be $true
     }
     It 'records each job runtime, task list and full runtime commit' {
         $inventory=Read-DeploymentJson (Join-Path $root 'environments\releases.json')
@@ -286,10 +289,17 @@ Describe 'Hand-placed release boundaries' {
         $app='plex'
         @(Get-OwnedProcess).Count|Should Be 0
     }
-    It 'limits the host runner to the five hand-placed apps' {
+    It 'limits the host runner to the six hand-placed apps' {
         $runner=[IO.File]::ReadAllText((Join-Path $root 'scripts\Invoke-HandPlacedRelease.ps1'))
-        $runner|Should Match ([regex]::Escape('(web-bookmarks|work-log|web-inventory|plex|web-options)'))
-        $runner|Should Not Match 'web-portfolio'
+        $runner|Should Match ([regex]::Escape('(web-bookmarks|work-log|web-inventory|plex|web-options|web-portfolio)'))
+    }
+    It 'accepts only relative carry-forward paths inside the release' {
+        $relative='^[A-Za-z0-9_.-]+(\\[A-Za-z0-9_.-]+)*$'
+        $bad={param($path) $path -notmatch $relative -or $path -match '(^|\\)\.\.?(\\|$)'}
+        $runner=[IO.File]::ReadAllText((Join-Path $root 'scripts\Invoke-HandPlacedRelease.ps1'))
+        $runner.Contains("`$relative='$relative'")|Should Be $true
+        foreach($path in 'config\config.ini','telegram_ingest\vader.session','telegram_ingest\.venv'){(& $bad $path)|Should Be $false}
+        foreach($path in '..\shared\secrets','config\..\..\x','C:\Windows','\\host\share','.','telegram_ingest\.'){(& $bad $path)|Should Be $true}
     }
 
     It 'ignores Tailscale and LAN proxy listeners that share the origin port' {

@@ -23,17 +23,16 @@ controller and other apps to a verified app-specific procedure. The
 background components. It is separate from `production.json`: appearing in the
 inventory does not grant placement authority or enable deployment.
 
-| Apps/components                                                          | Current release support                                                                                                                                                                                                   |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ferry Tracker, Home Automation, Site Dock, Team Scoreboard               | Existing complete controller sequence, unchanged                                                                                                                                                                          |
-| Fit Track web (frontend, backend and in-process Strava sync)             | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
-| Fit Track upload watcher                                                 | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
-| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options web            | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
-| Web Options collector and audit, Web Portfolio stock collector and audit | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                                                          |
-| Web Portfolio web                                                        | Inventoried with live version evidence and an explicit procedure blocker; no migration/provisioning scripts called                                                                                                        |
-| Solution Directory and collector status publisher                        | Directory release: fast-forward the host clone to the pushed commit, run `Install-Directory.ps1`, compare installed files, check both access paths                                                                        |
-| Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
-| Ride and Lift, pgweb                                                     | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
+| Apps/components                                                              | Current release support                                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                   | Existing complete controller sequence, unchanged                                                                                                                                                                          |
+| Fit Track web (frontend, backend and in-process Strava sync)                 | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
+| Fit Track upload watcher                                                     | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
+| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options, Web Portfolio web | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
+| Web Options collector and audit, Web Portfolio stock collector and audit     | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                                                          |
+| Solution Directory and collector status publisher                            | Directory release: fast-forward the host clone to the pushed commit, run `Install-Directory.ps1`, compare installed files, check both access paths                                                                        |
+| Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher     | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
+| Ride and Lift, pgweb                                                         | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
 
 The access URLs and reserved Tailscale HTTPS ports stay in `site\sites.json`.
 Task names, source locations, mutable paths and version evidence are recorded
@@ -102,7 +101,7 @@ flag and phase results before recovery. Old releases are retained. No automatic
 rollback runs after possible application writes. `NoChanges` means source
 comparison and access checks only; it is not a fresh runtime attestation.
 
-### Release folder swap (Web Bookmarks, Work Log, Web Inventory, Plex, Web Options web)
+### Release folder swap (Web Bookmarks, Work Log, Web Inventory, Plex, Web Options and Web Portfolio web)
 
 ```powershell
 & C:\Files\Dev\main\solution-deploy\Deploy.ps1 -Action Release -App work-log `
@@ -122,8 +121,9 @@ payload and `scripts\Invoke-HandPlacedRelease.ps1` are
 copied to `apps\<id>\state\routine\<op>` and run on the host through CIM.
 
 Prepare expands the payload into `releases\<sha12>-<op8>` with the previous
-release's ACL, runs `npm ci --omit=dev` on the host for Web Options, and writes
-`release.json`. Web Bookmarks keeps its pinned node runtime record. The app keeps
+release's ACL, runs `npm ci --omit=dev` on the host (Web Options at the release
+root, Web Portfolio in `backend` through `hostInstallPath`), copies each
+`carryForward` path from the previous release, and writes `release.json`. Web Bookmarks keeps its pinned node runtime record. The app keeps
 serving during the build and Prepare.
 
 Activate takes the app lock, checks `current` is unchanged, and stops the app.
@@ -142,6 +142,17 @@ Access redirect. Previous releases are kept. A release of the commit already
 recorded in `state\common-release.json` returns `NoChanges` after an access
 check. The web release never repoints the Web Options collector and audit
 tasks; they have their own pinned-job release below.
+
+Web Portfolio web builds the shared types, the backend and the frontend with
+`VITE_AUTH_MODE=access`, and refuses a bundle without the access-mode check, the
+same as `scripts\Deploy-PlatformFrontend.ps1`. The release holds only the runtime
+files: `backend` (dist, package files, tsconfigs), `frontend\dist`, `config`,
+`deploy`, `scripts\Run-TelegramPull.ps1` and `telegram_ingest`. The Telegram
+pull runs from `current`, so `config\config.ini`, the `vader.session` sign-in,
+the venv and the pull logs carry forward. A missing carry-forward path stops
+the release in Prepare, before any downtime. The swap stops the site for about
+30 seconds, and Web Portfolio normally allows no downtime, so release its web
+component only in an agreed window.
 
 First releases on 10/24/2026 (local), each verified on Tailscale and the
 Cloudflare Access redirect:

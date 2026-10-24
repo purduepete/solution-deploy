@@ -12,7 +12,7 @@ $framework='C:\ProgramData\SolutionDeploy\control\framework'
 Import-Module (Join-Path $framework 'src\Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $framework 'src\Lifecycle.psm1') -DisableNameChecking
 $operation=Split-Path -Parent $RequestPath
-if($operation -notmatch '^C:\\ProgramData\\SolutionDeploy\\apps\\(web-bookmarks|work-log|web-inventory|plex|web-options)\\state\\routine\\[a-f0-9]{32}$' -or
+if($operation -notmatch '^C:\\ProgramData\\SolutionDeploy\\apps\\(web-bookmarks|work-log|web-inventory|plex|web-options|web-portfolio)\\state\\routine\\[a-f0-9]{32}$' -or
     $RequestPath -ine (Join-Path $operation 'request.json')){throw 'Unexpected release request location.'}
 $app=$Matches[1]
 $appRoot="C:\ProgramData\SolutionDeploy\apps\$app"
@@ -86,6 +86,11 @@ try{
     if($request.app -ne $app -or $request.id -ne (Split-Path -Leaf $operation) -or $request.sourceCommit -cnotmatch '^[a-f0-9]{40}$' -or
         $request.releaseId -notmatch '^[a-f0-9]{12}-[a-f0-9]{8}$' -or $request.stop -notin @('managed','task') -or
         $request.task -notmatch '^SolutionDeploy-[a-z0-9-]+$'){throw 'Invalid release request.'}
+    $relative='^[A-Za-z0-9_.-]+(\\[A-Za-z0-9_.-]+)*$'
+    $installPath=[string]$request.hostInstallPath
+    $carry=@($request.carryForward|Where-Object {$_})
+    if(($installPath -and $installPath -notmatch '^[A-Za-z0-9_-]+$') -or
+        @($carry|Where-Object {$_ -notmatch $relative -or $_ -match '(^|\\)\.\.?(\\|$)'}).Count){throw 'Invalid release request path.'}
     if($request.legacyDirectory){
         if($app -ne 'plex' -or $request.previousRelease){throw 'Only Plex converts a legacy directory.'}
         $previous=$null
@@ -104,11 +109,22 @@ try{
         [IO.Directory]::CreateDirectory($release)|Out-Null
         Set-Acl -LiteralPath $release -AclObject (Get-Acl -LiteralPath $aclSource)
         [IO.Compression.ZipFile]::ExtractToDirectory($payload,$release)
+        # Untracked runtime files such as sign-in sessions live in the release, so they move with it.
+        foreach($path in $carry){
+            if(-not $previous){throw 'Carry-forward needs a previous release.'}
+            $from=Join-Path $previous $path
+            $to=Join-Path $release $path
+            if(-not (Test-Path -LiteralPath $from)){throw "Carry-forward path missing from the previous release: $path"}
+            if(Test-Path -LiteralPath $to){throw "Carry-forward path is also in the payload: $path"}
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $to))|Out-Null
+            Copy-Item -LiteralPath $from -Destination $to -Recurse
+        }
+        $result.carried=$carry
         if($request.hostInstall -eq 'npm-production'){
             $node=[string](Get-Item -LiteralPath 'C:\Files\ScoopApps\apps\nodejs\current').Target
             $exe=Join-Path $node 'node.exe'
             $cli=Join-Path $node 'node_modules\npm\bin\npm-cli.js'
-            Invoke-DeploymentCommand $exe @($cli,'ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund') $release -TimeoutSeconds $request.timeoutSeconds
+            Invoke-DeploymentCommand $exe @($cli,'ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund') $(if($installPath){Join-Path $release $installPath}else{$release}) -TimeoutSeconds $request.timeoutSeconds
             $result.hostInstall=@{node=$exe;sha256=(Get-FileHash -LiteralPath $exe).Hash.ToLowerInvariant()}
         }elseif($request.hostInstall){throw "Unknown host install step: $($request.hostInstall)"}
         $record=[ordered]@{sourceCommit=$request.sourceCommit;releaseId=$request.releaseId;operationId=$request.id

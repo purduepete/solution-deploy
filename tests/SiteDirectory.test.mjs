@@ -37,10 +37,9 @@ test('deployment information covers every solution and exposes only public field
     }
     assert.equal(result.solutions.find((entry) => entry.id === 'team-scoreboard').support, 'Controller Release');
     assert.equal(result.solutions.find((entry) => entry.id === 'fit-track').support, 'Fit Track Release');
-    for (const id of ['web-bookmarks', 'work-log', 'web-inventory', 'plex', 'web-options'])
+    for (const id of ['web-bookmarks', 'work-log', 'web-inventory', 'plex', 'web-options', 'web-portfolio'])
         assert.equal(result.solutions.find((entry) => entry.id === id).support, 'Release Folder Swap');
     assert.match(result.solutions.find((entry) => entry.id === 'web-options').componentNote, /pinned-job/);
-    assert.equal(result.solutions.find((entry) => entry.id === 'web-portfolio').support, 'Procedure Unverified');
     for (const id of ['ride-and-lift', 'pgweb']) {
         const entry = result.solutions.find((solution) => solution.id === id);
         assert.equal(entry.support, 'Manual Update');

@@ -111,7 +111,7 @@
       "preserve": ["shared", "D:\\SolutionDeploy\\apps\\web-inventory\\images", "PostgreSQL web_inventory"]
     },
     "web-portfolio": {
-      "procedure": "blocked",
+      "procedure": "hand-placed",
       "source": "..\\web-portfolio",
       "components": ["web", "stock-collector"],
       "versionEvidence": "Web current -> releases\\20261018; Telegram runs from current. Stock collector, watchdog, reference jobs and audit -> stock-collector-2a0a7173, matched file for file to commit 2a0a7173 on 10/24/2026",
@@ -143,9 +143,27 @@
         "SolutionDeploy-web-portfolio-daily-audit",
         "SolutionDeploy-web-portfolio-telegram"
       ],
-      "preserve": ["shared secrets/configuration", "Azure SQL", "collector state", "retirement/Fidelity files"],
-      "blocker": "Web: verify Deploy-PlatformFrontend.ps1 against the current no-downtime path and pin the backend procedure. Legacy web-deploy.ps1 may target retired Azure hosting.",
-      "componentNote": "The stock collector, watchdog, reference jobs and audit share one pinned-job release folder, released as -Component stock-collector."
+      "task": "SolutionDeploy-web-portfolio",
+      "stop": "task",
+      "originPort": 18796,
+      "readiness": { "path": "/health", "expected": { "success": true } },
+      "hostInstall": "npm-production",
+      "hostInstallPath": "backend",
+      "carryForward": [
+        "config\\config.ini",
+        "telegram_ingest\\vader.session",
+        "telegram_ingest\\.venv",
+        "telegram_ingest\\logs"
+      ],
+      "build": "root npm ci and build:shared, backend npm ci and build, frontend build with VITE_AUTH_MODE=access; host npm ci --omit=dev in backend",
+      "preserve": [
+        "shared secrets/configuration",
+        "Azure SQL",
+        "collector state",
+        "retirement/Fidelity files",
+        "Telegram config and sign-in session"
+      ],
+      "componentNote": "A web release stops the site for about 30 seconds. Web Portfolio normally allows no downtime, so release web only in an agreed window. The Telegram pull runs from current, and its config, sign-in session, venv and logs carry forward to each new release. The stock collector, watchdog, reference jobs and audit share one pinned-job release folder, released as -Component stock-collector."
     },
     "web-options": {
       "procedure": "hand-placed",

@@ -65,6 +65,25 @@ $script:Builds=@{
         # Workspace links and dev tools are rebuilt on the host by npm ci --omit=dev.
         Get-ChildItem -LiteralPath $Output -Directory -Recurse -Force -Filter node_modules|Remove-Item -Recurse -Force
     }
+    'web-portfolio'={
+        param($Worktree,$Output,$Timeout)
+        Invoke-ReleaseTool npm.cmd @('ci','--ignore-scripts','--no-audit','--no-fund') $Worktree $Timeout
+        Invoke-ReleaseTool npm.cmd @('run','build:shared') $Worktree $Timeout
+        $backend=Join-Path $Worktree 'backend'
+        Invoke-ReleaseTool npm.cmd @('ci','--ignore-scripts','--no-audit','--no-fund') $backend $Timeout
+        Invoke-ReleaseTool npm.cmd @('run','build') $backend $Timeout
+        $frontend=Join-Path $Worktree 'frontend'
+        Invoke-ReleaseTool npm.cmd @('ci','--ignore-scripts','--no-audit','--no-fund') $frontend $Timeout
+        $env:VITE_AUTH_MODE='access'
+        try{Invoke-ReleaseTool npm.cmd @('run','build') $frontend $Timeout}finally{Remove-Item Env:VITE_AUTH_MODE -ErrorAction SilentlyContinue}
+        # Without access mode the bundle calls the API on :3001 and CSP blocks it.
+        if(-not (Select-String -Path (Join-Path $frontend 'dist\assets\*.js') -Pattern '"access"==="access"' -SimpleMatch -List)){
+            throw 'The frontend bundle was not built with VITE_AUTH_MODE=access.'
+        }
+        foreach($folder in 'backend','frontend','scripts'){[IO.Directory]::CreateDirectory((Join-Path $Output $folder))|Out-Null}
+        Copy-TrackedTree $Worktree @('backend\dist','backend\package.json','backend\package-lock.json','backend\tsconfig.json',
+            'backend\tsconfig.prod.json','frontend\dist','config','deploy','scripts\Run-TelegramPull.ps1','telegram_ingest') $Output
+    }
 }
 
 function Get-NormalizedFileDigest {
@@ -257,6 +276,7 @@ function Invoke-HandPlacedRelease {
         $identity=(Get-CimInstance -CimSession $session -ClassName Win32_ComputerSystemProduct).UUID
         $request=@{id=$id;app=$App;sourceCommit=$commitId;releaseId=$releaseId;previousRelease=$previous;legacyDirectory=$legacyDirectory
             task=$Entry.task;originPort=[int]$Entry.originPort;stop=$Entry.stop;hostInstall=$Entry['hostInstall']
+            hostInstallPath=$Entry['hostInstallPath'];carryForward=@($Entry['carryForward']|Where-Object {$_})
             hostIdentity=$identity;expiresLocal=$ExpiresLocal.ToString('o');reason=$ApprovalReason
             approvedBy=[Security.Principal.WindowsIdentity]::GetCurrent().Name
             payloadSHA256=(Get-FileHash -LiteralPath $payload).Hash.ToLowerInvariant()
