@@ -143,8 +143,37 @@ regression tests and actual notification delivery. Actual market capture and
 the next nightly audit are separate scheduled evidence. Record those as pending
 until the corresponding run has happened and its data/report has been checked.
 
+### Deployment result
+
+Completed October 23, 2026, with all times below in Pacific local time:
+
+- Work began about 7:28 p.m.; the independent monitor delivered its first
+  Pushover alert at 7:45 p.m. Subsequent identical findings were deduplicated.
+- All four real LOCAL SERVICE probes passed by 8:04 p.m.: Options releases
+  `collector-dd7ccdb` and `collector-827733c`, Portfolio release
+  `stock-collector-6d5f8819`, and Inventory release `20261018`.
+- Cleanup finished by 8:06 p.m. Four one-time tasks and six copied probe modules
+  were removed. All 14 original task definitions remained unchanged; ACL
+  snapshots, failure records and deployment transcripts were retained.
+
+Implementation and live verification took about 38 minutes. Live checks required
+correcting the administrator-role check, supporting the two verified Scoop
+junctions, repairing runtime permissions/ownership, and replacing slow per-path
+PowerShell access checks with native bulk checks. Regression coverage includes
+these access-check cases.
+
+The combined focused suite passed 32 tests. Portfolio's offline smoke checks
+also passed. No database commands were run during deployment. Normal collector
+tasks continued running, with fresh error-free heartbeats. The monitor still
+reports the existing audit comparison failures listed above; market capture and
+the next 11:30 p.m. audit remain pending scheduled evidence.
+
 ## Local validation
 
 ```powershell
-Invoke-Pester -Script .\tests\CollectorMonitor.Tests.ps1 -EnableExit
+$result = Invoke-Pester -Script @(
+  '.\tests\CollectorAccess.Tests.ps1',
+  '.\tests\CollectorMonitor.Tests.ps1'
+) -PassThru
+if ($result.FailedCount) { exit 1 }
 ```
