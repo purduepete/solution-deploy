@@ -9,24 +9,31 @@ function deploymentSection(info) {
     const section = element('section', undefined, 'deployment');
     const heading = element('div', undefined, 'deployment-heading');
     heading.append(element('h3', 'Deployment'), element('span', info.support, 'badge muted'));
+    const unrecorded = info.support === 'Manual Update' ? 'Manual update, not recorded' : 'Not recorded';
+    const last = element(
+        'p',
+        `Last Release: ${info.lastRelease ? releaseTime(info.lastRelease.completed) : unrecorded}`,
+        'last-release'
+    );
     const details = element('details');
     details.append(element('summary', 'Deployment Details'));
     const body = element('div', undefined, 'deployment-body');
     body.append(element('p', info.method));
     body.append(element('h3', 'Components / Jobs'));
     const components = element('ul');
+    for (const name of info.components) components.append(element('li', titleCase(name)));
+    body.append(components, element('h3', 'Last Release by Component'));
+    const releases = element('ul');
     for (const name of info.components) {
-        components.append(
+        const release = (info.releases || []).find((entry) => entry.component === name);
+        releases.append(
             element(
                 'li',
-                name
-                    .split('-')
-                    .map((word) => word[0].toUpperCase() + word.slice(1))
-                    .join(' ')
+                `${titleCase(name)}: ${release ? `${releaseTime(release.completed)} (${release.commit})` : unrecorded}`
             )
         );
     }
-    body.append(components, element('h3', 'Recorded Version Evidence'), element('p', info.versionEvidence));
+    body.append(releases, element('h3', 'Recorded Version Evidence'), element('p', info.versionEvidence));
     if (info.blocker) body.append(element('h3', 'Release Procedure Blocker'), element('p', info.blocker));
     if (info.componentNote) body.append(element('h3', 'Component Boundary'), element('p', info.componentNote));
     if (info.explicitComponents) body.append(element('p', 'Shared host jobs require explicit component selection.'));
@@ -42,8 +49,21 @@ function deploymentSection(info) {
     }
     body.append(links);
     details.append(body);
-    section.append(heading, details);
+    section.append(heading, last, details);
     return section;
+}
+
+function titleCase(name) {
+    return name
+        .split('-')
+        .map((word) => word[0].toUpperCase() + word.slice(1))
+        .join(' ');
+}
+
+function releaseTime(value) {
+    const date = new Date(value);
+    const pad = (number) => String(number).padStart(2, '0');
+    return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 async function loadDeployments() {

@@ -135,6 +135,25 @@ Describe 'Common release inventory and routing' {
         $result.commit|Should Be ('a'*40)
         Assert-MockCalled Invoke-RoutineRelease -ModuleName CommonRelease -Times 1 -Exactly -Scope It
     }
+    It 'records only succeeded releases, one file per component' {
+        $commit='b'*40
+        $results=@(
+            @{status='Succeeded';sourceCommit=$commit;completedLocal='2026-07-12T14:05:00-07:00';components=@{web='Verified';'upload-watcher'='UnchangedSourceVerified'}}
+            @{status='Succeeded';sourceCommit=$commit;completedLocal='2026-07-12T14:06:00-07:00';component=@('lan-proxy','collector-monitor')}
+            @{status='NoChanges';sourceCommit=$commit;component='postgres-backup'}
+            @{status='Failed';sourceCommit=$commit;component='finance-launcher'}
+            @{status='Succeeded';sourceCommit='HEAD';component='bad'}
+        )
+        @(Get-CommonReleaseRecords demo $results|ForEach-Object {$_.component})|Should Be @('web','lan-proxy','collector-monitor')
+        (Get-CommonReleaseRecords ferry-tracker @(@{status='Succeeded';sourceCommit=$commit;completedLocal='2026-07-12T14:05:00-07:00'})).component|Should Be app
+        (Get-CommonReleaseRecords demo @(@{releases=@($results[0])})).component|Should Be web
+        $folder=Join-Path $TestDrive releases
+        Write-CommonReleaseRecords demo $results -Directory $folder
+        @(Get-ChildItem $folder|ForEach-Object Name|Sort-Object)|Should Be @('demo--collector-monitor.json','demo--lan-proxy.json','demo--web.json')
+        $saved=Read-DeploymentJson (Join-Path $folder 'demo--web.json')
+        $saved.sourceCommit|Should Be $commit
+        ([DateTimeOffset]::Parse($saved.completedLocal)).UtcDateTime.ToString('HH:mm')|Should Be '21:05'
+    }
 }
 
 Describe 'Exact pushed source and component selection' {

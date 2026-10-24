@@ -4,6 +4,34 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Release.psm1') -DisableNameChecking
 
+# The directory serves these as each solution's last release; its LOCAL SERVICE account can read data\.
+$script:ReleaseRecords='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\solution-deploy\data\releases'
+
+function Get-CommonReleaseRecords {
+    param([Parameter(Mandatory)][string]$App,[AllowNull()][object[]]$Result)
+    @(foreach($item in @($Result)){
+        if($item -isnot [System.Collections.IDictionary]){continue}
+        if($item.Contains('releases')){Get-CommonReleaseRecords $App @($item['releases']);continue}
+        if($item['status'] -ne 'Succeeded' -or [string]$item['sourceCommit'] -cnotmatch '^[a-f0-9]{40}$'){continue}
+        $names=if($item.Contains('component')){@($item['component'])}elseif($item.Contains('components')){@($item['components'].Keys|Where-Object {$item['components'][$_] -eq 'Verified'})}else{@('app')}
+        $completed=if($item.Contains('completedLocal')){[DateTimeOffset]::Parse([string]$item['completedLocal'])}else{[DateTimeOffset]::Now}
+        foreach($name in $names){
+            if([string]$name -notmatch '^[a-z0-9-]+$'){continue}
+            @{app=$App;component=[string]$name;sourceCommit=[string]$item['sourceCommit'];completedLocal=$completed.ToString('o')}
+        }
+    })
+}
+
+function Write-CommonReleaseRecords {
+    param([Parameter(Mandatory)][string]$App,[AllowNull()][object[]]$Result,[string]$Directory=$script:ReleaseRecords)
+    foreach($record in Get-CommonReleaseRecords $App $Result){
+        try{
+            [IO.Directory]::CreateDirectory($Directory)|Out-Null
+            Write-DeploymentJson (Join-Path $Directory "$App--$($record.component).json") $record
+        }catch{Write-Warning "The release succeeded, but its directory record was not written: $($_.Exception.Message)"}
+    }
+}
+
 function Get-CommonReleaseRoute {
     param([Parameter(Mandatory)][string]$App,[string[]]$Component,
         [string]$Environment='production',[Parameter(Mandatory)][string]$Target)
@@ -91,7 +119,9 @@ function Invoke-CommonRelease {
     $arguments=@{}+$PSBoundParameters
     [void]$arguments.Remove('Component')
     if($route.procedure -eq 'controller'){
-        return Invoke-RoutineRelease @arguments
+        $controller=Invoke-RoutineRelease @arguments
+        Write-CommonReleaseRecords $App @($controller)
+        return $controller
     }
     if(-not $ApproveRelease -or -not $DatabaseChangesReviewed -or [string]::IsNullOrWhiteSpace($ApprovalReason)){
         throw 'Release requires -ApproveRelease, a non-empty -ApprovalReason and -DatabaseChangesReviewed.'
@@ -112,6 +142,7 @@ function Invoke-CommonRelease {
                 -ApprovalReason $ApprovalReason -OutputDirectory $OutputDirectory -TimeoutSeconds $TimeoutSeconds)
         }
     }
+    Write-CommonReleaseRecords $App $results
     if($results.Count -eq 1){return $results[0]}
     $status=if(@($results|Where-Object {$_.status -ne 'NoChanges'}).Count){'Succeeded'}else{'NoChanges'}
     @{app=$App;status=$status;releases=$results}
@@ -141,4 +172,4 @@ function Invoke-CommonWebRelease {
     Invoke-FitTrackRelease @Arguments
 }
 
-Export-ModuleMember -Function Get-CommonReleaseRoute,Resolve-CommonReleaseSource,Get-CommonReleaseChanges,Invoke-CommonRelease
+Export-ModuleMember -Function Get-CommonReleaseRoute,Resolve-CommonReleaseSource,Get-CommonReleaseChanges,Invoke-CommonRelease,Get-CommonReleaseRecords,Write-CommonReleaseRecords

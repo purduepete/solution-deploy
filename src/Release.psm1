@@ -247,6 +247,7 @@ function Invoke-RoutineRelease {
         routePreconditions=$true;clocksSynchronized=$true
     }
     $receipt=@{status='Running';planHash=$plan.planHash;consentSHA256=$consentHash;phases=@();externalAcceptance='Pending'
+        sourceCommit=$plan.sourceCommit
         startedLocal=$now.ToLocalTime().ToString('o');preparationSeconds=[Math]::Round($releaseClock.Elapsed.TotalSeconds,2)}
     $receiptPath=Join-Path $directory 'release.json'
     try{

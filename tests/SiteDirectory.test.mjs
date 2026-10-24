@@ -79,13 +79,18 @@ test('deployment sections use accessible disclosures and render recorded evidenc
         privateOnly: true,
         explicitComponents: true,
         procedureUrl: 'https://github.com/purduepete/solution-deploy',
+        lastRelease: { component: 'web', commit: 'abcdef1', completed: '2026-07-12T21:05:00.000Z' },
+        releases: [{ component: 'web', commit: 'abcdef1', completed: '2026-07-12T21:05:00.000Z' }],
     });
     assert.equal(section.tag, 'section');
-    const details = section.children[1];
+    const details = section.children[2];
     assert.equal(details.tag, 'details');
     assert.equal(details.children[0].tag, 'summary');
     const flatten = (node) => [node, ...node.children.flatMap(flatten)];
     const nodes = flatten(section);
+    assert.match(section.children[1].text, /^Last Release: \d{2}\/\d{2}\/2026 \d{2}:05$/);
+    assert(nodes.some((node) => /^Web: \d{2}\/\d{2}\/2026 \d{2}:05 \(abcdef1\)$/.test(node.text)));
+    assert(nodes.some((node) => node.text === 'Stock Collector: Not recorded'));
     assert(nodes.some((node) => node.text === 'Procedure Unverified'));
     assert(nodes.some((node) => node.text === 'Stock Collector'));
     assert(nodes.some((node) => node.text === '<img src=x onerror=alert(1)>'));
@@ -242,6 +247,58 @@ test('stock collector messaging lists the current settlement schedule', () => {
         'Trading days: Session every 10 minutes 06:00-12:50, Close 13:00, Settle 13:10. Every day: Final settle 17:00.'
     );
     assert(!schedule.includes('13:20'));
+});
+
+test('release records are read on every request and invalid records are skipped', async () => {
+    const folder = mkdtempSync(join(tmpdir(), 'release-records-'));
+    const commit = 'a'.repeat(40);
+    const write = (name, record) => writeFileSync(join(folder, name), JSON.stringify(record));
+    const server = createServer({ releaseRecordsPath: folder });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}/deployments.json`;
+    const solution = async (id) => (await (await fetch(url)).json()).solutions.find((entry) => entry.id === id);
+    try {
+        assert.equal((await solution('work-log')).lastRelease, null);
+        write('work-log--web.json', {
+            app: 'work-log',
+            component: 'web',
+            sourceCommit: commit,
+            completedLocal: '2026-07-12T14:05:00-07:00',
+            private: 'PRIVATE_SENTINEL',
+        });
+        write('web-options--collector.json', {
+            app: 'web-options',
+            component: 'collector',
+            sourceCommit: commit,
+            completedLocal: '2026-07-10T09:00:00-07:00',
+        });
+        write('web-options--web.json', {
+            app: 'web-options',
+            component: 'web',
+            sourceCommit: commit,
+            completedLocal: '2026-07-11T09:00:00-07:00',
+        });
+        write('plex--web.json', { app: 'plex', component: 'web', sourceCommit: 'bad', completedLocal: 'x' });
+        writeFileSync(join(folder, 'pgweb--app.json'), '{broken');
+        const workLog = await solution('work-log');
+        assert.deepEqual(workLog.lastRelease, {
+            component: 'web',
+            commit: 'aaaaaaa',
+            completed: '2026-07-12T21:05:00.000Z',
+        });
+        assert(!JSON.stringify(workLog).includes('PRIVATE_SENTINEL'));
+        const options = await solution('web-options');
+        assert.deepEqual(
+            options.releases.map((entry) => entry.component),
+            ['web', 'collector']
+        );
+        assert.equal((await solution('plex')).lastRelease, null);
+        assert.equal((await solution('pgweb')).lastRelease, null);
+    } finally {
+        server.closeAllConnections();
+        await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+        rmSync(folder, { recursive: true, force: true });
+    }
 });
 
 test('collector status is read from disk on every request', async () => {

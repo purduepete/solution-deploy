@@ -51,6 +51,16 @@ Directory installation copies the release inventory alongside the site.
 After updating that inventory or the site's cached assets, restart the directory
 through its existing task; no additional collector or database is involved.
 
+Each card also shows its last release. After a release that changed a
+component, `Invoke-CommonRelease` writes one record per component to
+`C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\releases\<app>--<component>.json`
+with the app, component, full commit and completion time. The directory's
+LOCAL SERVICE account can read that folder; the protected `state` folders stay
+private. `/deployments.json` reads the records on every request, so a release
+appears without restarting the directory. A NoChanges or failed release writes
+nothing, and a failed record write only warns. Ride and Lift and pgweb are
+updated by hand and show "Manual update, not recorded".
+
 For Fit Track's first release, select the whole web component explicitly:
 
 ```powershell

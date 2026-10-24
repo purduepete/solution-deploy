@@ -277,6 +277,12 @@ article {
 .deployment-heading h3 {
     margin: 0;
 }
+.last-release {
+    margin: -4px 0 8px;
+    color: var(--muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
 .deployment summary {
     cursor: pointer;
     color: var(--accent);

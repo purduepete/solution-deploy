@@ -1,8 +1,8 @@
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const files = new Map([
     ['/', ['index.html', 'text/html; charset=utf-8']],
@@ -19,6 +19,50 @@ const files = new Map([
 // Written every 5 minutes by scripts/Update-CollectorStatus.ps1, so it is read per request, never cached.
 const defaultStatusPath = fileURLToPath(new URL('../data/collector-status.json', import.meta.url));
 const defaultReleaseInventoryPath = fileURLToPath(new URL('../environments/releases.json', import.meta.url));
+// One file per app and component, written by CommonRelease.psm1 after each successful release.
+const defaultReleaseRecordsPath = fileURLToPath(new URL('../data/releases', import.meta.url));
+
+export async function readReleaseRecords(directory) {
+    let names;
+    try {
+        names = await readdir(directory);
+    } catch {
+        return [];
+    }
+    const records = [];
+    for (const name of names.filter((file) => /^[a-z0-9-]+--[a-z0-9-]+\.json$/.test(file))) {
+        try {
+            const record = JSON.parse(await readFile(join(directory, name), 'utf8'));
+            if (
+                /^[a-z0-9-]+$/.test(record.app) &&
+                /^[a-z0-9-]+$/.test(record.component) &&
+                /^[a-f0-9]{40}$/.test(record.sourceCommit) &&
+                !Number.isNaN(Date.parse(record.completedLocal))
+            )
+                records.push(record);
+        } catch {
+            // A record being rewritten or damaged is skipped; the rest still show.
+        }
+    }
+    return records;
+}
+
+export function withReleaseRecords(deployments, records) {
+    return {
+        ...deployments,
+        solutions: deployments.solutions.map((solution) => {
+            const releases = records
+                .filter((record) => record.app === solution.id)
+                .map((record) => ({
+                    component: record.component,
+                    commit: record.sourceCommit.slice(0, 7),
+                    completed: new Date(record.completedLocal).toISOString(),
+                }))
+                .sort((a, b) => b.completed.localeCompare(a.completed));
+            return { ...solution, releases, lastRelease: releases[0] || null };
+        }),
+    };
+}
 
 export function publicDeployments(releases, inventory) {
     const methods = {
@@ -75,6 +119,7 @@ export function publicDeployments(releases, inventory) {
 export function createServer({
     statusPath = process.env.COLLECTOR_STATUS_PATH || defaultStatusPath,
     releaseInventoryPath = defaultReleaseInventoryPath,
+    releaseRecordsPath = process.env.RELEASE_RECORDS_PATH || defaultReleaseRecordsPath,
 } = {}) {
     const content = new Map(
         [...files].map(([url, [name, type]]) => [url, { body: readFileSync(new URL(name, import.meta.url)), type }])
@@ -82,10 +127,6 @@ export function createServer({
     const inventory = JSON.parse(content.get('/sites.json').body);
     if (!Array.isArray(inventory.sites) || !inventory.sites.length) throw new Error('Inventory has no sites.');
     const deployments = publicDeployments(JSON.parse(readFileSync(releaseInventoryPath, 'utf8')), inventory);
-    content.set('/deployments.json', {
-        body: Buffer.from(JSON.stringify(deployments)),
-        type: 'application/json; charset=utf-8',
-    });
     return http.createServer(async (req, res) => {
         res.setHeader(
             'Content-Security-Policy',
@@ -99,6 +140,14 @@ export function createServer({
             return;
         }
         const url = req.url.split('?')[0];
+        if (url === '/deployments.json') {
+            const body = Buffer.from(
+                JSON.stringify(withReleaseRecords(deployments, await readReleaseRecords(releaseRecordsPath)))
+            );
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': body.length });
+            res.end(req.method === 'HEAD' ? undefined : body);
+            return;
+        }
         if (url === '/collector-status.json') {
             let body;
             try {
