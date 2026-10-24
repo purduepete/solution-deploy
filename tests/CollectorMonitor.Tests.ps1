@@ -92,4 +92,19 @@ Describe 'Monitor runner read-only evaluation' {
         $record.issues -join ';' | Should Match 'fixture scheduler unavailable'
         Test-Path -LiteralPath $state | Should Be $false
     }
+
+    It 'records each sent notification in a pruned alert history' {
+        Mock Get-ScheduledTask { throw 'fixture scheduler unavailable' }
+        $alert = Join-Path $TestDrive 'alert.ps1'
+        Set-Content -LiteralPath $alert -Value 'param($Title, $Message) $global:LASTEXITCODE = 0'
+        $history = Join-Path $TestDrive 'collector-alerts.json'
+        ConvertTo-Json -InputObject @([ordered]@{ sentAt = (Get-Date).AddDays(-20).ToString('o'); kind = 'alert'
+                title = 'old'; issues = @('old') }) | Set-Content -LiteralPath $history
+        & (Join-Path $PSScriptRoot '..\scripts\Test-CollectorHealth.ps1') -StatePath (Join-Path $TestDrive 'state.json') `
+            -AlertScript $alert -AlertLogPath $history | Out-Null
+        $rows = @(Get-Content -LiteralPath $history -Raw | ConvertFrom-Json)
+        $rows.Count | Should Be 1
+        $rows[0].kind | Should Be 'alert'
+        $rows[0].issues -join ';' | Should Match 'fixture scheduler unavailable'
+    }
 }

@@ -28,6 +28,8 @@ const tone = {
     fail: 'bad',
     missed: 'bad',
     unreadable: 'bad',
+    alert: 'bad',
+    recovered: 'good',
 };
 const staleHeartbeatMs = 10 * 60 * 1000;
 // One reader-facing name per kind of slot, whichever collector stored it.
@@ -210,6 +212,29 @@ function render(snapshot) {
             };
         }),
         'No runs in the last 7 days.'
+    );
+
+    const alerts = [...(snapshot.alerts ?? [])].sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+    days(
+        'alerts',
+        groupByDay(alerts, (row) => day(row.sentAt)).map(([date, rows]) => {
+            const raised = rows.filter((row) => row.kind === 'alert').length;
+            return {
+                date,
+                label: date === today ? `${showDate(date)} (today)` : showDate(date),
+                summary: [
+                    `${rows.length} notifications`,
+                    raised ? element('span', `${raised} alerts`, 'badge bad') : badge('recovered'),
+                ],
+                headers: [['Time'], ['Kind'], ['Issues', true]],
+                rows: rows.map((row) => [
+                    clock(row.sentAt),
+                    badge(row.kind),
+                    row.issues?.length ? row.issues.join(' ') : 'All checks healthy.',
+                ]),
+            };
+        }),
+        'No monitor notifications in the last 14 days.'
     );
 
     const audits = [...snapshot.audits].sort(

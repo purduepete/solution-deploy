@@ -105,6 +105,18 @@ $audits = foreach ($source in @(
     }
 }
 
+$alertPath = Join-Path (Split-Path -Parent $OutputPath) 'collector-alerts.json'
+$alertCutoff = (Get-Date).AddDays(-$AuditDays)
+$alerts = @()
+if (Test-Path -LiteralPath $alertPath) {
+    # Alert history is written by the monitor; an unreadable file is not a collector error.
+    try {
+        $alerts = @(Get-Content -LiteralPath $alertPath -Raw | ConvertFrom-Json -ErrorAction Stop |
+                Where-Object { $_.sentAt -and [datetimeoffset]$_.sentAt -ge $alertCutoff })
+    }
+    catch { Write-Warning "Alert history unreadable: $($_.Exception.Message)" }
+}
+
 $snapshot = [ordered]@{
     schemaVersion = 1
     generatedAt = (Get-Date).ToString('o')
@@ -113,6 +125,7 @@ $snapshot = [ordered]@{
     runs = @($stock.runs) + @($options.runs)
     health = @($stock.health) + @($options.health)
     audits = @($audits)
+    alerts = @($alerts)
     errors = @($errors)
 }
 $folder = Split-Path -Parent $OutputPath

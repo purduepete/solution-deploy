@@ -68,6 +68,16 @@ full recovery sends another notification. A failed delivery does not mark the
 notification as sent. State is in `monitor\state.json`; a nonzero monitor result
 can mean it successfully reported an unhealthy collector or audit.
 
+Each sent notification is also appended to
+`apps\solution-deploy\data\collector-alerts.json` (14 days kept). The status
+snapshot copies it, and the Collectors page lists it under "Monitor alerts", so
+past alerts are visible without Pushover. A history write failure only warns.
+
+The earnings reference job waits each morning (about 05:00 to 05:02) for Azure's
+earnings rows. That scheduled wait used to exit 1 and caused 2 false alerts on
+10/24; it now exits 0, and a missed deadline still fails through the expired
+slot check (web-portfolio, after `fd39a205`).
+
 For a read-only evaluation without notifications or state changes:
 
 ```powershell

@@ -4,6 +4,9 @@ param(
     [string]$SnapshotPath = 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\collector-status.json',
     [string]$StatePath = 'C:\ProgramData\SolutionDeploy\monitor\state.json',
     [string]$AlertScript = 'C:\ProgramData\JimlerTech\PostgreSQL\Send-BackupAlert.ps1',
+    # Shown on the Collectors page; the LOCAL SERVICE snapshot builder can read this folder, not the monitor's.
+    [string]$AlertLogPath = 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\collector-alerts.json',
+    [int]$AlertLogDays = 14,
     [switch]$EvaluateOnly
 )
 $ErrorActionPreference = 'Stop'
@@ -80,6 +83,26 @@ if (($issues.Count -and ($changed -or $remind)) -or
     & $AlertScript -Title $title -Message $message
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Collector alert delivery failed.' }
     $lastNotification = (Get-Date).ToString('o')
+    # History is a convenience copy; failing to write it must not stop alerting.
+    try {
+        $history = @()
+        if (Test-Path -LiteralPath $AlertLogPath) {
+            try { $history = @(Get-Content -LiteralPath $AlertLogPath -Raw | ConvertFrom-Json -ErrorAction Stop) }
+            catch { Write-Warning "Alert history was unreadable and is being restarted: $($_.Exception.Message)" }
+        }
+        $since = [datetimeoffset]::Now.AddDays(-$AlertLogDays)
+        $history = @($history | Where-Object { $_.sentAt -and [datetimeoffset]$_.sentAt -ge $since })
+        $history += [ordered]@{
+            sentAt = $lastNotification
+            kind = if ($issues.Count) { 'alert' } else { 'recovered' }
+            title = $title
+            issues = @($issues)
+        }
+        $historyTemp = "$AlertLogPath.$PID.tmp"
+        ConvertTo-Json -InputObject @($history) -Depth 4 | Set-Content -LiteralPath $historyTemp -Encoding utf8NoBOM
+        Move-Item -LiteralPath $historyTemp -Destination $AlertLogPath -Force
+    }
+    catch { Write-Warning "Alert history could not be written: $($_.Exception.Message)" }
 }
 $record = [ordered]@{
     checkedLocal = (Get-Date).ToString('o')
