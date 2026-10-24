@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference='Stop'
 $root='C:\ProgramData\SolutionDeploy\apps\solution-deploy'
 $entry="$root\site\server.mjs"
-if(-not(Test-Path "$SourcePath\site\sites.json") -or -not(Test-Path $NodePath) -or -not(Test-Path -LiteralPath $PowerShellPath -PathType Leaf)){throw 'Source inventory, Node executable or managed PowerShell runtime is missing.'}
+if(-not(Test-Path "$SourcePath\site\sites.json") -or -not(Test-Path "$SourcePath\environments\releases.json") -or -not(Test-Path $NodePath) -or -not(Test-Path -LiteralPath $PowerShellPath -PathType Leaf)){throw 'Source site/release inventory, Node executable or managed PowerShell runtime is missing.'}
 $inventory=Get-Content "$SourcePath\site\sites.json" -Raw|ConvertFrom-Json
 if($inventory.host -ne $env:COMPUTERNAME.ToLowerInvariant()){throw 'Install on the inventory host only.'}
 $pidFile="$root\logs\server.pid"
@@ -36,7 +36,7 @@ if($listener){
     $owner=Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)"
     throw "Directory origin port is already in use by PID $($listener.OwningProcess): $($owner.CommandLine)"
 }
-New-Item -ItemType Directory -Path $root,"$root\site","$root\logs","$root\data" -Force|Out-Null
+New-Item -ItemType Directory -Path $root,"$root\site","$root\logs","$root\data","$root\environments" -Force|Out-Null
 & icacls.exe $root /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-19:(OI)(CI)RX'|Out-Null
 if($LASTEXITCODE){throw 'Directory root ACL failed.'}
 foreach($folder in "$root\logs","$root\data"){
@@ -44,6 +44,7 @@ foreach($folder in "$root\logs","$root\data"){
     if($LASTEXITCODE){throw "Directory ACL failed for $folder."}
 }
 Copy-Item "$SourcePath\site\*" "$root\site" -Force
+Copy-Item "$SourcePath\environments\releases.json" "$root\environments\releases.json" -Force
 Copy-Item "$SourcePath\scripts\Start-Directory.ps1" "$root\Start-Directory.ps1" -Force
 Copy-Item "$SourcePath\scripts\Update-CollectorStatus.ps1" "$root\Update-CollectorStatus.ps1" -Force
 $pwsh=$PowerShellPath

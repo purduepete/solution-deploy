@@ -38,6 +38,17 @@ in the release inventory. Shared finance launcher consumers are Web Portfolio
 and Web Options; changing the template does not silently update either
 installed per-app copy.
 
+The Solution Directory shows a Deployment section on every solution card.
+Its label describes release support, not uptime. Expand Deployment Details
+for components/jobs, recorded version evidence, procedure blockers and source
+links. Search includes those details even while collapsed.
+The read-only `/deployments.json` endpoint publishes an explicit subset of
+`environments\releases.json`, not raw host configuration, task actions or
+release requests. This is maintained inventory, not a live deployment check.
+Directory installation copies the release inventory alongside the site.
+After updating that inventory or the site's cached assets, restart the directory
+through its existing task; no additional collector or database is involved.
+
 For Fit Track's first release, select the whole web component explicitly:
 
 ```powershell

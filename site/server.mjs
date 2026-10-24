@@ -18,13 +18,63 @@ const files = new Map([
 
 // Written every 5 minutes by scripts/Update-CollectorStatus.ps1, so it is read per request, never cached.
 const defaultStatusPath = fileURLToPath(new URL('../data/collector-status.json', import.meta.url));
+const defaultReleaseInventoryPath = fileURLToPath(new URL('../environments/releases.json', import.meta.url));
 
-export function createServer({ statusPath = process.env.COLLECTOR_STATUS_PATH || defaultStatusPath } = {}) {
+export function publicDeployments(releases, inventory) {
+    const methods = {
+        controller: ['Controller Release', 'The existing protected controller runs the complete routine release.'],
+        'fit-track': ['App-Specific Release', 'Full frontend/backend release through the common Release command.'],
+        blocked: ['Procedure Unverified', 'The common release procedure is not yet verified for this solution.'],
+        manual: ['Manual Update', 'This installation uses a manual or distribution update, not a Git release.'],
+    };
+    return {
+        scope: 'Maintained deployment inventory, not a live deployment check.',
+        solutions: inventory.sites.map(({ id }) => {
+            const entry = releases.apps?.[id];
+            const method = methods[entry?.procedure];
+            if (
+                !method ||
+                !Array.isArray(entry.components) ||
+                !entry.components.length ||
+                !entry.components.every((name) => typeof name === 'string' && name.trim()) ||
+                typeof entry.versionEvidence !== 'string' ||
+                !entry.versionEvidence.trim() ||
+                (['blocked', 'manual'].includes(entry.procedure) && !entry.blocker?.trim())
+            )
+                throw new Error(`Deployment inventory is incomplete for ${id}.`);
+            // Explicit public fields only. Never publish internal paths, secrets, task actions or release requests.
+            return {
+                id,
+                support: method[0],
+                method: method[1],
+                components: entry.components,
+                versionEvidence: entry.versionEvidence,
+                blocker: entry.blocker || null,
+                componentNote: entry.watcherBlocker || null,
+                explicitComponents: entry.explicitComponents === true,
+                privateOnly: entry.privateOnly === true,
+                repository: entry.procedure === 'manual' ? null : `https://github.com/purduepete/${id}`,
+                procedureUrl:
+                    'https://github.com/purduepete/solution-deploy/blob/main/docs/Deployment.md#one-entry-point-existing-procedures',
+            };
+        }),
+    };
+}
+
+export function createServer({
+    statusPath = process.env.COLLECTOR_STATUS_PATH || defaultStatusPath,
+    releaseInventoryPath = defaultReleaseInventoryPath,
+} = {}) {
     const content = new Map(
         [...files].map(([url, [name, type]]) => [url, { body: readFileSync(new URL(name, import.meta.url)), type }])
     );
     const inventory = JSON.parse(content.get('/sites.json').body);
     if (!Array.isArray(inventory.sites) || !inventory.sites.length) throw new Error('Inventory has no sites.');
+    const deployments = publicDeployments(JSON.parse(readFileSync(releaseInventoryPath, 'utf8')), inventory);
+    content.set('/deployments.json', {
+        body: Buffer.from(JSON.stringify(deployments)),
+        type: 'application/json; charset=utf-8',
+    });
     return http.createServer(async (req, res) => {
         res.setHeader(
             'Content-Security-Policy',

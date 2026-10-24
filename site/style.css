@@ -259,6 +259,42 @@ article {
     padding-top: 14px;
     margin-top: 16px;
 }
+.deployment {
+    border-top: 1px solid var(--line);
+    margin-top: 16px;
+    padding-top: 14px;
+    font-size: 14px;
+    overflow-wrap: anywhere;
+}
+.deployment-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+}
+.deployment-heading h3 {
+    margin: 0;
+}
+.deployment summary {
+    cursor: pointer;
+    color: var(--accent);
+    padding: 4px 0;
+}
+.deployment-body {
+    padding-top: 10px;
+}
+.deployment-body ul {
+    padding-left: 20px;
+    margin: 4px 0 12px;
+}
+.deployment-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 20px;
+    margin-top: 16px;
+}
 footer {
     font-size: 13px;
     margin-top: 32px;

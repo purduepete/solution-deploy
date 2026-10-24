@@ -4,8 +4,108 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer } from '../site/server.mjs';
+import { createServer, publicDeployments } from '../site/server.mjs';
 import { runInNewContext } from 'node:vm';
+
+test('deployment information covers every solution and exposes only public fields', () => {
+    const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
+    const releases = JSON.parse(readFileSync(new URL('../environments/releases.json', import.meta.url)));
+    releases.apps.pgweb.connectionString = 'PRIVATE_SENTINEL';
+    releases.apps.pgweb.taskAction = 'PRIVATE_SENTINEL';
+    const result = publicDeployments(releases, inventory);
+    assert.equal(result.solutions.length, 14);
+    assert.deepEqual(result.solutions.map((entry) => entry.id).sort(), inventory.sites.map((entry) => entry.id).sort());
+    assert.match(result.scope, /not a live deployment check/);
+    assert(!JSON.stringify(result).includes('PRIVATE_SENTINEL'));
+    assert(!JSON.stringify(result).includes('C:\\\\'));
+    for (const entry of result.solutions) {
+        assert.deepEqual(Object.keys(entry).sort(), [
+            'blocker',
+            'componentNote',
+            'components',
+            'explicitComponents',
+            'id',
+            'method',
+            'privateOnly',
+            'procedureUrl',
+            'repository',
+            'support',
+            'versionEvidence',
+        ]);
+        assert(entry.versionEvidence.trim());
+        assert(entry.components.length);
+    }
+    assert.equal(result.solutions.find((entry) => entry.id === 'team-scoreboard').support, 'Controller Release');
+    assert.equal(result.solutions.find((entry) => entry.id === 'fit-track').support, 'App-Specific Release');
+    assert.equal(result.solutions.find((entry) => entry.id === 'web-portfolio').support, 'Procedure Unverified');
+    for (const id of ['ride-and-lift', 'pgweb']) {
+        const entry = result.solutions.find((solution) => solution.id === id);
+        assert.equal(entry.support, 'Manual Update');
+        assert.equal(entry.privateOnly, true);
+        assert.equal(entry.repository, null);
+    }
+    delete releases.apps.plex;
+    assert.throws(() => publicDeployments(releases, inventory), /incomplete for plex/);
+});
+
+test('deployment sections use accessible disclosures and render recorded evidence as text', () => {
+    const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
+    const code = source.slice(
+        source.indexOf('function deploymentSection('),
+        source.indexOf('\nasync function loadDeployments(')
+    );
+    const element = (tag, text, className) => ({
+        tag,
+        text,
+        className,
+        children: [],
+        append(...children) {
+            this.children.push(...children);
+        },
+    });
+    const render = runInNewContext(`${code}\ndeploymentSection`, { element });
+    const section = render({
+        support: 'Procedure Unverified',
+        method: 'A recorded procedure',
+        components: ['web', 'stock-collector'],
+        versionEvidence: '<img src=x onerror=alert(1)>',
+        blocker: 'Verify the publisher',
+        componentNote: 'Preserve the watcher',
+        privateOnly: true,
+        explicitComponents: true,
+        procedureUrl: 'https://github.com/purduepete/solution-deploy',
+    });
+    assert.equal(section.tag, 'section');
+    const details = section.children[1];
+    assert.equal(details.tag, 'details');
+    assert.equal(details.children[0].tag, 'summary');
+    const flatten = (node) => [node, ...node.children.flatMap(flatten)];
+    const nodes = flatten(section);
+    assert(nodes.some((node) => node.text === 'Procedure Unverified'));
+    assert(nodes.some((node) => node.text === 'Stock Collector'));
+    assert(nodes.some((node) => node.text === '<img src=x onerror=alert(1)>'));
+    assert(nodes.some((node) => node.text === 'Verify the publisher'));
+    assert(nodes.some((node) => node.text?.includes('Private-only')));
+    assert.match(source, /card\.textContent/);
+    assert.doesNotMatch(source, /innerHTML/);
+});
+
+test('deployment fetch failures are visible and preserve site-link loading', async () => {
+    const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
+    const code = source.slice(
+        source.indexOf('async function loadDeployments('),
+        source.indexOf('\nasync function load()')
+    );
+    const banner = { textContent: '', hidden: true };
+    const load = runInNewContext(`${code}\nloadDeployments`, {
+        fetch: async () => ({ ok: false, status: 503 }),
+        document: { getElementById: () => banner },
+        console: { error() {} },
+    });
+    assert.equal(await load(), null);
+    assert.equal(banner.hidden, false);
+    assert.match(banner.textContent, /HTTP 503.*Site links remain available/);
+});
 
 test('history ranges include today and exactly the selected number of calendar days', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
@@ -196,6 +296,7 @@ test('server exposes only fixed read-only assets with protective headers', async
             '/collectors',
             '/collectors.js',
             '/sites.json',
+            '/deployments.json',
             '/favicon.svg',
             '/apple-touch-icon.png',
             '/health',
@@ -209,6 +310,9 @@ test('server exposes only fixed read-only assets with protective headers', async
         }
         assert.equal((await get('/sites.json', 'HEAD')).statusCode, 200);
         assert.equal((await get('/sites.json', 'POST')).statusCode, 405);
+        assert.equal((await get('/deployments.json', 'HEAD')).statusCode, 200);
+        assert.equal((await get('/deployments.json', 'POST')).statusCode, 405);
+        assert.equal((await get('/environments/releases.json')).statusCode, 404);
         assert.equal((await get('/server.mjs')).statusCode, 404);
         assert.equal((await get('/%2e%2e/README.md')).statusCode, 404);
         assert.equal((await get('/.env')).statusCode, 404);

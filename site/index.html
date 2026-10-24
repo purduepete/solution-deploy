@@ -25,7 +25,7 @@
             <div>
                 <p class="eyebrow">Solution Directory</p>
                 <h1>jimbrownhome1</h1>
-                <p class="intro">Your hosted sites, access paths and data sources.</p>
+                <p class="intro">Your hosted sites, access paths, data sources and deployment procedures.</p>
             </div>
             <div class="theme-setting">
                 <span id="theme-label">Theme</span>
@@ -126,15 +126,21 @@
                     connects to a database.
                 </p>
                 <p><a href="/collectors">Collectors</a> shows when the market data jobs run and the nightly audits.</p>
+                <p>
+                    Each site's Deployment section shows its release procedure and recorded version evidence. Release
+                    support describes the procedure, not the site's health. This is maintained information, not a live
+                    deployment check.
+                </p>
             </section>
             <div class="toolbar">
                 <label for="search"
                     >Find a site
-                    <input id="search" type="search" placeholder="Name, purpose, database or URL" autocomplete="off"
+                    <input id="search" type="search" placeholder="Name, deployment, database or URL" autocomplete="off"
                 /></label>
                 <p id="summary" role="status">Loading inventory...</p>
             </div>
             <p id="error" role="alert" hidden></p>
+            <p id="deployment-error" role="alert" hidden></p>
             <div id="sites"></div>
             <p id="empty" hidden>No matching sites.</p>
             <footer>
