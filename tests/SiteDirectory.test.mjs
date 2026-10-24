@@ -100,6 +100,40 @@ test('deployment sections use accessible disclosures and render recorded evidenc
     assert.doesNotMatch(source, /innerHTML/);
 });
 
+test('site sorting supports alphabetical and newest deployment order', () => {
+    const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
+    const code = source.slice(
+        source.indexOf('function compareSites('),
+        source.indexOf('\nasync function loadDeployments()')
+    );
+    const compareSites = runInNewContext(`${code}\ncompareSites`);
+    const sites = [
+        { id: 'zulu', name: 'Zulu' },
+        { id: 'alpha', name: 'Alpha' },
+        { id: 'beta', name: 'Beta' },
+        { id: 'gamma', name: 'Gamma' },
+    ];
+    const deployments = new Map([
+        ['zulu', { lastRelease: { completed: '2026-10-20T12:00:00.000Z' } }],
+        ['alpha', { lastRelease: { completed: '2026-10-24T12:00:00.000Z' } }],
+        ['beta', { lastRelease: null }],
+        ['gamma', { lastRelease: { completed: '2026-10-24T12:00:00.000Z' } }],
+    ]);
+    assert.deepEqual(
+        sites.toSorted((a, b) => compareSites(a, b, 'alphabetical', deployments)).map((site) => site.name),
+        ['Alpha', 'Beta', 'Gamma', 'Zulu']
+    );
+    assert.deepEqual(
+        sites.toSorted((a, b) => compareSites(a, b, 'deployment-date', deployments)).map((site) => site.name),
+        ['Alpha', 'Gamma', 'Zulu', 'Beta']
+    );
+    const page = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
+    assert.match(page, /id="sort-alpha"[\s\S]*?aria-pressed="true"[\s\S]*?data-sort-mode="alphabetical"/);
+    assert.match(page, /id="sort-deployment"[\s\S]*?aria-pressed="false"[\s\S]*?data-sort-mode="deployment-date"/);
+    assert.match(page, /aria-label="Sort by deployment date, newest first"/);
+    assert.doesNotMatch(page, /<(select|datalist)\b/i);
+});
+
 test('deployment fetch failures are visible and preserve site-link loading', async () => {
     const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
     const code = source.slice(

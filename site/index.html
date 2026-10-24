@@ -137,7 +137,42 @@
                     >Find a site
                     <input id="search" type="search" placeholder="Name, deployment, database or URL" autocomplete="off"
                 /></label>
-                <p id="summary" role="status">Loading inventory...</p>
+                <div class="toolbar-actions">
+                    <p id="summary" role="status">Loading inventory...</p>
+                    <div class="sort-setting" role="group" aria-label="Sort sites">
+                        <button
+                            id="sort-alpha"
+                            class="sort-option"
+                            type="button"
+                            aria-label="Sort alphabetically, A to Z"
+                            aria-pressed="true"
+                            data-sort-mode="alphabetical"
+                        >
+                            A-Z
+                        </button>
+                        <button
+                            id="sort-deployment"
+                            class="sort-option"
+                            type="button"
+                            aria-label="Sort by deployment date, newest first"
+                            aria-pressed="false"
+                            data-sort-mode="deployment-date"
+                        >
+                            <svg
+                                aria-hidden="true"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <rect x="3" y="5" width="18" height="16" rx="2" />
+                                <path d="M16 3v4M8 3v4M3 11h18" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
             </div>
             <p id="error" role="alert" hidden></p>
             <p id="deployment-error" role="alert" hidden></p>

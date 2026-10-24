@@ -74,6 +74,6 @@ firewall rule. The private path relies on Tailscale access controls.
 - Server: Node built-ins only, no packages, fixed read-only asset routes.
 
 Dark/light themes follow the system until toggled, then retain the selected theme.
-Sites are displayed alphabetically by name. Search includes purpose, URLs,
-database names and notes. The page allows embedding
+Sites can be sorted alphabetically by name or by deployment date, newest first.
+Search includes purpose, URLs, database names and notes. The page allows embedding
 only by itself or the public/private SiteDock origins.

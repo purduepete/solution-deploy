@@ -5,7 +5,11 @@ default. System follows OS changes live; fixed choices stay fixed. Preferences
 persist in `solution-deploy-theme` as `system`, `light` or `midnight`. A saved
 legacy `dark` choice resolves to Midnight.
 
-The menu uses radio-menu semantics and a stroke checkmark for the saved choice.
+The compact sort control uses an A-Z button for alphabetical order and a calendar
+button for deployment date, newest first. Alphabetical order is the default.
+Sites without a recorded release date appear after dated sites.
+
+The Theme menu uses radio-menu semantics and a stroke checkmark for the saved choice.
 Enter or Space opens the menu and selects the focused choice. Arrow keys move
 between choices; Home and End jump to the first and last. Escape dismisses the
 menu and returns focus to its button. Tab or Shift+Tab dismisses it and continues

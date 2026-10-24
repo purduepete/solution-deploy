@@ -66,6 +66,18 @@ function releaseTime(value) {
     return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function compareSites(a, b, sortMode, deployments) {
+    if (sortMode === 'deployment-date') {
+        const aDate = Date.parse(deployments.get(a.id)?.lastRelease?.completed ?? '');
+        const bDate = Date.parse(deployments.get(b.id)?.lastRelease?.completed ?? '');
+        const aHasDate = Number.isFinite(aDate);
+        const bHasDate = Number.isFinite(bDate);
+        if (aHasDate !== bHasDate) return aHasDate ? -1 : 1;
+        if (aHasDate && bHasDate && aDate !== bDate) return bDate - aDate;
+    }
+    return a.name.localeCompare(b.name);
+}
+
 async function loadDeployments() {
     try {
         const response = await fetch('/deployments.json', { cache: 'no-store' });
@@ -89,62 +101,79 @@ async function load() {
     const inventory = await response.json();
     if (!Array.isArray(inventory.sites) || !inventory.sites.length) throw new Error('Inventory has no sites.');
     const root = document.getElementById('sites');
-    const cards = inventory.sites
-        .sort((a, b) => a.name.localeCompare(b.name))
-        .map((site) => {
-            const card = element('article');
-            card.append(
-                element('p', inventory.host, 'host'),
-                element('h2', site.name),
-                element('p', site.purpose, 'purpose')
-            );
-            const links = element('dl', undefined, 'links');
-            for (const [label, field] of [
-                ['Cloudflare', 'cloudflareUrl'],
-                ['Tailscale', 'tailscaleUrl'],
-                ['Local LAN', 'localUrl'],
-            ]) {
-                if (!site[field]) continue;
-                const url = new URL(site[field]);
-                if (!['http:', 'https:'].includes(url.protocol))
-                    throw new Error(`Invalid ${label} URL for ${site.id}.`);
-                const value = element('dd');
-                const link = element('a', site[field]);
-                link.href = url.href;
-                value.append(link);
-                links.append(element('dt', label), value);
-            }
-            const data = element('div', undefined, 'data');
-            data.append(
-                element('h3', 'Current database / storage'),
-                element('p', site.database),
-                element('h3', 'Original source / retained dependency'),
-                element('p', site.sourceDatabase)
-            );
-            card.append(links, data, element('p', site.notes, 'notes'));
-            const deployment = deployments?.get(site.id);
-            if (deployments && !deployment) throw new Error(`Deployment information missing for ${site.name}.`);
-            if (deployment) card.append(deploymentSection(deployment));
-            else card.append(element('p', 'Deployment information unavailable.', 'notes'));
-            root.append(card);
-            return {
-                card,
-                text: `${Object.values(site).join(' ')} ${card.textContent}`.toLowerCase(),
-            };
-        });
+    const sites = inventory.sites.map((site) => {
+        const card = element('article');
+        card.append(
+            element('p', inventory.host, 'host'),
+            element('h2', site.name),
+            element('p', site.purpose, 'purpose')
+        );
+        const links = element('dl', undefined, 'links');
+        for (const [label, field] of [
+            ['Cloudflare', 'cloudflareUrl'],
+            ['Tailscale', 'tailscaleUrl'],
+            ['Local LAN', 'localUrl'],
+        ]) {
+            if (!site[field]) continue;
+            const url = new URL(site[field]);
+            if (!['http:', 'https:'].includes(url.protocol)) throw new Error(`Invalid ${label} URL for ${site.id}.`);
+            const value = element('dd');
+            const link = element('a', site[field]);
+            link.href = url.href;
+            value.append(link);
+            links.append(element('dt', label), value);
+        }
+        const data = element('div', undefined, 'data');
+        data.append(
+            element('h3', 'Current database / storage'),
+            element('p', site.database),
+            element('h3', 'Original source / retained dependency'),
+            element('p', site.sourceDatabase)
+        );
+        card.append(links, data, element('p', site.notes, 'notes'));
+        const deployment = deployments?.get(site.id);
+        if (deployments && !deployment) throw new Error(`Deployment information missing for ${site.name}.`);
+        if (deployment) card.append(deploymentSection(deployment));
+        else card.append(element('p', 'Deployment information unavailable.', 'notes'));
+        return {
+            site,
+            card,
+            text: `${Object.values(site).join(' ')} ${card.textContent}`.toLowerCase(),
+        };
+    });
+    const sortOptions = [...document.querySelectorAll('.sort-option')];
+    let sortMode = 'alphabetical';
+    const deploymentInfo = deployments ?? new Map();
+    const renderCards = () => {
+        root.replaceChildren(
+            ...sites.sort((a, b) => compareSites(a.site, b.site, sortMode, deploymentInfo)).map(({ card }) => card)
+        );
+    };
     const [year, month, day] = inventory.updated.split('-');
     document.getElementById('updated').textContent = `Inventory updated ${month}/${day}/${year}.`;
     const filter = () => {
         const query = document.getElementById('search').value.trim().toLowerCase();
         let visible = 0;
-        for (const { card, text } of cards) {
+        for (const { card, text } of sites) {
             card.hidden = !text.includes(query);
             if (!card.hidden) visible++;
         }
-        document.getElementById('summary').textContent = `${visible} of ${cards.length} sites`;
+        document.getElementById('summary').textContent = `${visible} of ${sites.length} sites`;
         document.getElementById('empty').hidden = visible !== 0;
     };
+    const setSortMode = (mode) => {
+        sortMode = mode;
+        sortOptions.forEach((option) => {
+            option.setAttribute('aria-pressed', String(option.dataset.sortMode === sortMode));
+        });
+        renderCards();
+        filter();
+    };
+    renderCards();
     document.getElementById('search').addEventListener('input', filter);
+    sortOptions.forEach((option) => {
+        option.addEventListener('click', () => setSortMode(option.dataset.sortMode));
+    });
     filter();
 }
 
