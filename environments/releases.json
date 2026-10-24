@@ -207,10 +207,14 @@
         "postgres-backup": ["scripts/Backup-Postgres.ps1"],
         "finance-launcher": ["scripts/Start-FinanceService.ps1"]
       },
+      "componentProcedures": {
+        "directory": "directory",
+        "collector-status": "directory"
+      },
       "consumers": {
         "finance-launcher": ["web-portfolio", "web-options"]
       },
-      "versionEvidence": "Directory, monitor and publisher have independent installed trees; backup is under ProgramData\\JimlerTech\\PostgreSQL",
+      "versionEvidence": "Directory and collector status publisher installed from the host clone by Install-Directory.ps1, matched file for file to commit 63ccad0 on 10/24/2026. Monitor has its own installed tree; backup is under ProgramData\\JimlerTech\\PostgreSQL",
       "tasks": [
         "SolutionDeploy-directory",
         "SolutionDeploy-collector-status",
@@ -225,7 +229,8 @@
         "backup retention",
         "finance per-app Start-Service copies"
       ],
-      "blocker": "Select a named component; establish its installed-file baseline and exact-commit publisher before enabling it. Finance launcher updates must name each affected per-app installed copy."
+      "blocker": "Collector monitor, LAN proxy, PostgreSQL backup and finance launcher: establish each installed-file baseline and exact-commit publisher before enabling it. Finance launcher updates must name each affected per-app installed copy.",
+      "componentNote": "Directory and collector-status release together with -Component directory: the host clone moves to the pushed commit and Install-Directory.ps1 reinstalls both."
     },
     "ride-and-lift": {
       "procedure": "manual",

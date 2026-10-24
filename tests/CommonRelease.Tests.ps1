@@ -50,6 +50,13 @@ Describe 'Common release inventory and routing' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component postgres-backup} '*baseline*'
         Assert-CommonThrows {Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component web} '*no-downtime*'
     }
+    It 'releases the directory and its status publisher together and blocks the other shared components' {
+        foreach($name in 'directory','collector-status'){
+            (Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component $name).procedure|Should Be directory
+        }
+        (Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component directory,collector-status).procedure|Should Be directory
+        Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component directory,lan-proxy} '*lan-proxy release blocked*'
+    }
     It 'routes hand-placed web apps and sends Web Options jobs to the pinned-job procedure' {
         foreach($app in @('web-bookmarks','work-log','web-inventory','plex','web-options')){
             $route=Get-CommonReleaseRoute -App $app -Target jimbrownhome1
@@ -360,5 +367,32 @@ Describe 'Pinned-job release boundaries' {
         Set-Content "$installed\scripts\Extra.ps1" 'exit 1'
         Set-Content "$installed\collector\run.py" 'print(2)'
         (@(Compare-PinnedJobTree (Get-PinnedJobTree $built) (Get-PinnedJobTree $installed)) -join ',')|Should Be 'collector\run.py,scripts\Extra.ps1'
+    }
+}
+Describe 'Directory release boundaries' {
+    Import-Module (Join-Path $root 'src\DirectoryRelease.psm1') -Force -DisableNameChecking
+    It 'compares exactly the files Install-Directory.ps1 copies' {
+        $installer=Get-Content (Join-Path $root 'scripts\Install-Directory.ps1') -Raw
+        $copies=@([regex]::Matches($installer,'Copy-Item "\$SourcePath\\([^"]+)"')|ForEach-Object {$_.Groups[1].Value})
+        ($copies -join ',')|Should Be 'site\*,environments\releases.json,scripts\Start-Directory.ps1,scripts\Update-CollectorStatus.ps1'
+        $map=Get-DirectoryInstallMap $root
+        @($map.Keys|Where-Object {$_ -like 'site\*'}).Count|Should Be @(Get-ChildItem (Join-Path $root 'site') -File).Count
+        foreach($key in 'environments\releases.json','Start-Directory.ps1','Update-CollectorStatus.ps1'){$map.Contains($key)|Should Be $true}
+    }
+    It 'reports missing and changed installed files but ignores line endings' {
+        $source=Join-Path $TestDrive 'source'
+        New-Item -ItemType Directory "$source\site","$source\environments","$source\scripts" -Force|Out-Null
+        Set-Content "$source\site\app.js" "a`n" -NoNewline
+        Set-Content "$source\site\empty.txt" '' -NoNewline
+        Set-Content "$source\environments\releases.json" '{}'
+        Set-Content "$source\scripts\Start-Directory.ps1" 'exit 0'
+        Set-Content "$source\scripts\Update-CollectorStatus.ps1" 'exit 0'
+        $installed=Join-Path $TestDrive 'installed'
+        New-Item -ItemType Directory "$installed\site","$installed\environments" -Force|Out-Null
+        Set-Content "$installed\site\app.js" "a`r`n" -NoNewline
+        Set-Content "$installed\site\empty.txt" '' -NoNewline
+        Set-Content "$installed\environments\releases.json" '{"x":1}'
+        Copy-Item "$source\scripts\Start-Directory.ps1" $installed
+        (@(Compare-DirectoryInstall (Get-DirectoryInstallMap $source) $installed) -join ',')|Should Be 'environments\releases.json,Update-CollectorStatus.ps1'
     }
 }

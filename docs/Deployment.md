@@ -23,16 +23,17 @@ controller and other apps to a verified app-specific procedure. The
 background components. It is separate from `production.json`: appearing in the
 inventory does not grant placement authority or enable deployment.
 
-| Apps/components                                                                                        | Current release support                                                                                                                                                                                                   |
-| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                                             | Existing complete controller sequence, unchanged                                                                                                                                                                          |
-| Fit Track web (frontend, backend and in-process Strava sync)                                           | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
-| Fit Track upload watcher                                                                               | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
-| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options web                                          | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
-| Web Options collector and audit, Web Portfolio stock collector and audit                               | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                                                          |
-| Web Portfolio web                                                                                      | Inventoried with live version evidence and an explicit procedure blocker; no migration/provisioning scripts called                                                                                                        |
-| Solution Directory, collector monitor/publisher, LAN proxy, PostgreSQL backup, shared finance launcher | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
-| Ride and Lift, pgweb                                                                                   | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
+| Apps/components                                                          | Current release support                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ferry Tracker, Home Automation, Site Dock, Team Scoreboard               | Existing complete controller sequence, unchanged                                                                                                                                                                          |
+| Fit Track web (frontend, backend and in-process Strava sync)             | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
+| Fit Track upload watcher                                                 | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
+| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options web            | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
+| Web Options collector and audit, Web Portfolio stock collector and audit | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                                                          |
+| Web Portfolio web                                                        | Inventoried with live version evidence and an explicit procedure blocker; no migration/provisioning scripts called                                                                                                        |
+| Solution Directory and collector status publisher                        | Directory release: fast-forward the host clone to the pushed commit, run `Install-Directory.ps1`, compare installed files, check both access paths                                                                        |
+| Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
+| Ride and Lift, pgweb                                                     | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
 
 The access URLs and reserved Tailscale HTTPS ports stay in `site\sites.json`.
 Task names, source locations, mutable paths and version evidence are recorded
@@ -205,6 +206,22 @@ Verified on 10/24/2026 (local): a rewrite of the same action on
 settings, and its next run returned 0. Both components returned `NoChanges`
 against `origin/main` (14 s and 17 s). The folder swap has not run live yet,
 since no collector change is waiting.
+
+### Directory release (Solution Directory and collector status)
+
+```powershell
+.\Deploy.ps1 -Action Release -App solution-deploy -Component directory -Target jimbrownhome1 -Commit origin/main -ApproveRelease -ApprovalReason '...' -DatabaseChangesReviewed
+```
+
+`-Component collector-status` runs the same release, because one installer
+publishes both. The release checks that the installed files match the host
+clone at `C:\Files\Dev\main\solution-deploy`, fast-forwards that clone to the
+pushed commit, and returns `NoChanges` when no installed file would change.
+Otherwise it runs `scripts\Install-Directory.ps1` on the host, compares the
+installed files with the commit again, and checks Tailscale `/health` plus the
+Cloudflare Access redirect. The directory is down for about 10 seconds while
+the installer restarts it. A retry of the same commit is allowed after a failed
+install. Files removed from `site` stay installed; delete them by hand.
 
 ### Existing controller sequence
 

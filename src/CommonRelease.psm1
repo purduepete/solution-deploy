@@ -31,8 +31,17 @@ function Get-CommonReleaseRoute {
     $jobNames=@($selected|Where-Object {$jobs.ContainsKey($_)})
     $webNames=@($selected|Where-Object {-not $jobs.ContainsKey($_)})
     $procedure=$entry.procedure
+    $byComponent=if($entry.ContainsKey('componentProcedures')){$entry.componentProcedures}else{@{}}
+    $routed=@($webNames|Where-Object {$byComponent.ContainsKey($_)})
+    if($routed.Count){
+        $held=@($webNames|Where-Object {-not $byComponent.ContainsKey($_)})
+        if($held.Count){throw "$App $($held -join ', ') release blocked: $($entry.blocker)"}
+        $distinct=@($routed|ForEach-Object {$byComponent[$_]}|Select-Object -Unique)
+        if($distinct.Count -ne 1){throw "$App components $($routed -join ', ') use different procedures; release them separately."}
+        $procedure=$distinct[0]
+    }
     if(-not $webNames.Count){$procedure='none'}
-    elseif($entry.procedure -in @('blocked','manual')){
+    elseif($procedure -in @('blocked','manual')){
         if($Component -or -not $jobNames.Count){throw "$App release blocked: $($entry.blocker)"}
         Write-Warning "$App $($webNames -join ', ') not released: $($entry.blocker)"
         $procedure='none'
@@ -114,6 +123,12 @@ function Invoke-CommonWebRelease {
         Import-Module (Join-Path $PSScriptRoot 'HandPlacedRelease.psm1') -DisableNameChecking
         $Arguments.Entry=$Route.entry
         return Invoke-HandPlacedRelease @Arguments
+    }
+    if($Route.procedure -eq 'directory'){
+        Import-Module (Join-Path $PSScriptRoot 'DirectoryRelease.psm1') -DisableNameChecking
+        $directoryArguments=@{Repository=$Arguments.Repository;ApprovalReason=$Arguments.ApprovalReason}
+        foreach($key in 'Commit','OutputDirectory','TimeoutSeconds'){if($Arguments.ContainsKey($key)){$directoryArguments[$key]=$Arguments[$key]}}
+        return Invoke-DirectoryRelease @directoryArguments
     }
     if($Route.procedure -ne 'fit-track'){throw 'No implemented release procedure for this inventory entry.'}
     Import-Module (Join-Path $PSScriptRoot 'FitTrackRelease.psm1') -DisableNameChecking
