@@ -137,6 +137,14 @@ Do not change historical data, suppress sections or treat exit code zero as
 the only acceptance condition. Database-writing repairs need a separate
 exact-command independent review.
 
+On October 24, 2026 Jim approved making Options VADER and portfolio value
+mismatches and `missing_azure` rows informational (web-options `02db285`).
+Every report from 10/20 to 10/23 failed on them while coverage passed: local
+and Azure samples are 5 minutes apart (12:55 vs 12:50, 13:10 vs 13:15) against
+a 1-cent tolerance. The counts and examples stay in each report for the
+web-options#8 session review. Missing local data, coverage and degraded runs
+still fail.
+
 Immediate acceptance is a successful account-level file/runtime probe, unchanged
 healthy production task targets, fresh normal scheduled heartbeats, focused
 regression tests and actual notification delivery. Actual market capture and
