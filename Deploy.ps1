@@ -6,6 +6,7 @@ param(
     [string]$Environment='production',
     [string]$Target,
     [string]$Commit='HEAD',
+    [string[]]$Component,
     [string]$PlanPath,
     [string]$ApprovalPath,
     [string]$RuntimePath,
@@ -32,12 +33,13 @@ if ($Action -eq 'Release') {
     if ($PlanPath -or $ApprovalPath -or $Offline -or $RuntimePath -or $NpmPath -or $TransferDirectory -or $TransferArchivePath) {
         throw 'Release creates its own pinned plan and approvals using installed tools. Saved plans, offline mode, tool overrides and transfers are unsupported.'
     }
-    Import-Module (Join-Path $PSScriptRoot 'src\Release.psm1') -DisableNameChecking
-    Invoke-RoutineRelease -App $App -Environment $Environment -Target $Target -Commit $Commit `
+    Import-Module (Join-Path $PSScriptRoot 'src\CommonRelease.psm1') -DisableNameChecking
+    Invoke-CommonRelease -App $App -Component $Component -Environment $Environment -Target $Target -Commit $Commit `
         -ApproveRelease:$ApproveRelease -ApprovalReason $ApprovalReason -DatabaseChangesReviewed:$DatabaseChangesReviewed `
         -ExpiresLocal $ExpiresLocal -TailscaleUrl $TailscaleUrl -OutputDirectory $OutputDirectory -TimeoutSeconds $TimeoutSeconds
     return
 }
+if($Component){throw '-Component is supported only by -Action Release.'}
 if ($Action -eq 'Plan') {
     if (-not $App) { throw 'Plan requires -App.' }
     $plan = New-DeploymentPlan -App $App -Environment $Environment -Target $Target -Commit $Commit -Offline:$Offline

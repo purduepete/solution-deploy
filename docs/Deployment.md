@@ -15,6 +15,86 @@ flags from that request without asking for separate Stage, Preflight, Deploy or
 Verify approvals. Database-changing work still needs the independent review
 described below.
 
+### One entry point, existing procedures
+
+`Deploy.ps1 -Action Release` now routes registered apps to the existing protected
+controller and other apps to a verified app-specific procedure. The
+`environments\releases.json` inventory covers all 14 hosted sites and their
+background components. It is separate from `production.json`: appearing in the
+inventory does not grant placement authority or enable deployment.
+
+| Apps/components                                                                                        | Current release support                                                                                                                                                                                                   |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                                             | Existing complete controller sequence, unchanged                                                                                                                                                                          |
+| Fit Track web (frontend, backend and in-process Strava sync)                                           | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
+| Fit Track upload watcher                                                                               | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
+| Web Bookmarks, Plex, Work Log, Web Inventory, Web Portfolio, Web Options                               | Inventoried with live version evidence and explicit procedure blockers; no migration/provisioning scripts called                                                                                                          |
+| Solution Directory, collector monitor/publisher, LAN proxy, PostgreSQL backup, shared finance launcher | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
+| Ride and Lift, pgweb                                                                                   | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
+
+The access URLs and reserved Tailscale HTTPS ports stay in `site\sites.json`.
+Task names, source locations, mutable paths and version evidence are recorded
+in the release inventory. Shared finance launcher consumers are Web Portfolio
+and Web Options; changing the template does not silently update either
+installed per-app copy.
+
+For Fit Track's first release, select the whole web component explicitly:
+
+```powershell
+& C:\Files\Dev\main\solution-deploy\Deploy.ps1 -Action Release `
+    -App fit-track -Target jimbrownhome1 -Component web `
+    -Commit HEAD -ApproveRelease -ApprovalReason 'Establish full web release baseline' `
+    -DatabaseChangesReviewed
+```
+
+This is a full frontend/backend release, not a frontend-only copy. It establishes
+an exact web baseline in `state\common-release.json` without pretending the old
+mixed-version directory was a single commit. Later releases can omit
+`-Component`: declared web paths are compared between that deployed commit and
+the requested commit. Watcher files are compared separately, with line endings
+normalized for the original copied tree. Selecting `web` never republishes the
+watcher. Selecting an unchanged `upload-watcher` reports source verification
+only and performs no upload. Changed watcher source is an explicit blocker,
+not a successful skip.
+
+The Fit Track procedure fetches origin, requires a clean source checkout and a
+pushed immutable commit, exports it, builds the frontend locally, then prepares
+a complete new release and Python virtual environment at their final host path.
+Preparation happens while the current service remains available. The payload
+contains the exact source archive plus that frontend build; source and payload
+hashes are recorded separately. A first full release does not need a fabricated
+prior commit.
+
+Before downtime, it checks host identity, the current junction and active
+metadata, installed application files, interpreter, boot task, watcher source
+and watcher task configuration. The manifest and database inputs must match the
+current installation. It executes no importer, schema migration or data-fix
+script. The existing app's normal background writes resume when its watchdog
+starts it.
+
+Activation reuses `Stop-ManagedApp`, `Set-ActiveRelease` and the existing
+dedicated-account scheduled task. No task is reinstalled or rescheduled.
+Secrets, shared data and the watcher tree are not copied or changed. Runtime
+success requires both process ownership and the JSON readiness probe; final
+acceptance also requires Tailscale readiness and the public Cloudflare Access
+redirect. The procedure changes no routes or authentication.
+
+Local `releases\fit-track-<id>\release.json` under the output directory records
+preparation, host phases, component results and external acceptance. Host
+requests and phase results are retained in the app's `state\routine\<id>`
+directory. The release directory contains its sealed file inventory. Failures
+remain failed, even after activation; inspect the active junction, maintenance
+flag and phase results before recovery. Old releases are retained. No automatic
+rollback runs after possible application writes. `NoChanges` means source
+comparison and access checks only; it is not a fresh runtime attestation.
+
+Shared jobs use `-App solution-deploy -Component <name>`, for example
+`collector-monitor` or `postgres-backup`. Unknown, unverified and distribution-only
+routes fail before preparing or stopping an application. Existing controller
+apps reject `-Component`, preserving their complete managed release scope.
+
+### Existing controller sequence
+
 After reviewing the application change, use one command from any working directory:
 
 ```powershell

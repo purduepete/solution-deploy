@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 1,
+  "host": "jimbrownhome1",
+  "defaultAppRoot": "C:\\ProgramData\\SolutionDeploy\\apps\\<id>",
+  "accessInventory": "site\\sites.json",
+  "taskFolder": "\\JimlerTech\\",
+  "apps": {
+    "ferry-tracker": {
+      "procedure": "controller",
+      "source": "..\\ferry-tracker",
+      "components": ["web", "capture"],
+      "versionEvidence": "Protected state\\active.json and release.json",
+      "tasks": ["SolutionDeploy-ferry-tracker"],
+      "preserve": ["shared", "PostgreSQL ferry_tracker"]
+    },
+    "home-automation": {
+      "procedure": "controller",
+      "source": "..\\home-automation",
+      "components": ["web", "automation"],
+      "versionEvidence": "Protected state\\active.json and release.json",
+      "tasks": ["SolutionDeploy-home-automation"],
+      "preserve": ["shared", "PostgreSQL home_automation"]
+    },
+    "site-dock": {
+      "procedure": "controller",
+      "source": "..\\site-dock",
+      "components": ["web"],
+      "versionEvidence": "Protected state\\active.json and release.json",
+      "tasks": ["SolutionDeploy-site-dock"],
+      "preserve": ["shared", "PostgreSQL site_dock"]
+    },
+    "team-scoreboard": {
+      "procedure": "controller",
+      "source": "..\\team-scoreboard",
+      "components": ["web"],
+      "versionEvidence": "Protected state\\active.json and release.json",
+      "tasks": ["SolutionDeploy-team-scoreboard"],
+      "preserve": ["shared", "PostgreSQL team_scoreboard"]
+    },
+    "fit-track": {
+      "procedure": "fit-track",
+      "source": "..\\fit-track",
+      "target": "jimbrownhome1",
+      "components": ["web", "upload-watcher"],
+      "componentPaths": {
+        "web": ["frontend", "backend/app", "backend/requirements.txt", "deploy"],
+        "upload-watcher": [
+          "backend/scripts/Watch-Upload.ps1",
+          "backend/scripts/run-watcher-hidden.vbs",
+          "backend/scripts/upload_folder.py",
+          "backend/scripts/Register-UploadWatcherTask.ps1"
+        ]
+      },
+      "versionEvidence": "Per-component state\\common-release.json; legacy current release has mixed frontend/backend versions",
+      "tasks": ["SolutionDeploy-fit-track", "SolutionDeploy-fit-track-upload-watcher"],
+      "preserve": ["shared", "upload-watcher", "PostgreSQL fit_track"],
+      "watcherBlocker": "Changed watcher source requires a verified watcher-update procedure. The existing Google Drive logon task and copied tree are preserved.",
+      "readiness": "/api/ready"
+    },
+    "web-bookmarks": {
+      "procedure": "blocked",
+      "source": "..\\web-bookmarks",
+      "components": ["web"],
+      "versionEvidence": "current -> releases\\web-bookmarks-5f9be3e; verify full source before reuse",
+      "tasks": ["SolutionDeploy-web-bookmarks"],
+      "preserve": ["shared", "PostgreSQL web_bookmarks"],
+      "blocker": "Watchdog startup is verified, but repository deployment scripts provision/import databases. Establish a routine exact-commit release procedure without those side effects."
+    },
+    "plex": {
+      "procedure": "blocked",
+      "source": "..\\plex",
+      "components": ["web"],
+      "versionEvidence": "current is an ordinary directory, not a versioned junction",
+      "tasks": ["SolutionDeploy-plex"],
+      "preserve": ["PlexWebUI.VolumeState.json", "service configuration"],
+      "blocker": "Start-PlexHost.ps1 is a startup script. Verify source/version mapping and a routine publishing procedure for the live directory."
+    },
+    "work-log": {
+      "procedure": "blocked",
+      "source": "..\\work-log",
+      "components": ["web"],
+      "versionEvidence": "current -> releases\\20261018; source commit not established",
+      "tasks": ["SolutionDeploy-work-log"],
+      "preserve": ["shared", "PostgreSQL work_log"],
+      "blocker": "Start-WorkLogService.ps1 is verified startup. Deployment docs describe migration; establish routine exact-commit publishing without import."
+    },
+    "web-inventory": {
+      "procedure": "blocked",
+      "source": "..\\web-inventory",
+      "components": ["web"],
+      "versionEvidence": "current -> releases\\20261018; source commit not established",
+      "tasks": ["SolutionDeploy-web-inventory"],
+      "preserve": ["shared", "D:\\SolutionDeploy\\apps\\web-inventory\\images", "PostgreSQL web_inventory"],
+      "blocker": "Start-InventoryService.ps1 is verified startup. Establish routine exact-commit publishing without the migration/import procedure."
+    },
+    "web-portfolio": {
+      "procedure": "blocked",
+      "source": "..\\web-portfolio",
+      "components": ["web", "stock-collector", "reference-jobs", "audit", "telegram"],
+      "versionEvidence": "Web current -> releases\\20261018; stock/reference/audit -> stock-collector-2a0a7173; Telegram -> current",
+      "tasks": [
+        "SolutionDeploy-web-portfolio",
+        "SolutionDeploy-web-portfolio-stock-collector",
+        "SolutionDeploy-web-portfolio-stock-watchdog",
+        "SolutionDeploy-web-portfolio-reference-earnings",
+        "SolutionDeploy-web-portfolio-reference-indices",
+        "SolutionDeploy-web-portfolio-reference-splits",
+        "SolutionDeploy-web-portfolio-daily-audit",
+        "SolutionDeploy-web-portfolio-telegram"
+      ],
+      "preserve": ["shared secrets/configuration", "Azure SQL", "collector state", "retirement/Fidelity files"],
+      "blocker": "Verify Deploy-PlatformFrontend.ps1 against the current no-downtime path, pin backend and job procedures separately, and map their exact source versions. Legacy web-deploy.ps1 may target retired Azure hosting."
+    },
+    "web-options": {
+      "procedure": "blocked",
+      "source": "..\\web-options",
+      "components": ["web", "collector", "audit"],
+      "versionEvidence": "Web current -> releases\\history-4052ebc; collector/watchdog/audit -> collector-68f9512",
+      "tasks": [
+        "SolutionDeploy-web-options",
+        "SolutionDeploy-web-options-collector",
+        "SolutionDeploy-web-options-collector-watchdog",
+        "SolutionDeploy-web-options-daily-audit"
+      ],
+      "preserve": ["shared secrets/configuration", "Azure SQL dashboard", "PostgreSQL web_options", "collector state"],
+      "blocker": "Verify separate web and collector publishing procedures. scripts\\update.ps1 is not verified for the live host; do not repoint independently pinned collector tasks with a web release."
+    },
+    "solution-deploy": {
+      "procedure": "blocked",
+      "source": ".",
+      "components": [
+        "directory",
+        "collector-monitor",
+        "collector-status",
+        "lan-proxy",
+        "postgres-backup",
+        "finance-launcher"
+      ],
+      "explicitComponents": true,
+      "componentPaths": {
+        "directory": ["site", "scripts/Start-Directory.ps1"],
+        "collector-monitor": ["scripts/Test-CollectorHealth.ps1", "src/CollectorMonitor.psm1"],
+        "collector-status": ["scripts/Update-CollectorStatus.ps1"],
+        "lan-proxy": ["scripts/Start-LanProxy.ps1", "site/lan-proxy.mjs"],
+        "postgres-backup": ["scripts/Backup-Postgres.ps1"],
+        "finance-launcher": ["scripts/Start-FinanceService.ps1"]
+      },
+      "consumers": {
+        "finance-launcher": ["web-portfolio", "web-options"]
+      },
+      "versionEvidence": "Directory, monitor and publisher have independent installed trees; backup is under ProgramData\\JimlerTech\\PostgreSQL",
+      "tasks": [
+        "SolutionDeploy-directory",
+        "SolutionDeploy-collector-status",
+        "SolutionDeploy-collector-monitor",
+        "SolutionDeploy-lan-proxy",
+        "PostgreSQL-Backup"
+      ],
+      "preserve": [
+        "snapshot/alert history",
+        "host configuration",
+        "backup credentials",
+        "backup retention",
+        "finance per-app Start-Service copies"
+      ],
+      "blocker": "Select a named component; establish its installed-file baseline and exact-commit publisher before enabling it. Finance launcher updates must name each affected per-app installed copy."
+    },
+    "ride-and-lift": {
+      "procedure": "manual",
+      "source": "C:\\Users\\JimBrown\\OneDrive\\Health\\ride-and-lift (host)",
+      "components": ["web"],
+      "privateOnly": true,
+      "versionEvidence": "OneDrive source tree; no Git release version established",
+      "tasks": ["RideAndLift"],
+      "preserve": ["data.json"],
+      "blocker": "Git -Commit releases are unsupported. Update the OneDrive-managed installation through its manual procedure; preserve private-only access."
+    },
+    "pgweb": {
+      "procedure": "manual",
+      "source": "C:\\Files\\Apps\\pgweb\\pgweb.exe (host distribution)",
+      "components": ["binary"],
+      "privateOnly": true,
+      "versionEvidence": "Installed executable version; no source repository",
+      "tasks": ["pgweb"],
+      "preserve": ["protected connection configuration"],
+      "blocker": "Git -Commit releases are unsupported. Use a separately verified binary distribution update; preserve private-only access. Never log its credential-bearing task arguments."
+    }
+  }
+}
