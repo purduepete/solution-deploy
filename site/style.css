@@ -100,7 +100,7 @@ textarea {
 }
 .theme-setting {
     position: relative;
-    width: 160px;
+    width: 132px;
     max-width: 100%;
     flex: none;
     font-size: 14px;
@@ -109,7 +109,9 @@ textarea {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 8px;
+    height: 36px;
+    padding: 4px 10px;
     width: 100%;
     margin-top: 6px;
 }
@@ -133,7 +135,8 @@ textarea {
     justify-content: space-between;
     gap: 12px;
     width: 100%;
-    min-height: 44px;
+    min-height: 36px;
+    padding: 4px 10px;
     border-color: transparent;
     text-align: left;
 }
@@ -427,14 +430,30 @@ footer {
     flex-shrink: 0;
 }
 .history-range > button {
-    min-width: 100px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 92px;
+    height: 36px;
+    padding: 4px 10px;
+    font-size: 14px;
+}
+.history-range > button::after {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+    flex-shrink: 0;
 }
 .history-menu {
     position: absolute;
     z-index: 10;
     top: calc(100% + 4px);
     right: 0;
-    min-width: 120px;
+    min-width: 100px;
     padding: 4px;
     background: var(--panel);
     border: 1px solid var(--line);
@@ -443,6 +462,9 @@ footer {
     display: block;
     width: 100%;
     text-align: left;
+    min-height: 36px;
+    padding: 4px 10px;
+    font-size: 14px;
 }
 .history-menu button[aria-checked='true'] {
     border-color: var(--accent);

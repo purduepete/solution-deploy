@@ -183,7 +183,7 @@ let currentSnapshot;
 
 function historyDropdown(controls, group) {
     const title = document.getElementById(`${group}-title`).textContent;
-    const trigger = element('button', `${historyDays[group]} days \u2304`);
+    const trigger = element('button', `${historyDays[group]} days`);
     trigger.type = 'button';
     trigger.setAttribute('aria-label', `${title} date range`);
     trigger.setAttribute('aria-haspopup', 'menu');
@@ -264,7 +264,7 @@ function render(snapshot) {
     for (const group of Object.keys(historyDays)) {
         const controls = document.getElementById(`${group}-range`);
         if (!controls.children.length) historyDropdown(controls, group);
-        controls.firstElementChild.textContent = `${historyDays[group]} days \u2304`;
+        controls.firstElementChild.textContent = `${historyDays[group]} days`;
         for (const button of controls.querySelectorAll('[role="menuitemradio"]')) {
             button.setAttribute('aria-checked', String(Number(button.dataset.days) === historyDays[group]));
         }
