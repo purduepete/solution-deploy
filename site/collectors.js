@@ -53,6 +53,61 @@ const element = (tag, text, className) => {
 };
 const badge = (status) => element('span', status.replace('_', ' '), `badge ${tone[status] ?? 'muted'}`);
 
+function auditInfo(row) {
+    const wrapper = element('span');
+    const trigger = element('button', 'info', 'badge muted audit-info');
+    trigger.type = 'button';
+    trigger.setAttribute('aria-label', `${row.audit} ${row.subject}: advisory comparison details`);
+    const popup = element('div', undefined, 'audit-tooltip');
+    popup.id = `audit-info-${crypto.randomUUID()}`;
+    popup.setAttribute('popover', 'auto');
+    popup.setAttribute('role', 'tooltip');
+    trigger.setAttribute('aria-describedby', popup.id);
+    popup.append(element('p', 'Advisory comparison. Differences do not fail this audit.'));
+    const labels = {
+        expected: 'Expected',
+        azure: 'Azure',
+        local: 'Local',
+        matched: 'Matched',
+        missing_local: 'Missing locally',
+        missing_azure: 'Missing in Azure',
+        mismatched: 'Mismatched',
+    };
+    const counts = Object.entries(labels).filter(([key]) => Number.isFinite(row.counts?.[key]));
+    popup.append(
+        element(
+            'p',
+            counts.length
+                ? counts.map(([key, label]) => `${label}: ${row.counts[key]}`).join('\n')
+                : 'Comparison counts unavailable.'
+        )
+    );
+    if (row.error) popup.append(element('p', `Comparison error: ${row.error}`));
+    const show = () => {
+        popup.showPopover();
+        const rect = trigger.getBoundingClientRect();
+        popup.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - popup.offsetWidth - 8))}px`;
+        const top =
+            rect.bottom + popup.offsetHeight + 14 <= innerHeight ? rect.bottom + 6 : rect.top - popup.offsetHeight - 6;
+        popup.style.top = `${Math.max(8, top)}px`;
+    };
+    trigger.addEventListener('pointerenter', show);
+    trigger.addEventListener('focus', show);
+    trigger.addEventListener('click', show);
+    trigger.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            popup.hidePopover();
+            event.stopPropagation();
+        }
+    });
+    wrapper.addEventListener('pointerleave', () => {
+        if (document.activeElement !== trigger) popup.hidePopover();
+    });
+    trigger.addEventListener('blur', () => popup.hidePopover());
+    wrapper.append(trigger, popup);
+    return wrapper;
+}
+
 function table(target, headers, rows, empty) {
     const head = element('thead');
     const headRow = element('tr');
@@ -259,7 +314,7 @@ function render(snapshot) {
                 rows: rows.map((row) => {
                     const result = element('span');
                     result.append(badge(row.status));
-                    if (row.informational) result.append(' ', badge('info'));
+                    if (row.informational) result.append(' ', auditInfo(row));
                     return [row.audit, row.subject, result];
                 }),
             };

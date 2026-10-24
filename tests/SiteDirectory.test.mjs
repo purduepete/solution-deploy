@@ -5,6 +5,36 @@ import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from '../site/server.mjs';
+import { runInNewContext } from 'node:vm';
+
+test('audit info uses report counts, distinguishes unavailable data and renders errors as text', () => {
+    const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('function auditInfo('), source.indexOf('\nfunction table('));
+    const element = (tag, text) => ({
+        tag,
+        text,
+        children: [],
+        type: '',
+        setAttribute() {},
+        addEventListener() {},
+        append(...children) {
+            this.children.push(...children);
+        },
+    });
+    const info = runInNewContext(`${code}\nauditInfo`, {
+        element,
+        crypto: { randomUUID: () => 'fixture' },
+        Number,
+    });
+    const text = (row) =>
+        info({ audit: 'Stock', subject: 'splits', ...row })
+            .children[1].children.map((child) => child.text)
+            .join('\n');
+    assert.match(text({ counts: { azure: 0, local: 0, mismatched: 0 } }), /Azure: 0\nLocal: 0\nMismatched: 0/);
+    assert.match(text({ counts: { azure: 3, local: 2, missing_local: 1 } }), /Missing locally: 1/);
+    assert.match(text({}), /Comparison counts unavailable/);
+    assert.match(text({ counts: {}, error: 'azure_TimeoutError' }), /Comparison error: azure_TimeoutError/);
+});
 
 test('inventory describes every published host and its data source', () => {
     const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));

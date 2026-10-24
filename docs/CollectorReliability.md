@@ -73,6 +73,9 @@ Each sent notification is also appended to
 snapshot copies it, and the Collectors page lists it under "Monitor alerts", so
 past alerts are visible without Pushover. A history write failure only warns.
 
+Audit INFO badges show report counts and comparison errors on hover, focus or
+tap. Counts come from the saved audit report; absent counts display as unavailable.
+
 The earnings reference job waits each morning (about 05:00 to 05:02) for Azure's
 earnings rows. That scheduled wait used to exit 1 and caused 2 false alerts on
 10/24; it now exits 0, and a missed deadline still fails through the expired
