@@ -251,4 +251,13 @@ Describe 'Hand-placed release boundaries' {
         $runner|Should Match ([regex]::Escape('(web-bookmarks|work-log|web-inventory|plex|web-options)'))
         $runner|Should Not Match 'web-portfolio'
     }
+
+    It 'gives the new current junction the old link ACL, since LOCAL SERVICE reads through it' {
+        $runner=[IO.File]::ReadAllText((Join-Path $root 'scripts\Invoke-HandPlacedRelease.ps1'))
+        $capture=$runner.IndexOf('$linkAcl=Get-Acl -LiteralPath $current')
+        $create=$runner.IndexOf('New-Item -ItemType Junction -Path $current -Target $release')
+        $capture|Should BeGreaterThan -1
+        $create|Should BeGreaterThan $capture
+        $runner.Substring($create,200)|Should Match ([regex]::Escape('Set-Acl -LiteralPath $current -AclObject $linkAcl'))
+    }
 }

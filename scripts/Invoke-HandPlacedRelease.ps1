@@ -129,6 +129,8 @@ try{
         Assert-RequestCurrent
         Assert-PreviousCurrent
         $current=Join-Path $appRoot 'current'
+        # The service account reads through current, so the new junction keeps the old link's ACL.
+        $linkAcl=Get-Acl -LiteralPath $current
         $legacy=$null
         if($request.legacyDirectory){
             $legacy=Join-Path $appRoot ('releases\legacy-'+$request.id.Substring(0,8))
@@ -137,11 +139,14 @@ try{
         }else{
             [IO.Directory]::Delete($current,$false)
         }
-        try{New-Item -ItemType Junction -Path $current -Target $release|Out-Null}
-        catch{
+        try{
+            New-Item -ItemType Junction -Path $current -Target $release|Out-Null
+            Set-Acl -LiteralPath $current -AclObject $linkAcl
+        }catch{
+            if((Get-Item -LiteralPath $current -Force -ErrorAction SilentlyContinue).LinkType -eq 'Junction'){[IO.Directory]::Delete($current,$false)}
             if(-not (Test-Path -LiteralPath $current)){
                 if($legacy){Move-Item -LiteralPath $legacy -Destination $current}
-                else{New-Item -ItemType Junction -Path $current -Target $previous|Out-Null}
+                else{New-Item -ItemType Junction -Path $current -Target $previous|Out-Null;Set-Acl -LiteralPath $current -AclObject $linkAcl}
             }
             throw
         }
