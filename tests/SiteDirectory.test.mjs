@@ -279,6 +279,12 @@ test('release records are read on every request and invalid records are skipped'
             completedLocal: '2026-07-11T09:00:00-07:00',
         });
         write('plex--web.json', { app: 'plex', component: 'web', sourceCommit: 'bad', completedLocal: 'x' });
+        write('ferry-tracker--app.json', {
+            app: 'ferry-tracker',
+            component: 'app',
+            sourceCommit: commit,
+            completedLocal: '2026-07-09T09:00:00-07:00',
+        });
         writeFileSync(join(folder, 'pgweb--app.json'), '{broken');
         const workLog = await solution('work-log');
         assert.deepEqual(workLog.lastRelease, {
@@ -292,6 +298,12 @@ test('release records are read on every request and invalid records are skipped'
             options.releases.map((entry) => entry.component),
             ['web', 'collector']
         );
+        const ferry = await solution('ferry-tracker');
+        assert.deepEqual(
+            ferry.releases.map((entry) => entry.component),
+            ['web', 'capture']
+        );
+        assert.equal(ferry.lastRelease.completed, '2026-07-09T16:00:00.000Z');
         assert.equal((await solution('plex')).lastRelease, null);
         assert.equal((await solution('pgweb')).lastRelease, null);
     } finally {

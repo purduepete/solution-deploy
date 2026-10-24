@@ -53,11 +53,14 @@ export function withReleaseRecords(deployments, records) {
         solutions: deployments.solutions.map((solution) => {
             const releases = records
                 .filter((record) => record.app === solution.id)
-                .map((record) => ({
-                    component: record.component,
-                    commit: record.sourceCommit.slice(0, 7),
-                    completed: new Date(record.completedLocal).toISOString(),
-                }))
+                // A controller release records the whole app as 'app'; it releases every listed component.
+                .flatMap((record) =>
+                    (record.component === 'app' ? solution.components : [record.component]).map((component) => ({
+                        component,
+                        commit: record.sourceCommit.slice(0, 7),
+                        completed: new Date(record.completedLocal).toISOString(),
+                    }))
+                )
                 .sort((a, b) => b.completed.localeCompare(a.completed));
             return { ...solution, releases, lastRelease: releases[0] || null };
         }),
