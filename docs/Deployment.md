@@ -29,7 +29,8 @@ inventory does not grant placement authority or enable deployment.
 | Fit Track web (frontend, backend and in-process Strava sync)                                           | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
 | Fit Track upload watcher                                                                               | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
 | Web Bookmarks, Plex, Work Log, Web Inventory, Web Options web                                          | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
-| Web Options collector and audit, Web Portfolio                                                         | Inventoried with live version evidence and explicit procedure blockers; no migration/provisioning scripts called                                                                                                          |
+| Web Options collector and audit, Web Portfolio stock collector and audit                               | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                                                          |
+| Web Portfolio web                                                                                      | Inventoried with live version evidence and an explicit procedure blocker; no migration/provisioning scripts called                                                                                                        |
 | Solution Directory, collector monitor/publisher, LAN proxy, PostgreSQL backup, shared finance launcher | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
 | Ride and Lift, pgweb                                                                                   | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
 
@@ -138,7 +139,8 @@ Plex's first release moves the old plain `current` directory to
 release. The client then waits for Tailscale readiness and the Cloudflare
 Access redirect. Previous releases are kept. A release of the commit already
 recorded in `state\common-release.json` returns `NoChanges` after an access
-check. Web Options collector and audit tasks are never repointed.
+check. The web release never repoints the Web Options collector and audit
+tasks; they have their own pinned-job release below.
 
 First releases on 10/24/2026 (local), each verified on Tailscale and the
 Cloudflare Access redirect:
@@ -164,6 +166,45 @@ unchanged source and task configuration. The original receipt records 05:02
 from local artifact preparation through final acceptance; that first measurement
 excluded initial Git/host discovery. Subsequent receipts start before that work.
 No database migration, task installation, route change or automatic rollback ran.
+
+### Pinned-job release (Web Options collector, Web Portfolio stock collector)
+
+```powershell
+.\Deploy.ps1 -Action Release -App web-options -Component collector -Target jimbrownhome1 -Commit origin/main -ApproveRelease -ApprovalReason '...' -DatabaseChangesReviewed
+.\Deploy.ps1 -Action Release -App web-portfolio -Component stock-collector -Target jimbrownhome1 -Commit origin/main -ApproveRelease -ApprovalReason '...' -DatabaseChangesReviewed
+```
+
+The `jobs` entry in `releases.json` lists the tasks, the release folder prefix,
+the source paths and the pinned Python runtime. The release:
+
+1. Reads each task's `-ReleasePath`. All tasks must point at one
+   `releases\<prefix><sha>` folder and use the pinned runtime.
+2. Compares that folder file by file with its commit (line endings and
+   `__pycache__` ignored). Drift stops the release.
+3. Returns `NoChanges` when the job paths did not change. Stops when
+   `requirements.txt` changed since the runtime was built, because the runtime
+   needs a rebuild first. Applies the same SQL gate as the web release.
+4. Builds `<prefix><sha>` over the admin share, copies the old folder's
+   explicit `LOCAL SERVICE` read ACE, and verifies the tree.
+5. Changes only the action path of each task with `Set-ScheduledTask -Action`.
+   Principal, triggers, settings and enabled state stay as they are. A run in
+   progress finishes on the old code.
+6. Writes `state\job-<component>.json` and waits for each repeating task to
+   finish a run with result 0. Daily audits report their next run time.
+
+If repointing or its check fails partway, the release points the moved tasks
+back at the previous folder, which is kept. Once every task is repointed there
+is no automatic rollback: when a run then fails, the receipt lists the tasks
+to point back by hand after checking what the new code wrote.
+Never rerun `Install-CollectorTasks.ps1` for a release: it disables collection
+unless `-EnableCollection` is passed. The Web Portfolio telegram task runs from
+the web release's `current` folder and follows the web release.
+
+Verified on 10/24/2026 (local): a rewrite of the same action on
+`SolutionDeploy-web-options-collector-watchdog` kept its principal, triggers and
+settings, and its next run returned 0. Both components returned `NoChanges`
+against `origin/main` (14 s and 17 s). The folder swap has not run live yet,
+since no collector change is waiting.
 
 ### Existing controller sequence
 

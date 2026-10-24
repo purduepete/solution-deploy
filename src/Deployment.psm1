@@ -4,7 +4,7 @@ $ErrorActionPreference = 'Stop'
 $script:FrameworkRoot = Split-Path -Parent $PSScriptRoot
 
 function Get-Sha256Text {
-    param([Parameter(Mandatory)][string]$Text)
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
     [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Text))).ToLowerInvariant()
 }
 

@@ -113,8 +113,26 @@
     "web-portfolio": {
       "procedure": "blocked",
       "source": "..\\web-portfolio",
-      "components": ["web", "stock-collector", "reference-jobs", "audit", "telegram"],
-      "versionEvidence": "Web current -> releases\\20261018; stock/reference/audit -> stock-collector-2a0a7173; Telegram -> current",
+      "components": ["web", "stock-collector"],
+      "versionEvidence": "Web current -> releases\\20261018; Telegram runs from current. Stock collector, watchdog, reference jobs and audit -> stock-collector-2a0a7173, matched file for file to commit 2a0a7173 on 10/24/2026",
+      "jobs": {
+        "stock-collector": {
+          "prefix": "stock-collector-",
+          "shaLength": 8,
+          "paths": { "stock-collector": "." },
+          "requirements": "stock-collector/requirements.txt",
+          "runtime": "stock-collector-df59b43-py3148",
+          "runtimeCommit": "df59b4384c013a46c298a6c309c0b486526a1977",
+          "tasks": [
+            "SolutionDeploy-web-portfolio-stock-collector",
+            "SolutionDeploy-web-portfolio-stock-watchdog",
+            "SolutionDeploy-web-portfolio-reference-earnings",
+            "SolutionDeploy-web-portfolio-reference-indices",
+            "SolutionDeploy-web-portfolio-reference-splits",
+            "SolutionDeploy-web-portfolio-daily-audit"
+          ]
+        }
+      },
       "tasks": [
         "SolutionDeploy-web-portfolio",
         "SolutionDeploy-web-portfolio-stock-collector",
@@ -126,14 +144,29 @@
         "SolutionDeploy-web-portfolio-telegram"
       ],
       "preserve": ["shared secrets/configuration", "Azure SQL", "collector state", "retirement/Fidelity files"],
-      "blocker": "Verify Deploy-PlatformFrontend.ps1 against the current no-downtime path, pin backend and job procedures separately, and map their exact source versions. Legacy web-deploy.ps1 may target retired Azure hosting."
+      "blocker": "Web: verify Deploy-PlatformFrontend.ps1 against the current no-downtime path and pin the backend procedure. Legacy web-deploy.ps1 may target retired Azure hosting.",
+      "componentNote": "The stock collector, watchdog, reference jobs and audit share one pinned-job release folder, released as -Component stock-collector."
     },
     "web-options": {
       "procedure": "hand-placed",
       "source": "..\\web-options",
-      "components": ["web", "collector", "audit"],
-      "releasable": ["web"],
-      "versionEvidence": "Web: state\\common-release.json, current -> releases\\68f95126294d-8bc83793 (source 68f95126294d), verified 10/24/2026; previous history-4052ebc. Collector/watchdog/audit -> collector-68f9512",
+      "components": ["web", "collector"],
+      "versionEvidence": "Web: state\\common-release.json, current -> releases\\68f95126294d-8bc83793 (source 68f95126294d), verified 10/24/2026; previous history-4052ebc. Collector, watchdog and audit -> collector-68f9512, matched file for file to commit 68f9512 on 10/24/2026",
+      "jobs": {
+        "collector": {
+          "prefix": "collector-",
+          "shaLength": 7,
+          "paths": { "collector": "collector", "scripts": "scripts" },
+          "requirements": "collector/requirements.txt",
+          "runtime": "collector-f67d494-py3148",
+          "runtimeCommit": "f67d4947b62db3ebdbf2a771aaa2fabd9167b1b2",
+          "tasks": [
+            "SolutionDeploy-web-options-collector",
+            "SolutionDeploy-web-options-collector-watchdog",
+            "SolutionDeploy-web-options-daily-audit"
+          ]
+        }
+      },
       "tasks": [
         "SolutionDeploy-web-options",
         "SolutionDeploy-web-options-collector",
@@ -152,7 +185,7 @@
       },
       "build": "npm ci, build:shared, build:backend, build:frontend:access; host npm ci --omit=dev",
       "preserve": ["shared secrets/configuration", "Azure SQL dashboard", "PostgreSQL web_options", "collector state"],
-      "componentNote": "Collector and audit tasks are pinned to their own release folder and need the pinned-job procedure. A web release never repoints them."
+      "componentNote": "Collector, watchdog and daily audit tasks share one pinned-job release folder, released as -Component collector. A web release never repoints them."
     },
     "solution-deploy": {
       "procedure": "blocked",

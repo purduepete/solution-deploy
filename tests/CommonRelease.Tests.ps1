@@ -50,7 +50,7 @@ Describe 'Common release inventory and routing' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component postgres-backup} '*baseline*'
         Assert-CommonThrows {Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component web} '*no-downtime*'
     }
-    It 'routes hand-placed web apps and holds Web Options jobs for the pinned-job procedure' {
+    It 'routes hand-placed web apps and sends Web Options jobs to the pinned-job procedure' {
         foreach($app in @('web-bookmarks','work-log','web-inventory','plex','web-options')){
             $route=Get-CommonReleaseRoute -App $app -Target jimbrownhome1
             $route.procedure|Should Be hand-placed
@@ -59,7 +59,31 @@ Describe 'Common release inventory and routing' {
             $route.entry.readiness.path|Should BeLike '/*'
         }
         (Get-CommonReleaseRoute -App web-options -Target jimbrownhome1 -Component web).procedure|Should Be hand-placed
-        Assert-CommonThrows {Get-CommonReleaseRoute -App web-options -Target jimbrownhome1 -Component collector} '*pinned-job*'
+        @((Get-CommonReleaseRoute -App web-options -Target jimbrownhome1 -Component web).jobs).Count|Should Be 0
+        (@((Get-CommonReleaseRoute -App web-options -Target jimbrownhome1).jobs) -join ',')|Should Be collector
+        $job=Get-CommonReleaseRoute -App web-options -Target jimbrownhome1 -Component collector
+        $job.procedure|Should Be none
+        (@($job.jobs) -join ',')|Should Be collector
+    }
+    It 'releases Web Portfolio jobs while its web procedure stays blocked' {
+        $route=Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component stock-collector
+        $route.procedure|Should Be none
+        (@($route.jobs) -join ',')|Should Be stock-collector
+        $all=Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -WarningAction SilentlyContinue
+        $all.procedure|Should Be none
+        (@($all.jobs) -join ',')|Should Be stock-collector
+        Assert-CommonThrows {Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component web,stock-collector} '*no-downtime*'
+    }
+    It 'records each job runtime, task list and full runtime commit' {
+        $inventory=Read-DeploymentJson (Join-Path $root 'environments\releases.json')
+        foreach($app in @('web-options','web-portfolio')){
+            foreach($job in $inventory.apps[$app].jobs.Values){
+                $job.runtimeCommit|Should Match '^[a-f0-9]{40}$'
+                $job.runtime|Should BeLike ($job.prefix+'*')
+                @($job.tasks).Count|Should BeGreaterThan 2
+                foreach($task in $job.tasks){$task|Should BeLike "SolutionDeploy-$app-*"}
+            }
+        }
     }
     It 'keeps both private-only distribution tools out of Git releases' {
         foreach($app in @('ride-and-lift','pgweb')){
@@ -286,5 +310,55 @@ Describe 'Hand-placed release boundaries' {
         $capture|Should BeGreaterThan -1
         $create|Should BeGreaterThan $capture
         $runner.Substring($create,200)|Should Match ([regex]::Escape('Set-Acl -LiteralPath $current -AclObject $linkAcl'))
+    }
+}
+Describe 'Pinned-job release boundaries' {
+    BeforeAll {Import-Module (Join-Path $root 'src\PinnedJobRelease.psm1') -Force -DisableNameChecking}
+    $job=@{prefix='collector-'}
+    function New-JobTask([string]$Name,[string]$Release){
+        [pscustomobject]@{TaskName=$Name;Actions=@([pscustomobject]@{Execute='pwsh.exe'
+            Arguments="-File `"$Release\scripts\Start-Collector.ps1`" -ReleasePath `"$Release`" -Action tick";WorkingDirectory=$Release})}
+    }
+    $base='C:\ProgramData\SolutionDeploy\apps\web-options\releases'
+
+    It 'reads one shared release folder and its commit from the task actions' {
+        $tasks=@((New-JobTask tick "$base\collector-68f9512"),(New-JobTask audit "$base\collector-68f9512"))
+        $current=Get-PinnedJobReleasePath web-options $job $tasks
+        $current.short|Should Be '68f9512'
+        $current.name|Should Be 'collector-68f9512'
+    }
+    It 'rejects tasks that disagree or point outside the releases folder' {
+        Assert-CommonThrows {Get-PinnedJobReleasePath web-options $job @((New-JobTask tick "$base\collector-68f9512"),(New-JobTask audit "$base\collector-02db285"))} '*different releases*'
+        Assert-CommonThrows {Get-PinnedJobReleasePath web-options $job @(New-JobTask tick 'C:\Temp\collector-68f9512')} '*outside*'
+        Assert-CommonThrows {Get-PinnedJobReleasePath web-options $job @(New-JobTask tick "$base\collector-latest")} '*commit*'
+    }
+    It 'moves every reference to the release and nothing else in the action' {
+        $task=New-JobTask tick "$base\collector-68f9512"
+        $action=New-PinnedJobAction $task.Actions[0] "$base\collector-68f9512" "$base\collector-1234567"
+        $action.Argument|Should Be "-File `"$base\collector-1234567\scripts\Start-Collector.ps1`" -ReleasePath `"$base\collector-1234567`" -Action tick"
+        $action.WorkingDirectory|Should Be "$base\collector-1234567"
+        $action.Execute|Should Be 'pwsh.exe'
+        Assert-CommonThrows {New-PinnedJobAction $task.Actions[0] "$base\collector-02db285" "$base\collector-1234567"} '*current release*'
+    }
+    It 'maps a subfolder to the release root and compares trees without caches or line endings' {
+        $source=Join-Path $TestDrive 'repo'
+        New-Item -ItemType Directory -Path "$source\stock-collector\collector\__pycache__","$source\stock-collector\scripts" -Force|Out-Null
+        Set-Content "$source\stock-collector\collector\run.py" "print(1)`n" -NoNewline
+        Set-Content "$source\stock-collector\collector\__pycache__\run.pyc" 'x'
+        Set-Content "$source\stock-collector\scripts\Start.ps1" 'exit 0'
+        Set-Content "$source\stock-collector\collector\__init__.py" '' -NoNewline
+        $built=Join-Path $TestDrive 'built'
+        Copy-PinnedJobSource $source @{'stock-collector'='.'} $built
+        (Test-Path "$built\collector\run.py")|Should Be $true
+        (Test-Path "$built\collector\__pycache__")|Should Be $false
+        $installed=Join-Path $TestDrive 'installed'
+        Copy-Item $built $installed -Recurse
+        Set-Content "$installed\collector\run.py" "print(1)`r`n" -NoNewline
+        New-Item -ItemType Directory "$installed\collector\__pycache__" -Force|Out-Null
+        Set-Content "$installed\collector\__pycache__\run.pyc" 'y'
+        @(Compare-PinnedJobTree (Get-PinnedJobTree $built) (Get-PinnedJobTree $installed)).Count|Should Be 0
+        Set-Content "$installed\scripts\Extra.ps1" 'exit 1'
+        Set-Content "$installed\collector\run.py" 'print(2)'
+        (@(Compare-PinnedJobTree (Get-PinnedJobTree $built) (Get-PinnedJobTree $installed)) -join ',')|Should Be 'collector\run.py,scripts\Extra.ps1'
     }
 }
