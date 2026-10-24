@@ -72,6 +72,84 @@ function Invoke-FitTrackHostPhase {
     throw "Fit Track $Phase exceeded its deadline. Outcome unknown; inspect host PID $($created.ProcessId) and $Operation. Do not automatically retry or roll back."
 }
 
+$script:WatcherPaths=@('backend\scripts\Watch-Upload.ps1','backend\scripts\run-watcher-hidden.vbs','backend\scripts\upload_folder.py',
+    'backend\scripts\Register-UploadWatcherTask.ps1','backend\scripts\Test-UploadWatcher.ps1')
+
+function Get-FitTrackWatcherFiles {
+    param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Installed)
+    @(foreach($path in $script:WatcherPaths){
+        $next=Join-Path $Source $path
+        if(-not (Test-Path -LiteralPath $next -PathType Leaf)){throw "Watcher file missing from the commit: $path."}
+        $old=Join-Path $Installed $path
+        $sha=if(Test-Path -LiteralPath $old -PathType Leaf){Get-FitTrackSourceDigest $old}else{$null}
+        @{path=$path;sha256=$sha;matches=($sha -eq (Get-FitTrackSourceDigest $next))}
+    })
+}
+
+function Update-FitTrackWatcherFiles {
+    param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Installed,
+        [Parameter(Mandatory)][object[]]$Files,[Parameter(Mandatory)][string]$Backup)
+    $changed=@($Files|Where-Object {-not $_.matches})
+    if(@($changed|Where-Object {$_.path -like '*Register-UploadWatcherTask.ps1'}).Count){
+        throw 'Register-UploadWatcherTask.ps1 changed, so the watcher task definition changes too. Re-register the task on jimbrownhome1 from your session, then release again. Nothing was copied.'
+    }
+    foreach($file in $changed){
+        $old=Join-Path $Installed $file.path
+        if(Test-Path -LiteralPath $old){
+            $saved=Join-Path $Backup $file.path
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $saved))|Out-Null
+            [IO.File]::Copy($old,$saved,$true)
+        }
+    }
+    foreach($file in $changed){
+        # The installed copies use CRLF (wscript needs it for the .vbs); git stores LF.
+        $text=[IO.File]::ReadAllText((Join-Path $Source $file.path)).Replace("`r`n","`n").Replace("`n","`r`n")
+        $target=Join-Path $Installed $file.path
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $target))|Out-Null
+        [IO.File]::WriteAllBytes($target,[Text.UTF8Encoding]::new($false).GetBytes($text))
+    }
+    @($changed|ForEach-Object {$_.path})
+}
+
+function Get-FitTrackWatcherProcesses {
+    param([Parameter(Mandatory)]$Session)
+    @(Get-CimInstance -CimSession $Session -ClassName Win32_Process -Filter "Name='wscript.exe' OR Name='pwsh.exe' OR Name='python.exe' OR Name='pythonw.exe'"|
+        Where-Object {$_.CommandLine -like '*run-watcher-hidden.vbs*' -or $_.CommandLine -like '*Watch-Upload.ps1*' -or $_.CommandLine -like '*scripts.upload_folder*'})
+}
+
+function Restart-FitTrackWatcher {
+    param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][string]$Log)
+    if(-not @(Get-CimInstance -CimSession $Session -ClassName Win32_Process -Filter "Name='explorer.exe'").Count){
+        return @{restarted=$false;note='Nobody is signed in on jimbrownhome1. The updated watcher starts at the next sign-in.'}
+    }
+    $clock=[Diagnostics.Stopwatch]::StartNew()
+    $restartedAt=[DateTime]::Now.AddSeconds(-2)
+    Stop-ScheduledTask -CimSession $Session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher
+    # Stopping the task ends only wscript; the pwsh and python children keep running and the singleton guard would skip the new start.
+    foreach($process in Get-FitTrackWatcherProcesses $Session){
+        Invoke-CimMethod -InputObject $process -MethodName Terminate|Out-Null
+    }
+    while(@(Get-FitTrackWatcherProcesses $Session).Count){
+        if($clock.Elapsed.TotalSeconds -gt 20){throw 'The old upload watcher processes did not exit within 20 s. Nothing was started; check them on jimbrownhome1.'}
+        Start-Sleep -Seconds 1
+    }
+    Start-ScheduledTask -CimSession $Session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher
+    $watcher=$null
+    while(-not $watcher){
+        if($clock.Elapsed.TotalSeconds -gt 45){throw 'The upload watcher task started, but no upload_folder process appeared within 45 s. Check backend\logs\upload-watcher.log on jimbrownhome1.'}
+        Start-Sleep -Seconds 2
+        $watcher=@(Get-FitTrackWatcherProcesses $Session|Where-Object {$_.CommandLine -like '*scripts.upload_folder*'})|Select-Object -First 1
+    }
+    Start-Sleep -Seconds 10
+    $python=@(Get-FitTrackWatcherProcesses $Session|Where-Object {$_.CommandLine -like '*scripts.upload_folder*'})
+    if($python.Count -ne 1 -or $python[0].ProcessId -ne $watcher.ProcessId){
+        throw "The upload watcher did not stay up: expected 1 upload_folder process 10 s after start, found $($python.Count). Check backend\logs\upload-watcher.log on jimbrownhome1."
+    }
+    $started=@(Get-Content -LiteralPath $Log -Tail 50|Where-Object {$_ -match '^\[(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)\] Watching ' -and [DateTime]::Parse($Matches[1]) -ge $restartedAt})
+    if(-not $started.Count){throw 'The upload watcher is running, but its log has no new "Watching" line. Check backend\logs\upload-watcher.log on jimbrownhome1.'}
+    @{restarted=$true;processId=$watcher.ProcessId;seconds=[Math]::Round($clock.Elapsed.TotalSeconds,1)}
+}
+
 function Invoke-FitTrackRelease {
     [CmdletBinding()]
     param([string]$App='fit-track',[string[]]$Component,[string]$Environment='production',
@@ -115,23 +193,15 @@ function Invoke-FitTrackRelease {
         $source=Join-Path $directory 'source'
         Expand-TrustedRelease $archive $source
         $sourceHash=(Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant()
-        $watcherPaths=@('backend\scripts\Watch-Upload.ps1','backend\scripts\run-watcher-hidden.vbs','backend\scripts\upload_folder.py','backend\scripts\Register-UploadWatcherTask.ps1')
-        $watcherFiles=@(foreach($path in $watcherPaths){
-            $installed=Join-Path (Join-Path $remote 'upload-watcher') $path
-            if(-not (Test-Path -LiteralPath $installed)){throw "Watcher source evidence missing: $path."}
-            @{path=$path;sha256=Get-FitTrackSourceDigest $installed
-                matches=((Get-FitTrackSourceDigest (Join-Path $source $path)) -eq (Get-FitTrackSourceDigest $installed))}
-        })
+        $watcherFiles=Get-FitTrackWatcherFiles $source (Join-Path $remote 'upload-watcher')
         $watcherChanged=@($watcherFiles|Where-Object {-not $_.matches}).Count -gt 0
-        if($watcherChanged -and (-not $Component -or 'upload-watcher' -in $Component)){
-            throw 'Fit Track upload watcher differs from the requested commit. Its copied-tree update procedure is not verified; no components were deployed.'
-        }
-        $receipt.components.'upload-watcher'=if($watcherChanged){'NotSelected'}else{'UnchangedSourceVerified'}
+        $watcherSelected=$watcherChanged -and (-not $Component -or 'upload-watcher' -in $Component)
+        $receipt.components.'upload-watcher'=if(-not $watcherChanged){'UnchangedSourceVerified'}elseif($watcherSelected){'Pending'}else{'NotSelected'}
         $session=New-CimSession -ComputerName jimbrownhome1.local -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
         $watcherTask=Get-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher
         $watcherTaskHash=Get-Sha256Text (Export-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher)
         $receipt.watcher=@{taskStateBefore=[string]$watcherTask.State;configurationSHA256=$watcherTaskHash;source=$watcherFiles
-            scope='Existing copied tree and Google Drive logon task retained; no upload or ingestion triggered.'}
+            scope='Google Drive logon task definition retained; no upload or ingestion triggered.'}
         $webSelected='web' -in $Component
         if(-not $Component){
             $baselinePath=Join-Path $remote 'state\common-release.json'
@@ -146,11 +216,28 @@ function Invoke-FitTrackRelease {
         $accessPlan=@{target=@{host=$Target};manifest=$manifest}
         if(-not $TailscaleUrl){$TailscaleUrl='https://jimbrownhome1.tail8ad282.ts.net:8791/'}
         $receipt.initialAccess=Test-ReleaseAccess $accessPlan $TailscaleUrl
+        if($watcherSelected){
+            $receipt.components.'upload-watcher'='Copying'
+            Write-DeploymentJson $receiptPath $receipt
+            $watcherRoot=Join-Path $remote 'upload-watcher'
+            $receipt.watcher.updated=Update-FitTrackWatcherFiles $source $watcherRoot $watcherFiles (Join-Path $directory 'previous-watcher')
+            if(@(Get-FitTrackWatcherFiles $source $watcherRoot|Where-Object {-not $_.matches}).Count){throw 'Watcher files still differ from the commit after copying.'}
+            $receipt.components.'upload-watcher'='Copied'
+            Write-DeploymentJson $receiptPath $receipt
+            $receipt.watcher.restart=Restart-FitTrackWatcher $session (Join-Path $watcherRoot 'backend\logs\upload-watcher.log')
+            if((Get-Sha256Text (Export-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher)) -ne $watcherTaskHash){
+                throw 'Fit Track watcher task configuration changed during release.'
+            }
+            $receipt.components.'upload-watcher'=if($receipt.watcher.restart.restarted){'Verified'}else{'Copied'}
+            Write-DeploymentJson $receiptPath $receipt
+        }
         if(-not $webSelected){
             if($Component -and 'upload-watcher' -notin $Component){throw 'No supported component was selected.'}
-            # Do not claim runtime or external verification from a source-only comparison.
-            $receipt.status='NoChanges';$receipt.components.web=if($Component){'NotSelected'}else{'SourceUnchanged'}
+            $receipt.components.web=if($Component){'NotSelected'}else{'SourceUnchanged'}
             $receipt.externalAcceptance='Verified'
+            # Do not claim runtime or external verification from a source-only comparison.
+            $receipt.status=if($watcherSelected){'Succeeded'}else{'NoChanges'}
+            if($watcherSelected){$receipt.completedLocal=(Get-Date).ToString('o')}
             Write-DeploymentJson $receiptPath $receipt
             return $receipt
         }
@@ -224,4 +311,4 @@ function Invoke-FitTrackRelease {
     }
 }
 
-Export-ModuleMember -Function Get-FitTrackSourceDigest,Assert-FitTrackDatabaseInputs,Get-FitTrackBaseline,Invoke-FitTrackHostPhase,Invoke-FitTrackRelease
+Export-ModuleMember -Function Get-FitTrackSourceDigest,Assert-FitTrackDatabaseInputs,Get-FitTrackBaseline,Invoke-FitTrackHostPhase,Invoke-FitTrackRelease,Get-FitTrackWatcherFiles,Update-FitTrackWatcherFiles,Get-FitTrackWatcherProcesses,Restart-FitTrackWatcher

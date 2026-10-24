@@ -23,16 +23,16 @@ controller and other apps to a verified app-specific procedure. The
 background components. It is separate from `production.json`: appearing in the
 inventory does not grant placement authority or enable deployment.
 
-| Apps/components                                                              | Current release support                                                                                                                                                                                                   |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                   | Existing complete controller sequence, unchanged                                                                                                                                                                          |
-| Fit Track web (frontend, backend and in-process Strava sync)                 | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
-| Fit Track upload watcher                                                     | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
-| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options, Web Portfolio web | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
-| Web Options collector and audit, Web Portfolio stock collector and audit     | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                                                          |
-| Solution Directory and collector status publisher                            | Directory release: fast-forward the host clone to the pushed commit, run `Install-Directory.ps1`, compare installed files, check both access paths                                                                        |
-| Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher     | File-set release: copy changed files from the pushed commit in place, then confirm with the monitor's next run, a LAN proxy restart, or a Web Portfolio and Web Options restart                                           |
-| Ride and Lift, pgweb                                                         | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
+| Apps/components                                                              | Current release support                                                                                                                                                         |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                   | Existing complete controller sequence, unchanged                                                                                                                                |
+| Fit Track web (frontend, backend and in-process Strava sync)                 | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                       |
+| Fit Track upload watcher                                                     | Copy changed watcher scripts in place, restart the Google Drive logon task and verify 1 live watcher. A changed task-registration script stops the release                      |
+| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options, Web Portfolio web | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied   |
+| Web Options collector and audit, Web Portfolio stock collector and audit     | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                |
+| Solution Directory and collector status publisher                            | Directory release: fast-forward the host clone to the pushed commit, run `Install-Directory.ps1`, compare installed files, check both access paths                              |
+| Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher     | File-set release: copy changed files from the pushed commit in place, then confirm with the monitor's next run, a LAN proxy restart, or a Web Portfolio and Web Options restart |
+| Ride and Lift, pgweb                                                         | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                 |
 
 The access URLs and reserved Tailscale HTTPS ports stay in `site\sites.json`.
 Task names, source locations, mutable paths and version evidence are recorded
@@ -75,10 +75,35 @@ an exact web baseline in `state\common-release.json` without pretending the old
 mixed-version directory was a single commit. Later releases can omit
 `-Component`: declared web paths are compared between that deployed commit and
 the requested commit. Watcher files are compared separately, with line endings
-normalized for the original copied tree. Selecting `web` never republishes the
+normalized for the original copied tree. Selecting only `web` never touches the
 watcher. Selecting an unchanged `upload-watcher` reports source verification
-only and performs no upload. Changed watcher source is an explicit blocker,
-not a successful skip.
+only and performs no upload.
+
+When watcher files differ from the commit and `upload-watcher` is selected (or
+`-Component` is omitted), the release updates the watcher before any web build:
+
+1. If `Register-UploadWatcherTask.ps1` changed, it stops and copies nothing.
+   Re-register the task on jimbrownhome1 from your signed-in session, then
+   release again.
+2. It backs up the changed installed files to the receipt's `previous-watcher`
+   folder, then writes the new files in place as CRLF UTF-8 without a BOM. The
+   files keep their permissions. `backend\.env.local` (the ingest token) and
+   `backend\logs` are untouched.
+3. If you are signed in, it stops the logon task and ends the watcher's
+   `wscript`, `pwsh` and `python` processes. Stopping the task alone ends only
+   `wscript`, and the singleton guard would then skip the new start. It starts
+   the task and requires exactly 1 `upload_folder` process still running after
+   10 s, plus a new `Watching` line in `backend\logs\upload-watcher.log`. An
+   interrupted upload is safe to resend: ingest drops duplicates by payload
+   SHA-256.
+4. If nobody is signed in, it copies the files and skips the restart; the new
+   watcher starts at the next sign-in.
+
+The task definition must be unchanged at the end. The first live restart on
+10/24/2026 took 15 s from stop to a verified watcher. Rollback: copy the files from
+`.local\releases\fit-track-<id>\previous-watcher` back over
+`upload-watcher\backend\scripts` and release again, or restart the task the
+same way by hand.
 
 The Fit Track procedure fetches origin, requires a clean source checkout and a
 pushed immutable commit, exports it, builds the frontend locally, then prepares
@@ -97,7 +122,7 @@ starts it.
 
 Activation reuses `Stop-ManagedApp`, `Set-ActiveRelease` and the existing
 dedicated-account scheduled task. No task is reinstalled or rescheduled.
-Secrets, shared data and the watcher tree are not copied or changed. Runtime
+Secrets, shared data and the watcher tree are not changed by the web phase. Runtime
 success requires both process ownership and the JSON readiness probe; final
 acceptance also requires Tailscale readiness and the public Cloudflare Access
 redirect. The procedure changes no routes or authentication.

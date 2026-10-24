@@ -48,13 +48,19 @@
           "backend/scripts/Watch-Upload.ps1",
           "backend/scripts/run-watcher-hidden.vbs",
           "backend/scripts/upload_folder.py",
-          "backend/scripts/Register-UploadWatcherTask.ps1"
+          "backend/scripts/Register-UploadWatcherTask.ps1",
+          "backend/scripts/Test-UploadWatcher.ps1"
         ]
       },
-      "versionEvidence": "Web release routine-e8ba3876123b-76914e9e: frontend/backend source e8ba3876123b0f2a8b75a7fb9d4e181c2154f738. Separate upload watcher source and task configuration verified unchanged.",
+      "versionEvidence": "Web release routine-e8ba3876123b-76914e9e: frontend/backend source e8ba3876123b0f2a8b75a7fb9d4e181c2154f738. Upload watcher files in upload-watcher\\backend\\scripts match the same commit; its Google Drive logon task configuration is unchanged.",
       "tasks": ["SolutionDeploy-fit-track", "SolutionDeploy-fit-track-upload-watcher"],
-      "preserve": ["shared", "upload-watcher", "PostgreSQL fit_track"],
-      "watcherBlocker": "Changed watcher source requires a verified watcher-update procedure. The existing Google Drive logon task and copied tree are preserved.",
+      "preserve": [
+        "shared",
+        "upload-watcher\\backend\\.env.local",
+        "upload-watcher\\backend\\logs",
+        "PostgreSQL fit_track"
+      ],
+      "componentNote": "The upload watcher is a logon task because it reads the per-user Google Drive G: drive. A release copies changed watcher scripts in place and restarts it; a changed Register-UploadWatcherTask.ps1 stops the release for a manual task re-registration.",
       "readiness": "/api/ready"
     },
     "web-bookmarks": {

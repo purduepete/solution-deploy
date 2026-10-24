@@ -261,6 +261,46 @@ Describe 'Fit Track host result and runtime verification' {
     }
 }
 
+Describe 'Fit Track upload watcher release' {
+    BeforeEach {
+        $source=Join-Path $TestDrive 'source';$installed=Join-Path $TestDrive 'installed';$backup=Join-Path $TestDrive 'backup'
+        Remove-Item $source,$installed,$backup -Recurse -Force -ErrorAction SilentlyContinue
+        $names=@('Watch-Upload.ps1','run-watcher-hidden.vbs','upload_folder.py','Register-UploadWatcherTask.ps1','Test-UploadWatcher.ps1')
+        foreach($root in @($source,$installed)){New-Item -ItemType Directory (Join-Path $root 'backend\scripts') -Force|Out-Null}
+        foreach($name in $names){
+            [IO.File]::WriteAllText((Join-Path $source "backend\scripts\$name"),"line 1`nline 2`n")
+            [IO.File]::WriteAllText((Join-Path $installed "backend\scripts\$name"),"line 1`r`nline 2`r`n")
+        }
+        [IO.File]::WriteAllText((Join-Path $installed 'backend\.env.local'),'FITTRACK_TOKEN=secret')
+    }
+    It 'treats line-ending differences as unchanged and covers every watcher script' {
+        $files=@(Get-FitTrackWatcherFiles $source $installed)
+        $files.Count|Should Be 5
+        @($files|Where-Object {-not $_.matches}).Count|Should Be 0
+        @(Update-FitTrackWatcherFiles $source $installed $files $backup).Count|Should Be 0
+    }
+    It 'backs up and replaces only changed files as CRLF without touching the token file' {
+        [IO.File]::WriteAllText((Join-Path $source 'backend\scripts\upload_folder.py'),"line 1`nchanged`n")
+        Remove-Item (Join-Path $installed 'backend\scripts\Test-UploadWatcher.ps1')
+        $files=@(Get-FitTrackWatcherFiles $source $installed)
+        $updated=@(Update-FitTrackWatcherFiles $source $installed $files $backup)
+        ($updated -join ',')|Should Be 'backend\scripts\upload_folder.py,backend\scripts\Test-UploadWatcher.ps1'
+        [IO.File]::ReadAllText((Join-Path $installed 'backend\scripts\upload_folder.py'))|Should BeExactly "line 1`r`nchanged`r`n"
+        [IO.File]::ReadAllText((Join-Path $backup 'backend\scripts\upload_folder.py'))|Should BeExactly "line 1`r`nline 2`r`n"
+        [IO.File]::ReadAllBytes((Join-Path $installed 'backend\scripts\upload_folder.py'))[0]|Should Be ([byte][char]'l')
+        [IO.File]::ReadAllText((Join-Path $installed 'backend\.env.local'))|Should BeExactly 'FITTRACK_TOKEN=secret'
+        @(Get-FitTrackWatcherFiles $source $installed|Where-Object {-not $_.matches}).Count|Should Be 0
+    }
+    It 'stops before copying anything when the task registration script changed' {
+        [IO.File]::WriteAllText((Join-Path $source 'backend\scripts\upload_folder.py'),"changed`n")
+        [IO.File]::WriteAllText((Join-Path $source 'backend\scripts\Register-UploadWatcherTask.ps1'),"changed`n")
+        $files=@(Get-FitTrackWatcherFiles $source $installed)
+        Assert-CommonThrows {Update-FitTrackWatcherFiles $source $installed $files $backup} '*Re-register the task*Nothing was copied*'
+        [IO.File]::ReadAllText((Join-Path $installed 'backend\scripts\upload_folder.py'))|Should BeExactly "line 1`r`nline 2`r`n"
+        Test-Path $backup|Should Be $false
+    }
+}
+
 Describe 'Hand-placed release boundaries' {
     BeforeEach {
         $script:next=Join-Path $TestDrive 'built'
