@@ -22,13 +22,15 @@ const only = args.includes('--app') ? args[args.indexOf('--app') + 1].split(',')
 const profileDir = join(process.env.LOCALAPPDATA ?? repo, 'JimlerTech', 'SolutionDeploy', 'web-standard-profile');
 
 // Theme storage per app. Excluded apps are reported but never fail the run.
+// frame: false marks apps that Site Dock does not embed. stubWrites answers listed write paths
+// locally so an app's harmless preference saves neither reach the server nor fail the run.
 const apps = {
     'ferry-tracker': { key: 'ferry-tracker-theme' },
     'home-automation': { key: 'smart-devices-theme' },
-    'site-dock': { key: 'sitedock.theme' },
+    'site-dock': { key: 'sitedock.theme', frame: false, stubWrites: ['/api/preferences'] },
     'fit-track': { key: 'fittrack_theme' },
-    'web-bookmarks': { key: null, excluded: true },
-    plex: { key: 'plex-theme' },
+    'web-bookmarks': { key: null, excluded: true, frame: false },
+    plex: { key: 'plex-theme', frame: false },
     'work-log': { key: 'wl_theme', skip: ['api'], hide: '#helpbar' }, // api/ is the retired Azure Functions copy; helpbar is a first-visit overlay
     'web-inventory': { key: 'theme' },
     'web-portfolio': { key: 'config_theme_preference', json: true, skip: ['scripts'] },
@@ -40,9 +42,11 @@ const MIDNIGHT = ['#020617', '#0f172a'];
 const LIGHT = ['#ffffff'];
 
 // Private-only tools (no cloudflareUrl, such as pgweb) are outside the web standard.
-const sites = JSON.parse(readFileSync(join(repo, 'site', 'sites.json'), 'utf8')).sites.filter(
-    (s) => s.cloudflareUrl && (!only || only.includes(s.id))
-);
+const allSites = JSON.parse(readFileSync(join(repo, 'site', 'sites.json'), 'utf8')).sites;
+const sites = allSites.filter((s) => s.cloudflareUrl && (!only || only.includes(s.id)));
+// Site Dock frames favorites by their Cloudflare URL from both of its own access paths.
+const dock = allSites.find((s) => s.id === 'site-dock');
+const dockOrigins = [dock.cloudflareUrl, dock.tailscaleUrl].map((u) => new URL(u).origin);
 
 function hex(rgb) {
     const m = String(rgb).match(/\d+(\.\d+)?/g);
@@ -136,6 +140,8 @@ async function checkApp(context, site, cfg) {
     await page.route('**/*', (route) => {
         const r = route.request();
         if (new URL(r.url()).origin === origin && !['GET', 'HEAD', 'OPTIONS'].includes(r.method())) {
+            if (cfg.stubWrites?.includes(new URL(r.url()).pathname))
+                return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
             writes++;
             return route.abort();
         }
@@ -168,6 +174,24 @@ async function checkApp(context, site, cfg) {
             return { site, cfg, checks, errors, writes };
         }
         add('Page loads', true, page.url());
+
+        if (cfg.frame !== false) {
+            const h = (await context.request.get(base, { maxRedirects: 0 })).headers();
+            const ancestors = (h['content-security-policy'] ?? '').match(/frame-ancestors([^;]*)/i)?.[1].trim();
+            const missing = ancestors ? dockOrigins.filter((o) => !ancestors.split(/\s+/).includes(o)) : [];
+            const xfo = h['x-frame-options'] ?? '';
+            add(
+                'Site Dock can frame it',
+                missing.length === 0 && !/deny|sameorigin/i.test(xfo) && !/'none'/.test(ancestors ?? ''),
+                [
+                    ancestors && `frame-ancestors ${ancestors}`,
+                    missing.length && `missing ${missing.join(' ')}`,
+                    xfo && `X-Frame-Options ${xfo}`,
+                ]
+                    .filter(Boolean)
+                    .join('; ')
+            );
+        }
 
         if (cfg.key) {
             const setPref = (v) =>
