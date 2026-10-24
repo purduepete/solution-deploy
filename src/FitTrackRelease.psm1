@@ -80,6 +80,7 @@ function Invoke-FitTrackRelease {
         [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(30)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
         [int]$TimeoutSeconds=300)
+    $startedLocal=(Get-Date).ToString('o')
     if($App -ne 'fit-track' -or $Environment -ne 'production' -or $Target -ine 'jimbrownhome1' -or
         -not $ApproveRelease -or -not $DatabaseChangesReviewed -or [string]::IsNullOrWhiteSpace($ApprovalReason)){
         throw 'Fit Track routine releases require the existing production placement and explicit release/code-review consent.'
@@ -98,7 +99,7 @@ function Invoke-FitTrackRelease {
     $directory=Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ('releases\fit-track-'+$id)
     [IO.Directory]::CreateDirectory($directory)|Out-Null
     $receipt=@{app=$App;sourceCommit=$commitId;status='Preparing';components=@{web='NotAttempted';'upload-watcher'='NotAttempted'}
-        startedLocal=(Get-Date).ToString('o');externalAcceptance='Pending';phases=@();reason=$ApprovalReason}
+        startedLocal=$startedLocal;externalAcceptance='Pending';phases=@();reason=$ApprovalReason}
     $receiptPath=Join-Path $directory 'release.json'
     try{
         $active=Read-DeploymentJson (Join-Path $remote 'state\active.json')

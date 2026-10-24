@@ -104,6 +104,15 @@ Shared jobs use `-App solution-deploy -Component <name>`, for example
 routes fail before preparing or stopping an application. Existing controller
 apps reject `-Component`, preserving their complete managed release scope.
 
+Fit Track's first full-web pilot deployed pushed commit
+`e8ba3876123b0f2a8b75a7fb9d4e181c2154f738` as
+`routine-e8ba3876123b-76914e9e` on 10/24/2026. Runtime ownership, readiness and
+both external access checks passed. Its separate watcher stayed Running with
+unchanged source and task configuration. The original receipt records 05:02
+from local artifact preparation through final acceptance; that first measurement
+excluded initial Git/host discovery. Subsequent receipts start before that work.
+No database migration, task installation, route change or automatic rollback ran.
+
 ### Existing controller sequence
 
 After reviewing the application change, use one command from any working directory:

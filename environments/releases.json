@@ -51,7 +51,7 @@
           "backend/scripts/Register-UploadWatcherTask.ps1"
         ]
       },
-      "versionEvidence": "Per-component state\\common-release.json; legacy current release has mixed frontend/backend versions",
+      "versionEvidence": "Web release routine-e8ba3876123b-76914e9e: frontend/backend source e8ba3876123b0f2a8b75a7fb9d4e181c2154f738. Separate upload watcher source and task configuration verified unchanged.",
       "tasks": ["SolutionDeploy-fit-track", "SolutionDeploy-fit-track-upload-watcher"],
       "preserve": ["shared", "upload-watcher", "PostgreSQL fit_track"],
       "watcherBlocker": "Changed watcher source requires a verified watcher-update procedure. The existing Google Drive logon task and copied tree are preserved.",
