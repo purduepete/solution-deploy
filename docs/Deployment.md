@@ -28,7 +28,7 @@ inventory does not grant placement authority or enable deployment.
 | Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                                             | Existing complete controller sequence, unchanged                                                                                                                                                                          |
 | Fit Track web (frontend, backend and in-process Strava sync)                                           | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
 | Fit Track upload watcher                                                                               | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
-| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options web                                          | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change                                                                     |
+| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options web                                          | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
 | Web Options collector and audit, Web Portfolio                                                         | Inventoried with live version evidence and explicit procedure blockers; no migration/provisioning scripts called                                                                                                          |
 | Solution Directory, collector monitor/publisher, LAN proxy, PostgreSQL backup, shared finance launcher | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
 | Ride and Lift, pgweb                                                                                   | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
@@ -112,7 +112,11 @@ comparison and access checks only; it is not a fresh runtime attestation.
 temporary `git worktree` using the app's documented build. Every `*.sql` file in
 the build must match the installed release (line endings ignored); any added,
 changed or removed SQL file blocks the release, because this procedure never
-runs migrations. The payload and `scripts\Invoke-HandPlacedRelease.ps1` are
+runs migrations. The one exception is a file listed in the app's
+`appliedDatabaseInputs` in `environments\releases.json`, at exactly its recorded
+digest. Add an entry only after a read-only check shows the migration is already
+live; Web Options 005, 006 and 007 were checked that way on 10/24/2026. The
+payload and `scripts\Invoke-HandPlacedRelease.ps1` are
 copied to `apps\<id>\state\routine\<op>` and run on the host through CIM.
 
 Prepare expands the payload into `releases\<sha12>-<op8>` with the previous
@@ -122,14 +126,30 @@ serving during the build and Prepare.
 
 Activate takes the app lock, checks `current` is unchanged, and stops the app.
 Web Bookmarks stops through `Stop-ManagedApp`; the others stop their task and
-any process running from `current` or the previous release. It then switches
-`current`, restarts the existing task and writes `state\common-release.json`.
+any process running from `current` or the previous release. The stop is done
+when nothing listens on the origin port at a loopback or wildcard address;
+Tailscale serve and the LAN proxy share Web Bookmarks' port 8792 on other
+addresses. It then switches `current`, gives the new junction the old link's ACL
+(LOCAL SERVICE reads through it; without that rule Web Inventory's config file
+watcher fails at startup), restarts the existing task and writes
+`state\common-release.json`.
 Plex's first release moves the old plain `current` directory to
 `releases\legacy-<op8>`. A failure before the switch restarts the previous
 release. The client then waits for Tailscale readiness and the Cloudflare
 Access redirect. Previous releases are kept. A release of the commit already
 recorded in `state\common-release.json` returns `NoChanges` after an access
 check. Web Options collector and audit tasks are never repointed.
+
+First releases on 10/24/2026 (local), each verified on Tailscale and the
+Cloudflare Access redirect:
+
+| App           | Release                 | Total | Notes                                                 |
+| ------------- | ----------------------- | ----- | ----------------------------------------------------- |
+| Work Log      | `ae24f4d73cee-e5fb03d3` | 31 s  | Repeat run returned `NoChanges`                       |
+| Web Inventory | `ff9ce8dac4df-7e0f7c32` | 65 s  | First try lost the junction ACL; about 7 min down     |
+| Plex          | `e668df23c729-610e1794` | 24 s  | Converted `current` to a junction                     |
+| Web Bookmarks | `3f3c01173ec9-440a191e` | 51 s  | First try hit the shared-port check; about 1 min down |
+| Web Options   | `68f95126294d-8bc83793` | 232 s | Host `npm ci` took 2 min before the stop              |
 
 Shared jobs use `-App solution-deploy -Component <name>`, for example
 `collector-monitor` or `postgres-backup`. Unknown, unverified and distribution-only
