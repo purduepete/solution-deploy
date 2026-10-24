@@ -204,6 +204,15 @@ Describe 'Hand-placed release boundaries' {
         [IO.File]::Delete((Join-Path $script:next 'db\001.sql'))
         Assert-CommonThrows {Assert-HandPlacedDatabaseInputs $script:next $script:old} '*Database input changed*'
     }
+    It 'accepts a new SQL file only at the digest recorded as applied' {
+        [IO.File]::WriteAllText((Join-Path $script:next 'db\001.sql'),[IO.File]::ReadAllText((Join-Path $script:old 'db\001.sql')))
+        [IO.File]::WriteAllText((Join-Path $script:next 'db\005.sql'),"grant select on t to r;`r`n")
+        $digest=Get-NormalizedFileDigest (Join-Path $script:next 'db\005.sql')
+        Assert-HandPlacedDatabaseInputs $script:next $script:old @{'db/005.sql'=$digest}
+        [IO.File]::WriteAllText((Join-Path $script:next 'db\005.sql'),"grant all on t to r;`n")
+        Assert-CommonThrows {Assert-HandPlacedDatabaseInputs $script:next $script:old @{'db/005.sql'=$digest}} '*Database input changed: db\005.sql*'
+        [IO.File]::Delete((Join-Path $script:next 'db\005.sql'))
+    }
     It 'reads both access paths from the site inventory' {
         $access=Get-SiteAccess work-log
         $access.tailscale.Port|Should Be 8794

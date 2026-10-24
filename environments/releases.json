@@ -145,6 +145,9 @@
       "originPort": 18797,
       "readiness": { "path": "/healthz", "expected": { "status": "ok" } },
       "hostInstall": "npm-production",
+      "appliedDatabaseInputs": {
+        "database/postgres/005_history_reader_signal_tier.sql": "2eef4a6ab2d2eb440d2c20a27b1b55b76098fe9949c199f08d98073111ec6574"
+      },
       "build": "npm ci, build:shared, build:backend, build:frontend:access; host npm ci --omit=dev",
       "preserve": ["shared secrets/configuration", "Azure SQL dashboard", "PostgreSQL web_options", "collector state"],
       "componentNote": "Collector and audit tasks are pinned to their own release folder and need the pinned-job procedure. A web release never repoints them."

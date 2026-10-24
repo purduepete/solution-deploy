@@ -73,7 +73,7 @@ function Get-NormalizedFileDigest {
 }
 
 function Assert-HandPlacedDatabaseInputs {
-    param([Parameter(Mandatory)][string]$Built,[Parameter(Mandatory)][string]$Installed)
+    param([Parameter(Mandatory)][string]$Built,[Parameter(Mandatory)][string]$Installed,[hashtable]$Applied=@{})
     $find={param($root)
         if(-not (Test-Path -LiteralPath $root)){return @()}
         @(Get-ChildItem -LiteralPath $root -File -Recurse -Filter '*.sql' -Force|
@@ -82,6 +82,9 @@ function Assert-HandPlacedDatabaseInputs {
     foreach($path in @(@(& $find $Built)+@(& $find $Installed)|Sort-Object -Unique)){
         $next=Join-Path $Built $path
         $old=Join-Path $Installed $path
+        # A file verified as already applied to the live database passes at exactly its recorded digest.
+        $key=$path.Replace('\','/')
+        if($Applied.ContainsKey($key) -and (Test-Path -LiteralPath $next) -and (Get-NormalizedFileDigest $next) -eq $Applied[$key]){continue}
         if(-not (Test-Path -LiteralPath $next) -or -not (Test-Path -LiteralPath $old) -or
             (Get-NormalizedFileDigest $next) -ne (Get-NormalizedFileDigest $old)){
             throw "Database input changed: $path. Routine releases never run migrations; use a separately reviewed procedure."
@@ -238,7 +241,9 @@ function Invoke-HandPlacedRelease {
         New-ReleaseWorktree $Repository $commitId $worktree
         $built=Join-Path $directory 'build'
         & $script:Builds[$App] $worktree $built $TimeoutSeconds
-        Assert-HandPlacedDatabaseInputs $built $installed
+        $applied=@{}
+        if($Entry['appliedDatabaseInputs']){foreach($item in $Entry['appliedDatabaseInputs'].GetEnumerator()){$applied[$item.Key]=[string]$item.Value}}
+        Assert-HandPlacedDatabaseInputs $built $installed $applied
         $payload=Join-Path $directory 'payload.zip'
         [IO.Compression.ZipFile]::CreateFromDirectory($built,$payload,[IO.Compression.CompressionLevel]::Optimal,$false)
         $receipt.components.web='Prepared'
