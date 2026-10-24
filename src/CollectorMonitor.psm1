@@ -19,7 +19,9 @@ function Get-CollectorMonitorIssue {
         $result = [long]$task.Result
         # 267011: registered but not yet run, as after a reinstall. Heartbeat and audit-age checks cover a task that never starts.
         if ($result -eq 267011) { continue }
-        if ($result -notin @(0, 267009)) {
+        # 2147946720 (0x800710E0): a trigger skipped because the previous run was still going (IgnoreNew).
+        # A run that stays stuck is caught by the overdue and heartbeat checks.
+        if ($result -notin @(0, 267009, 2147946720)) {
             $label = switch ($name) {
                 'SolutionDeploy-web-portfolio-stock-watchdog' { 'Stock collector health check' }
                 'SolutionDeploy-web-options-collector-watchdog' { 'Options collector health check' }

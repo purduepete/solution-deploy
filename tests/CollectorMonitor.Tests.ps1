@@ -52,6 +52,14 @@ Describe 'Independent collector monitoring' {
         $tasks[0].Result = 267011; $tasks[0].LastRun = [datetimeoffset]'1999-11-30T00:00:00-08:00'
         @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
     }
+    It 'does not alert when a minute trigger was skipped because the previous run was still going' {
+        $tasks[0].Result = 2147946720
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+    }
+    It 'still reports a skipped task whose minute schedule is overdue' {
+        $tasks[0].Result = 2147946720; $tasks[0].LastRun = $now.AddMinutes(-11)
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'overdue'
+    }
     It 'detects missing and disabled expected tasks' {
         $tasks[0].Exists = $false
         (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'missing'
