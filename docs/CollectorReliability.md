@@ -164,7 +164,9 @@ the expected rows compared with Azure also fails (`low_comparison_coverage`).
 IV differences stay informational. A host backtest of 10/23 had 0 gross rows.
 
 The monitor skips task result `267011` (registered, not yet run). Re-running
-the installer sets it, which caused a false alert at 00:35 on 10/24. is a successful account-level file/runtime probe, unchanged
+the installer sets it, which caused a false alert at 00:35 on 10/24.
+
+Immediate acceptance is a successful account-level file/runtime probe, unchanged
 healthy production task targets, fresh normal scheduled heartbeats, focused
 regression tests and actual notification delivery. Actual market capture and
 the next nightly audit are separate scheduled evidence. Record those as pending

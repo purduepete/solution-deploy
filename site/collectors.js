@@ -223,8 +223,10 @@ function render(snapshot) {
                 date,
                 label: date === today ? `${showDate(date)} (today)` : showDate(date),
                 summary: [
-                    `${rows.length} notifications`,
-                    raised ? element('span', `${raised} alerts`, 'badge bad') : badge('recovered'),
+                    rows.length === 1 ? '1 notification' : `${rows.length} notifications`,
+                    raised
+                        ? element('span', raised === 1 ? '1 alert' : `${raised} alerts`, 'badge bad')
+                        : badge('recovered'),
                 ],
                 headers: [['Time'], ['Kind'], ['Issues', true]],
                 rows: rows.map((row) => [
