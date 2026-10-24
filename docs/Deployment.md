@@ -100,7 +100,10 @@ When watcher files differ from the commit and `upload-watcher` is selected (or
    watcher starts at the next sign-in.
 
 The task definition must be unchanged at the end. The first live restart on
-10/24/2026 took 15 s from stop to a verified watcher. Rollback: copy the files from
+10/24/2026 took 15 s from stop to a verified watcher. A full release drill the
+same day (one installed script edited on the host, then
+`-Component upload-watcher`) restored the file and restarted the watcher in
+30 s end to end. Rollback: copy the files from
 `.local\releases\fit-track-<id>\previous-watcher` back over
 `upload-watcher\backend\scripts` and release again, or restart the task the
 same way by hand.

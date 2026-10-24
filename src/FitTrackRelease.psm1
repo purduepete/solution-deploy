@@ -127,7 +127,8 @@ function Restart-FitTrackWatcher {
     Stop-ScheduledTask -CimSession $Session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher
     # Stopping the task ends only wscript; the pwsh and python children keep running and the singleton guard would skip the new start.
     foreach($process in Get-FitTrackWatcherProcesses $Session){
-        Invoke-CimMethod -InputObject $process -MethodName Terminate|Out-Null
+        # wscript exits on its own after Stop-ScheduledTask, so a process already gone is fine; the wait below proves they all exited.
+        try{Invoke-CimMethod -InputObject $process -MethodName Terminate -ErrorAction Stop|Out-Null}catch{}
     }
     while(@(Get-FitTrackWatcherProcesses $Session).Count){
         if($clock.Elapsed.TotalSeconds -gt 20){throw 'The old upload watcher processes did not exit within 20 s. Nothing was started; check them on jimbrownhome1.'}

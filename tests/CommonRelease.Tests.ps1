@@ -153,6 +153,28 @@ Describe 'Common release inventory and routing' {
         $saved=Read-DeploymentJson (Join-Path $folder 'demo--web.json')
         $saved.sourceCommit|Should Be $commit
         ([DateTimeOffset]::Parse($saved.completedLocal)).UtcDateTime.ToString('HH:mm')|Should Be '21:05'
+        (Get-CommonReleaseRecords fit-track @(@{status='Succeeded';sourceCommit=$commit;components=@{web='SourceUnchanged';'upload-watcher'='Verified'}})).component|Should Be 'upload-watcher'
+    }
+    It 'warns without failing when the record cannot be written' {
+        $blocked=Join-Path $TestDrive 'not-a-folder'
+        Set-Content $blocked 'file'
+        $warnings=$null
+        Write-CommonReleaseRecords demo @(@{status='Succeeded';sourceCommit=('c'*40);component='web'}) -Directory $blocked -WarningVariable warnings -WarningAction SilentlyContinue
+        @($warnings).Count|Should Be 1
+        [string]$warnings[0]|Should BeLike '*release succeeded, but its directory record was not written*'
+    }
+    It 'passes every release result to the record writer' {
+        Mock Write-CommonReleaseRecords -ModuleName CommonRelease {}
+        Mock Invoke-RoutineRelease -ModuleName CommonRelease {@{status='Succeeded';sourceCommit=('a'*40)}}
+        Invoke-CommonRelease -App team-scoreboard -Target jimbrownhome1 -Commit ('a'*40) -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed|Out-Null
+        Assert-MockCalled Write-CommonReleaseRecords -ModuleName CommonRelease -Times 1 -Exactly -Scope It -ParameterFilter {$App -eq 'team-scoreboard' -and $Result[0].status -eq 'Succeeded'}
+        Import-Module (Join-Path $PSScriptRoot '..\src\PinnedJobRelease.psm1') -DisableNameChecking
+        Mock Invoke-CommonWebRelease -ModuleName CommonRelease {@{status='Succeeded';sourceCommit=('d'*40);component='web'}}
+        Mock Import-Module -ModuleName CommonRelease {}
+        Mock Invoke-PinnedJobRelease -ModuleName CommonRelease {@{status='NoChanges';component='collector'}}
+        $result=Invoke-CommonRelease -App web-options -Target jimbrownhome1 -Commit ('d'*40) -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed
+        $result.status|Should Be Succeeded
+        Assert-MockCalled Write-CommonReleaseRecords -ModuleName CommonRelease -Times 1 -Exactly -Scope It -ParameterFilter {$App -eq 'web-options' -and @($Result).Count -eq 2}
     }
 }
 
