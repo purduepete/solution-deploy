@@ -261,6 +261,8 @@ runs the component's check:
 The `Install-*.ps1` scripts stay for first installs and task-shape changes.
 To roll back, copy the files from `previous` back and rerun the check step by hand.
 
+First run (10/24/2026, `496c54f`): all 4 components returned `NoChanges` in 5 s. The check steps were then run on their own: the monitor's next run in 44 s, the LAN proxy restart in 2 s, and the Web Portfolio and Web Options restarts in 7 s and 6 s, each leaving 1 launcher and 1 node process.
+
 ### Existing controller sequence
 
 After reviewing the application change, use one command from any working directory:
