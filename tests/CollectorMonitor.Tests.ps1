@@ -114,7 +114,7 @@ Describe 'Monitor runner read-only evaluation' {
         $alert = Join-Path $TestDrive 'alert.ps1'
         Set-Content -LiteralPath $alert -Value 'param($Title, $Message) $global:LASTEXITCODE = 0'
         $history = Join-Path $TestDrive 'collector-alerts.json'
-        ConvertTo-Json -InputObject @([ordered]@{ sentAt = (Get-Date).AddDays(-20).ToString('o'); kind = 'alert'
+        ConvertTo-Json -InputObject @([ordered]@{ sentAt = (Get-Date).AddDays(-40).ToString('o'); kind = 'alert'
                 title = 'old'; issues = @('old') }) | Set-Content -LiteralPath $history
         & (Join-Path $PSScriptRoot '..\scripts\Test-CollectorHealth.ps1') -StatePath (Join-Path $TestDrive 'state.json') `
             -AlertScript $alert -AlertLogPath $history | Out-Null

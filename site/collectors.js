@@ -178,11 +178,39 @@ function auditOutcome(rows) {
     return 'pass';
 }
 
+const historyDays = { alerts: 7, runs: 7, audits: 7 };
+let currentSnapshot;
+
+function inHistoryRange(date, today, count) {
+    const start = new Date(`${today}T00:00:00Z`);
+    start.setUTCDate(start.getUTCDate() - count + 1);
+    return date >= start.toISOString().slice(0, 10) && date <= today;
+}
+
 function render(snapshot) {
+    currentSnapshot = snapshot;
     const names = Object.fromEntries(snapshot.jobs.map((job) => [job.id, job.name]));
     const runs = [...snapshot.runs].sort((a, b) => new Date(b.scheduledAt) - new Date(a.scheduledAt));
     const now = Date.now();
     const today = day(now);
+    for (const group of Object.keys(historyDays)) {
+        const controls = document.getElementById(`${group}-range`);
+        if (!controls.children.length) {
+            for (const count of [7, 14, 30]) {
+                const button = element('button', `${count} days`);
+                button.type = 'button';
+                button.dataset.days = count;
+                button.addEventListener('click', () => {
+                    historyDays[group] = count;
+                    render(currentSnapshot);
+                });
+                controls.append(button);
+            }
+        }
+        for (const button of controls.children) {
+            button.setAttribute('aria-pressed', String(Number(button.dataset.days) === historyDays[group]));
+        }
+    }
 
     const lastAt = new Map();
     const cards = snapshot.jobs.map((job) => {
@@ -209,7 +237,7 @@ function render(snapshot) {
                     badge(lastRun.status),
                     ` ${stamp(lastRun.scheduledAt)} ${slotLabel(lastRun.kind)}${counts}`
                 );
-            } else last.textContent = 'No runs in 7 days';
+            } else last.textContent = 'No runs in the available history';
             facts.append(element('dt', 'Last slot'), last);
             const health = snapshot.health.find((row) => row.job === job.id);
             const beat = element('dd');
@@ -249,7 +277,8 @@ function render(snapshot) {
         run.expected ? `${run.ok}/${run.expected}` : '',
         run.detail ?? '',
     ];
-    const runDays = groupByDay(runs, (run) => day(run.scheduledAt));
+    const visibleRuns = runs.filter((run) => inHistoryRange(day(run.scheduledAt), today, historyDays.runs));
+    const runDays = groupByDay(visibleRuns, (run) => day(run.scheduledAt));
     days(
         'runs',
         runDays.map(([date, rows]) => {
@@ -268,13 +297,16 @@ function render(snapshot) {
                 rows: rows.map(runRow),
             };
         }),
-        'No runs in the last 7 days.'
+        `No runs in the last ${historyDays.runs} days.`
     );
 
     const alerts = [...(snapshot.alerts ?? [])].sort((a, b) => b.sentAt.localeCompare(a.sentAt));
     days(
         'alerts',
-        groupByDay(alerts, (row) => day(row.sentAt)).map(([date, rows]) => {
+        groupByDay(
+            alerts.filter((row) => inHistoryRange(day(row.sentAt), today, historyDays.alerts)),
+            (row) => day(row.sentAt)
+        ).map(([date, rows]) => {
             const raised = rows.filter((row) => row.kind === 'alert').length;
             return {
                 date,
@@ -293,7 +325,7 @@ function render(snapshot) {
                 ]),
             };
         }),
-        'No monitor notifications in the last 14 days.'
+        `No monitor notifications in the last ${historyDays.alerts} days.`
     );
 
     const audits = [...snapshot.audits].sort(
@@ -301,7 +333,10 @@ function render(snapshot) {
     );
     days(
         'audits',
-        groupByDay(audits, (row) => row.date).map(([date, rows]) => {
+        groupByDay(
+            audits.filter((row) => inHistoryRange(row.date, today, historyDays.audits)),
+            (row) => row.date
+        ).map(([date, rows]) => {
             const failed = rows.filter(
                 (row) => !row.informational && ['fail', 'unreadable'].includes(row.status)
             ).length;
@@ -321,7 +356,7 @@ function render(snapshot) {
                 }),
             };
         }),
-        'No audit reports in the last 14 days.'
+        `No audit reports in the last ${historyDays.audits} days.`
     );
     const age = now - new Date(snapshot.generatedAt);
     document.getElementById('updated').textContent = `Snapshot built ${stamp(snapshot.generatedAt)}.`;
@@ -329,7 +364,7 @@ function render(snapshot) {
     status.textContent =
         age > 15 * 60 * 1000
             ? `Snapshot is ${Math.round(age / 60000)} minutes old. Check the SolutionDeploy-collector-status task.`
-            : `${runs.length} slots in 7 days, ${snapshot.audits.length} audit results.`;
+            : `${visibleRuns.length} slots in ${historyDays.runs} days, ${audits.filter((row) => inHistoryRange(row.date, today, historyDays.audits)).length} audit results in ${historyDays.audits} days.`;
     status.className = age > 15 * 60 * 1000 ? 'stale' : '';
     const error = document.getElementById('error');
     error.textContent = snapshot.errors.length ? `Snapshot errors: ${snapshot.errors.join('; ')}` : '';

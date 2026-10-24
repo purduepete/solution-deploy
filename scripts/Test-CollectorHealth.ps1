@@ -6,7 +6,7 @@ param(
     [string]$AlertScript = 'C:\ProgramData\JimlerTech\PostgreSQL\Send-BackupAlert.ps1',
     # Shown on the Collectors page; the LOCAL SERVICE snapshot builder can read this folder, not the monitor's.
     [string]$AlertLogPath = 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\collector-alerts.json',
-    [int]$AlertLogDays = 14,
+    [int]$AlertLogDays = 30,
     [switch]$EvaluateOnly
 )
 $ErrorActionPreference = 'Stop'

@@ -3,8 +3,8 @@ param(
     [string]$AppsRoot = 'C:\ProgramData\SolutionDeploy\apps',
     [string]$OutputPath = 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\collector-status.json',
     [string]$PsqlPath = 'C:\Program Files\PostgreSQL\18\bin\psql.exe',
-    [int]$RunDays = 7,
-    [int]$AuditDays = 14
+    [int]$RunDays = 30,
+    [int]$AuditDays = 30
 )
 # Builds collector-status.json (schema v1) for the Solution Directory /collectors page.
 # Database access is read-only: every session runs with default_transaction_read_only=on.

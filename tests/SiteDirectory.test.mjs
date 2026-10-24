@@ -7,6 +7,23 @@ import { join } from 'node:path';
 import { createServer } from '../site/server.mjs';
 import { runInNewContext } from 'node:vm';
 
+test('history ranges include today and exactly the selected number of calendar days', () => {
+    const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('function inHistoryRange('), source.indexOf('\nfunction render('));
+    const includes = runInNewContext(`${code}\ninHistoryRange`);
+    assert.equal(includes('2026-10-18', '2026-10-24', 7), true);
+    assert.equal(includes('2026-10-17', '2026-10-24', 7), false);
+    assert.equal(includes('2026-10-24', '2026-10-24', 7), true);
+    assert.equal(includes('2026-10-25', '2026-10-24', 30), false);
+    assert.equal(includes('2026-10-11', '2026-10-24', 14), true);
+    assert.equal(includes('2026-09-25', '2026-10-24', 30), true);
+    assert.equal(includes('2026-09-24', '2026-10-24', 30), false);
+    assert.equal(includes('2026-10-27', '2026-11-02', 7), true);
+    const page = readFileSync(new URL('../site/collectors.html', import.meta.url), 'utf8');
+    for (const group of ['alerts', 'runs', 'audits']) assert(page.includes(`id="${group}-range"`));
+    assert.match(source, /const historyDays = \{ alerts: 7, runs: 7, audits: 7 \}/);
+});
+
 test('audit info uses report counts, distinguishes unavailable data and renders errors as text', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
     const code = source.slice(source.indexOf('let auditInfoId'), source.indexOf('\nfunction table('));

@@ -412,6 +412,16 @@ footer {
 .collector-history {
     padding-top: 32px;
 }
+.history-range {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+.history-range button[aria-pressed='true'] {
+    border-color: var(--accent);
+    font-weight: 700;
+}
 .days > .empty {
     color: var(--muted);
 }
