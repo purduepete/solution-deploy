@@ -31,6 +31,10 @@ export function publicDeployments(releases, inventory) {
             'Release Folder Swap',
             'Builds the pushed commit, stages a new release folder, then restarts the app on it through the common Release command.',
         ],
+        shared: [
+            'Shared Component Release',
+            'Releases one named host component from the pushed commit through the common Release command, then confirms it.',
+        ],
         blocked: ['Procedure Unverified', 'The common release procedure is not yet verified for this solution.'],
         manual: ['Manual Update', 'This installation uses a manual or distribution update, not a Git release.'],
     };

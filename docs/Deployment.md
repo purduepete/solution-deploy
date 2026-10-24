@@ -31,7 +31,7 @@ inventory does not grant placement authority or enable deployment.
 | Web Bookmarks, Plex, Work Log, Web Inventory, Web Options, Web Portfolio web | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied                                             |
 | Web Options collector and audit, Web Portfolio stock collector and audit     | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                                                          |
 | Solution Directory and collector status publisher                            | Directory release: fast-forward the host clone to the pushed commit, run `Install-Directory.ps1`, compare installed files, check both access paths                                                                        |
-| Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher     | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
+| Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher     | File-set release: copy changed files from the pushed commit in place, then confirm with the monitor's next run, a LAN proxy restart, or a Web Portfolio and Web Options restart                                           |
 | Ride and Lift, pgweb                                                         | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
 
 The access URLs and reserved Tailscale HTTPS ports stay in `site\sites.json`.
@@ -234,6 +234,32 @@ installed files with the commit again, and checks Tailscale `/health` plus the
 Cloudflare Access redirect. The directory is down for about 10 seconds while
 the installer restarts it. A retry of the same commit is allowed after a failed
 install. Files removed from `site` stay installed; delete them by hand.
+
+### File-set release (collector monitor, LAN proxy, PostgreSQL backup, finance launcher)
+
+```powershell
+.\Deploy.ps1 -Action Release -App solution-deploy -Component lan-proxy -Target jimbrownhome1 -Commit origin/main -ApproveRelease -ApprovalReason '...' -DatabaseChangesReviewed
+```
+
+Each component lists its files and installed paths under `fileSets` in
+`environments\releases.json`. Targets must sit under
+`C:\ProgramData\SolutionDeploy` or `C:\ProgramData\JimlerTech\PostgreSQL`, and
+sources must be in the component's `componentPaths`. The release takes the
+files from the pushed commit with `git archive`, compares them with the
+installed copies (line endings ignored), and returns `NoChanges` when they
+match. Otherwise it saves the old copies under the receipt's `previous` folder,
+writes the new content in place so each file keeps its ACL, compares again, and
+runs the component's check:
+
+| Component           | After the copy                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------ |
+| `collector-monitor` | Waits for the next one-minute run and requires result 0                                          |
+| `lan-proxy`         | Stops the recorded node PID, starts the task, requires 200 from `192.168.2.14:8798`              |
+| `postgres-backup`   | None; the nightly task picks it up. Credentials, `.pgpass` files and retention are never touched |
+| `finance-launcher`  | Restarts Web Portfolio, then Web Options, each about 30 s down, and checks both paths            |
+
+The `Install-*.ps1` scripts stay for first installs and task-shape changes.
+To roll back, copy the files from `previous` back and rerun the check step by hand.
 
 ### Existing controller sequence
 

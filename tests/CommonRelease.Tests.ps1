@@ -45,16 +45,44 @@ Describe 'Common release inventory and routing' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App fit-track -Target jimbrownhome1 -Component collector} '*Unknown component*'
         Assert-CommonThrows {Get-CommonReleaseRoute -App unknown -Target jimbrownhome1} '*No release inventory*'
     }
-    It 'requires explicit shared-host selection and still blocks unverified procedures' {
+    It 'requires explicit shared-host selection' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1} '*explicit -Component*'
-        Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component postgres-backup} '*baseline*'
     }
-    It 'releases the directory and its status publisher together and blocks the other shared components' {
+    It 'releases the directory and its status publisher together and routes the other shared components to file sets' {
         foreach($name in 'directory','collector-status'){
             (Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component $name).procedure|Should Be directory
         }
         (Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component directory,collector-status).procedure|Should Be directory
-        Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component directory,lan-proxy} '*lan-proxy release blocked*'
+        foreach($name in 'collector-monitor','lan-proxy','postgres-backup','finance-launcher'){
+            (Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component $name).procedure|Should Be file-set
+        }
+        Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component directory,lan-proxy} '*different procedures*'
+    }
+    It 'plans each file set inside its component paths and allowed host folders' {
+        Import-Module (Join-Path $root 'src\FileSetRelease.psm1') -Force -DisableNameChecking
+        $entry=(Read-DeploymentJson (Join-Path $root 'environments\releases.json')).apps['solution-deploy']
+        @((Get-FileSetPlan $entry finance-launcher).files).Count|Should Be 2
+        (Get-FileSetPlan $entry finance-launcher).after.apps -join ','|Should Be 'web-portfolio,web-options'
+        @((Get-FileSetPlan $entry postgres-backup).files|ForEach-Object {$_.target}) -join ','|Should Not Match 'pgpass|credential'
+        (Get-FileSetPlan $entry lan-proxy).files[1].share|Should Be '\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\lan-proxy\site\lan-proxy.mjs'
+        $bad=@{componentPaths=@{x=@('a.ps1')};fileSets=@{x=@{files=@(@{source='a.ps1';targets=@('C:\ProgramData\SolutionDeploy\..\Windows\a.ps1')});after=@{type='none'}}}}
+        Assert-CommonThrows {Get-FileSetPlan $bad x} '*not an allowed host path*'
+        $bad.fileSets.x.files[0].targets=@('C:\Windows\a.ps1')
+        Assert-CommonThrows {Get-FileSetPlan $bad x} '*not an allowed host path*'
+        $bad.fileSets.x.files[0].source='b.ps1'
+        Assert-CommonThrows {Get-FileSetPlan $bad x} '*outside its component paths*'
+        $bad.fileSets.x.files[0]=@{source='a.ps1';targets=@('C:\ProgramData\SolutionDeploy\a.ps1')}
+        $bad.fileSets.x.after.type='reboot'
+        Assert-CommonThrows {Get-FileSetPlan $bad x} '*unknown after step*'
+    }
+    It 'compares file sets by normalized content' {
+        Import-Module (Join-Path $root 'src\FileSetRelease.psm1') -Force -DisableNameChecking
+        $source=Join-Path $TestDrive 'source';$installed=Join-Path $TestDrive 'installed'
+        New-Item -ItemType Directory $source,$installed -Force|Out-Null
+        [IO.File]::WriteAllText("$source\a.ps1","one`ntwo`n");[IO.File]::WriteAllText("$installed\a.ps1","one`r`ntwo`r`n")
+        $files=@(@{source='a.ps1';target='C:\ProgramData\SolutionDeploy\a.ps1';share="$installed\a.ps1"},
+            @{source='a.ps1';target='C:\ProgramData\SolutionDeploy\b.ps1';share="$installed\b.ps1"})
+        @(Compare-FileSet $files $source|ForEach-Object {$_.target}) -join ','|Should Be 'C:\ProgramData\SolutionDeploy\b.ps1'
     }
     It 'routes hand-placed web apps and sends Web Options jobs to the pinned-job procedure' {
         foreach($app in @('web-bookmarks','work-log','web-inventory','plex','web-options','web-portfolio')){

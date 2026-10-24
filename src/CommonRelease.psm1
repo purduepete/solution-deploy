@@ -130,6 +130,12 @@ function Invoke-CommonWebRelease {
         foreach($key in 'Commit','OutputDirectory','TimeoutSeconds'){if($Arguments.ContainsKey($key)){$directoryArguments[$key]=$Arguments[$key]}}
         return Invoke-DirectoryRelease @directoryArguments
     }
+    if($Route.procedure -eq 'file-set'){
+        Import-Module (Join-Path $PSScriptRoot 'FileSetRelease.psm1') -DisableNameChecking
+        $fileArguments=@{Repository=$Arguments.Repository;Entry=$Route.entry;Component=$Route.webComponents;ApprovalReason=$Arguments.ApprovalReason}
+        foreach($key in 'Commit','OutputDirectory'){if($Arguments.ContainsKey($key)){$fileArguments[$key]=$Arguments[$key]}}
+        return Invoke-FileSetRelease @fileArguments
+    }
     if($Route.procedure -ne 'fit-track'){throw 'No implemented release procedure for this inventory entry.'}
     Import-Module (Join-Path $PSScriptRoot 'FitTrackRelease.psm1') -DisableNameChecking
     Invoke-FitTrackRelease @Arguments

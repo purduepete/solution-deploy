@@ -206,7 +206,7 @@
       "componentNote": "Collector, watchdog and daily audit tasks share one pinned-job release folder, released as -Component collector. A web release never repoints them."
     },
     "solution-deploy": {
-      "procedure": "blocked",
+      "procedure": "shared",
       "source": ".",
       "components": [
         "directory",
@@ -222,17 +222,74 @@
         "collector-monitor": ["scripts/Test-CollectorHealth.ps1", "src/CollectorMonitor.psm1"],
         "collector-status": ["scripts/Update-CollectorStatus.ps1"],
         "lan-proxy": ["scripts/Start-LanProxy.ps1", "site/lan-proxy.mjs"],
-        "postgres-backup": ["scripts/Backup-Postgres.ps1"],
+        "postgres-backup": ["scripts/Backup-Postgres.ps1", "scripts/Send-BackupAlert.ps1"],
         "finance-launcher": ["scripts/Start-FinanceService.ps1"]
       },
       "componentProcedures": {
         "directory": "directory",
-        "collector-status": "directory"
+        "collector-status": "directory",
+        "collector-monitor": "file-set",
+        "lan-proxy": "file-set",
+        "postgres-backup": "file-set",
+        "finance-launcher": "file-set"
+      },
+      "fileSets": {
+        "collector-monitor": {
+          "files": [
+            {
+              "source": "scripts/Test-CollectorHealth.ps1",
+              "targets": ["C:\\ProgramData\\SolutionDeploy\\monitor\\scripts\\Test-CollectorHealth.ps1"]
+            },
+            {
+              "source": "src/CollectorMonitor.psm1",
+              "targets": ["C:\\ProgramData\\SolutionDeploy\\monitor\\src\\CollectorMonitor.psm1"]
+            }
+          ],
+          "after": { "type": "next-run", "task": "SolutionDeploy-collector-monitor" }
+        },
+        "lan-proxy": {
+          "files": [
+            {
+              "source": "scripts/Start-LanProxy.ps1",
+              "targets": ["C:\\ProgramData\\SolutionDeploy\\apps\\lan-proxy\\Start-LanProxy.ps1"]
+            },
+            {
+              "source": "site/lan-proxy.mjs",
+              "targets": ["C:\\ProgramData\\SolutionDeploy\\apps\\lan-proxy\\site\\lan-proxy.mjs"]
+            }
+          ],
+          "after": { "type": "lan-proxy" }
+        },
+        "postgres-backup": {
+          "files": [
+            {
+              "source": "scripts/Backup-Postgres.ps1",
+              "targets": ["C:\\ProgramData\\JimlerTech\\PostgreSQL\\Backup-Postgres.ps1"]
+            },
+            {
+              "source": "scripts/Send-BackupAlert.ps1",
+              "targets": ["C:\\ProgramData\\JimlerTech\\PostgreSQL\\Send-BackupAlert.ps1"]
+            }
+          ],
+          "after": { "type": "none" }
+        },
+        "finance-launcher": {
+          "files": [
+            {
+              "source": "scripts/Start-FinanceService.ps1",
+              "targets": [
+                "C:\\ProgramData\\SolutionDeploy\\apps\\web-portfolio\\shared\\Start-Service.ps1",
+                "C:\\ProgramData\\SolutionDeploy\\apps\\web-options\\shared\\Start-Service.ps1"
+              ]
+            }
+          ],
+          "after": { "type": "restart-apps", "apps": ["web-portfolio", "web-options"] }
+        }
       },
       "consumers": {
         "finance-launcher": ["web-portfolio", "web-options"]
       },
-      "versionEvidence": "Directory and collector status publisher installed from the host clone by Install-Directory.ps1, matched file for file to commit 63ccad0 on 10/24/2026. Monitor has its own installed tree; backup is under ProgramData\\JimlerTech\\PostgreSQL",
+      "versionEvidence": "Directory and collector status publisher installed from the host clone by Install-Directory.ps1, matched file for file to commit 2d3366f on 10/24/2026. Collector monitor, LAN proxy, PostgreSQL backup and both finance launcher copies matched origin/main file for file on 10/24/2026; file-set receipts record later releases.",
       "tasks": [
         "SolutionDeploy-directory",
         "SolutionDeploy-collector-status",
@@ -247,8 +304,7 @@
         "backup retention",
         "finance per-app Start-Service copies"
       ],
-      "blocker": "Collector monitor, LAN proxy, PostgreSQL backup and finance launcher: establish each installed-file baseline and exact-commit publisher before enabling it. Finance launcher updates must name each affected per-app installed copy.",
-      "componentNote": "Directory and collector-status release together with -Component directory: the host clone moves to the pushed commit and Install-Directory.ps1 reinstalls both."
+      "componentNote": "Directory and collector-status release together with -Component directory: the host clone moves to the pushed commit and Install-Directory.ps1 reinstalls both. Collector monitor, LAN proxy, PostgreSQL backup and finance launcher are file-set releases: changed files are copied from the pushed commit, then the monitor's next run, a LAN proxy restart, or a Web Portfolio and Web Options restart confirms them. Backup credentials and retention are never touched."
     },
     "ride-and-lift": {
       "procedure": "manual",

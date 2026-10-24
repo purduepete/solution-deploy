@@ -40,6 +40,9 @@ test('deployment information covers every solution and exposes only public field
     for (const id of ['web-bookmarks', 'work-log', 'web-inventory', 'plex', 'web-options', 'web-portfolio'])
         assert.equal(result.solutions.find((entry) => entry.id === id).support, 'Release Folder Swap');
     assert.match(result.solutions.find((entry) => entry.id === 'web-options').componentNote, /pinned-job/);
+    const shared = result.solutions.find((entry) => entry.id === 'solution-deploy');
+    assert.equal(shared.support, 'Shared Component Release');
+    assert.equal(shared.blocker, null);
     for (const id of ['ride-and-lift', 'pgweb']) {
         const entry = result.solutions.find((solution) => solution.id === id);
         assert.equal(entry.support, 'Manual Update');
