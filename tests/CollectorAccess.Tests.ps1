@@ -1,5 +1,32 @@
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CollectorAccess.psm1') -Force
 
+Describe 'Compiled bulk access validator' {
+    It 'compiles the actual probe checker and rejects writable payload without changing its bytes' {
+        $module = Get-Content (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CollectorAccess.psm1') -Raw
+        $source = [regex]::Match($module, "(?s)Add-Type -TypeDefinition @'\r?\n(.*?)\r?\n'@").Groups[1].Value
+        if (-not ('CollectorFileAccess' -as [type])) { Add-Type -TypeDefinition $source }
+        $fixture = Join-Path (Get-Location) ('.local\collector-native-' + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $fixture -Force | Out-Null
+        try {
+            $file = Join-Path $fixture 'payload.txt'
+            $progress = Join-Path $fixture 'progress.txt'
+            Set-Content $file 'fixture contents stay unchanged'
+            $hash = (Get-FileHash $file).Hash
+            [CollectorFileAccess]::Validate(@($file), @($file), $progress) | Should Match 'can modify code/config/runtime'
+            $ownerHandle = [CollectorFileAccess]::CreateFile($file, 262144, 7, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
+            try { $ownerHandle.IsInvalid | Should Be $false } finally { $ownerHandle.Dispose() }
+            $source | Should Match 'uint\[\] fileRights = \{ 2, 4, 16, 256, 65536, 262144, 524288 \}'
+            $source | Should Match 'uint\[\] ancestorRights = \{ 64, 65536, 262144, 524288 \}'
+            (Get-FileHash $file).Hash | Should Be $hash
+            [CollectorFileAccess]::Validate(@(), @(), $progress) | Should Be ''
+            Get-Content $progress -Raw | Should Match 'Checked 0 of 0 paths'
+            [CollectorFileAccess]::Validate(@((Join-Path $fixture 'missing')), @((Join-Path $fixture 'missing')), $progress) |
+                Should Not Be ''
+        }
+        finally { Remove-Item -LiteralPath $fixture -Recurse -Force }
+    }
+}
+
 InModuleScope CollectorAccess {
     Describe 'Control directory local administrator SID trust' {
         BeforeEach {
