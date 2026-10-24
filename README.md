@@ -20,6 +20,9 @@ sessions, reads the audit JSON under each app's `shared\logs\audit`, and writes
 503 when it is missing. The job catalog at the top of the script mirrors the
 collector schedules; update it when a schedule changes.
 
+Collector release-access checks and the separate host-level failure monitor are
+described in [Collector reliability](docs/CollectorReliability.md).
+
 Home LAN access starts at http://192.168.2.14/ without login. The IPv4-only LAN
 proxy restricts clients to `192.168.2.0/24`; HTTP is unencrypted and every device
 on that subnet has application access. See [LAN access](docs/LanAccess.md).
