@@ -6,6 +6,132 @@ The environment's `hosts` registry contains each host's private IPv4 address, de
 
 Plans distinguish `LegacyConversion`, `FirstInstall`, `ManagedDeploy`, and `ManagedMove`. Legacy conversion uses the original `state` declarations and the separately approved PostgreSQL importer. A managed move uses only `managedState`, with paths relative to the source's managed `shared` directory, and preserves the existing PostgreSQL data. It never replays the legacy importer.
 
+## Routine same-host release
+
+Treat "commit, push and deploy" as approval for the complete routine sequence.
+Work in the application's development repository, review the change, commit and
+push it, then invoke the shared controller below. Supply the explicit consent
+flags from that request without asking for separate Stage, Preflight, Deploy or
+Verify approvals. Database-changing work still needs the independent review
+described below.
+
+After reviewing the application change, use one command from any working directory:
+
+```powershell
+& C:\Files\Dev\main\solution-deploy\Deploy.ps1 -Action Release `
+    -App team-scoreboard -Environment production -Target jimbrownhome1 `
+    -Commit HEAD -ApproveRelease -ApprovalReason 'Reviewed scoreboard display correction' `
+    -DatabaseChangesReviewed
+```
+
+`-DatabaseChangesReviewed` declares that you reviewed the application code for database
+writes and data fixes. Database-altering changes still require independent review and
+the separate reviewed deployment procedure. Release performs no database import,
+migration, restore or data fix. Starting the application can resume its ordinary writes.
+
+Release is limited to an existing `ManagedDeploy` on the same host. The entire
+application manifest and sealed database migration/schema inputs must match the active
+release. The current routine verifier requires the application and database to stay
+on the existing colocated host. New installations, host moves, changed database inputs and unresolved
+placement authority require the existing reviewed actions.
+
+The caller resolves `HEAD` or the supplied commit once, fetches origin and requires
+that immutable commit to be reachable from an origin branch. The source checkout
+must be clean. It obtains fixed runtime and PostgreSQL verifier paths from the
+protected installation, sealed active release and successful prior activation
+request. It checks their hashes and the prior runtime/schema verification. No
+hand-written approval JSON or runtime overrides are needed.
+
+Consent binds the app, environment, target, commit, reason, operator, exact artifact
+and tool hashes, allowed actions and expiry into the saved plan digest. The default
+expiry is 30 minutes; `-ExpiresLocal` can shorten it or set a time within 1 hour.
+Input drift and expiry fail the run. Release never extends consent or rewrites the
+plan to accept new inputs.
+
+The sequence is Plan, Stage, protected Preflight, Deploy, protected Verify, then
+external acceptance. Preflight checks the live schema, runtime role isolation,
+endpoint and existing nightly backup validation. Its new read-only compatibility
+evidence retains the backup's original dates. It runs before placement becomes
+Pending and before the old application stops. The resulting evidence file and hash
+are added to later approvals without changing the plan hash. The executor checks
+them again before activation. Historical import parity or restore gates aren't
+invented for a routine release.
+
+Before staging and after protected verification, the controller checks Tailscale
+HTTPS readiness against the manifest response and requires a Cloudflare Access
+login redirect on the single public hostname. A public HTTP 200 doesn't satisfy
+Access acceptance. The Tailscale origin is taken from the manifest's declared
+`https://*.ts.net:<application-port>` origin. For applications without one, supply
+`-TailscaleUrl https://<host>.<tailnet>.ts.net:<application-port>`.
+Release doesn't change routes or Access policies.
+
+Local records are under `.local\releases\<plan-id>` by default: the fixed plan,
+per-action approvals and `release.json` with phase results and approval hashes.
+Only a completed protected Verify and both final external checks produce
+`status=Succeeded` and `externalAcceptance=Verified`. A failed external check leaves
+the deployment marked incomplete even if the application has started.
+
+Failures retain the records and don't trigger automatic rollback. Inspect the
+protected operation journal and operation-scoped write-authority evidence first.
+A proven preflight abort leaves the old deployment authoritative. An uncertain
+start or possible application write requires operator recovery.
+
+`-Action Recover` only reconciles a completed failed Deploy with conclusive
+operation-scoped pre-mutation evidence and a verified running previous release.
+Use its original saved plan and approval while that consent remains valid.
+Missing evidence, maintenance, a changed junction or possible writes block this
+action. It doesn't restart or roll back an application.
+
+The host executor must contain the reviewed routine-release code before use.
+An existing protected installation needs the separately reviewed host-update
+procedure; rerunning the initial `Install-Host.ps1` installer won't update it.
+
+Run the reviewed source copy of `Update-Host.ps1` locally on the selected target,
+from a source tree outside `control\framework`:
+
+```powershell
+& .\scripts\Update-Host.ps1 -Root C:\ProgramData\SolutionDeploy `
+    -ExpectedHostIdentity '<UUID>' `
+    -ExpectedInstalledCodeSHA256 '<installation.codeSHA256>' `
+    -ExpectedCodeSHA256 '<SHA-256 of canonical JSON for the reviewed src/scripts/schemas inventory>' `
+    -ApproveUpdate -Confirm:$false
+```
+
+The updater takes submission and execution locks, checks the existing and new
+inventories, backs up changed bytes and restores them if the update fails.
+It doesn't restart applications. Retain its protected update receipt and backups.
+
+The existing Plan, Stage, Deploy, Cutover, Verify and Rollback entry points retain
+their separate approval flow.
+
+### First measured routine release
+
+Team Scoreboard completed the new command on 10/24/2026 at 00:07 local, using the
+already-pushed commit `c32f625412d9a0460cbb0513b12a905113c5eb93`. Its protected
+release was `c32f625412d9-dcb68ba3`, with Active placement and both access checks
+passing.
+
+| Phase                      | Elapsed |
+| -------------------------- | ------- |
+| Preparation                | 00:31   |
+| Stage                      | 03:02   |
+| Protected Preflight        | 02:55   |
+| Deploy                     | 01:53   |
+| Protected Verify           | 00:41   |
+| Between-phase/final checks | 00:31   |
+| Total                      | 09:32   |
+
+The earlier 5–8 minute estimate was low. Use this measured result until more runs
+provide a better estimate. These are command timings, not application downtime.
+
+Validation found two preparation problems. Full old-release hashing over the
+admin share was too slow, so the controller now reads protected metadata and the
+executor still checks both full inventories locally before downtime. Host-update
+inventory hashes now use canonical JSON because unordered JSON caused a
+cross-process digest mismatch that correctly refused the update before copying.
+Run the CLI directly: a PowerShell background-job test wrapper also timed out
+during Git preparation before it submitted any protected operation.
+
 ## Migration feedback and reuse
 
 Before each migration, record whether capture gaps are acceptable, whether the old

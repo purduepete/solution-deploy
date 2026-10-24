@@ -5,6 +5,7 @@ Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'PostgreSQL.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Lifecycle.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Transfer.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'RoutineRelease.psm1') -DisableNameChecking
 
 function Prepare-InitialCutover {
     param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][string]$AppRoot,
@@ -53,6 +54,12 @@ function Assert-SourceContinuity {
 function Assert-DatabaseActivationEvidence {
     param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][hashtable]$Approval,
         [Parameter(Mandatory)][string]$AppRoot,[string]$ReleasePath=(Join-Path $AppRoot 'current'))
+    if($Plan.ContainsKey('routineRelease') -and $Plan.routineRelease -eq $true){
+        $resolved=(Get-Item -LiteralPath $ReleasePath).FullName
+        $item=Get-Item -LiteralPath $ReleasePath
+        if($item.LinkType -eq 'Junction'){$resolved=[string]$item.Target}
+        return (Get-RoutineDatabaseEvidence $Plan $Approval $AppRoot $resolved).database
+    }
     foreach($field in @('psqlPath','psqlSHA256','postgresPassFile','postgresRuntimeRole','databaseEvidencePath','databaseEvidenceSHA256','expectedSchemaFingerprint','migrationSqlSHA256')){
         if(-not $Approval.ContainsKey($field)){throw "Database activation approval missing $field."}
     }

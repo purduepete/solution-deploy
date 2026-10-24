@@ -66,6 +66,39 @@ Describe 'Protected submission and central placement with no remote writes' {
         ($global:SyntheticPlacementStates -join ',')|Should Be 'Pending,Unknown'
         $global:SyntheticPlacementLease.CanRead|Should Be $false
     }
+    It 'does not change placement while running protected preflight' {
+        (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Preflight).status | Should Be Succeeded
+        $global:SyntheticPlacementStates.Count | Should Be 0
+    }
+    It 'requires the protected routine preflight result before recording Pending' {
+        $global:SyntheticControllerPlan.routineRelease=$true
+        Assert-ControllerThrows {Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy}
+        $global:SyntheticPlacementStates.Count | Should Be 0
+        Assert-MockCalled Start-ScheduledTask -ModuleName Controller -Times 0 -Exactly -Scope It
+    }
+    It 'restores conclusive clean-abort placement instead of unconditionally writing Unknown' {
+        Mock Restore-VerifiedPlacement -ModuleName Controller {}
+        Mock Start-ScheduledTask -ModuleName Controller {
+            $pending=Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')
+            Write-DeploymentJson (Join-Path $global:SyntheticControllerRoot "operations\$($pending.operationId)\result.json") @{
+                operationId=$pending.operationId;planHash=$global:SyntheticControllerPlan.planHash;status='Failed';cleanAbort=$true
+            }
+        }
+        Assert-ControllerThrows {Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy}
+        ($global:SyntheticPlacementStates -join ',') | Should Be 'Pending'
+        Assert-MockCalled Restore-VerifiedPlacement -ModuleName Controller -Times 1 -Exactly -Scope It
+    }
+    It 'keeps Unknown when clean-abort reconciliation cannot be verified' {
+        Mock Restore-VerifiedPlacement -ModuleName Controller {throw 'Recovery verification failed'}
+        Mock Start-ScheduledTask -ModuleName Controller {
+            $pending=Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')
+            Write-DeploymentJson (Join-Path $global:SyntheticControllerRoot "operations\$($pending.operationId)\result.json") @{
+                operationId=$pending.operationId;planHash=$global:SyntheticControllerPlan.planHash;status='Failed';cleanAbort=$true
+            }
+        }
+        Assert-ControllerThrows {Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy}
+        ($global:SyntheticPlacementStates -join ',') | Should Be 'Pending,Unknown'
+    }
     It 'releases the lease even if recording unknown authority fails' {
         Mock Start-ScheduledTask -ModuleName Controller {throw 'Synthetic task start failure'}
         Mock Set-PlacementTransition -ModuleName Controller {

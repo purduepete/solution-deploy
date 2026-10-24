@@ -428,6 +428,43 @@ function Assert-DeploymentApproval {
         throw 'Production execution is blocked until the revised PostgreSQL implementation and migration plan pass review and validation.'
     }
     $approval = Read-DeploymentJson $ApprovalPath
+    $routine=$Plan.ContainsKey('routineRelease') -and $Plan.routineRelease -eq $true
+    if($routine){
+        $consent=$Plan.routineConsent
+        foreach($field in @('app','environment','target','sourceCommit','approvedBy','reason','expiresLocal','actions','dataActionsReviewed')){
+            if(-not $consent.ContainsKey($field)){throw "Routine consent missing $field."}
+        }
+        if($Plan.transitionKind -ne 'ManagedDeploy' -or $Plan.operation -ne 'Deploy' -or -not $Plan.currentRelease -or
+            $consent.app -ne $Plan.app -or $consent.environment -ne $Plan.environment -or $consent.target -ine $Plan.target.host -or
+            $consent.sourceCommit -cne $Plan.sourceCommit -or $Plan.sourceCommit -cnotmatch '^[a-f0-9]{40}$' -or
+            $Action -notin $consent.actions -or $consent.dataActionsReviewed -ne $true -or
+            [string]::IsNullOrWhiteSpace($consent.reason) -or [string]::IsNullOrWhiteSpace($consent.approvedBy) -or
+            [DateTimeOffset]::Parse($consent.expiresLocal) -le [DateTimeOffset]::Now){
+            throw 'Routine consent does not authorize this exact release and action.'
+        }
+        if($approval.approvedBy -ne $consent.approvedBy -or
+            [DateTimeOffset]::Parse($approval.expiresLocal) -gt [DateTimeOffset]::Parse($consent.expiresLocal)){
+            throw 'Action approval expands the routine release consent.'
+        }
+        if(-not $approval.ContainsKey('consentSHA256') -or
+            $approval.consentSHA256 -ne (Get-Sha256Text (ConvertTo-CanonicalJson $consent))){
+            throw 'Action approval does not bind the exact routine release consent.'
+        }
+        foreach($field in @('sourceArchiveSHA256','runtimeSHA256','npmSHA256','npmCliSHA256')){
+            if(-not $consent.ContainsKey($field) -or -not $approval.ContainsKey($field) -or $consent[$field] -cne $approval[$field]){
+                throw "Routine approval changed pinned $field."
+            }
+        }
+        $databaseInputs=@{}
+        foreach($field in @('psqlPath','psqlSHA256','postgresPassFile','postgresRuntimeRole','postgresEndpointSHA256',
+            'postgresSslRootCert','postgresSslRootCertSHA256','migrationSqlSHA256','expectedSchemaFingerprint')){
+            if($approval.ContainsKey($field)){$databaseInputs[$field]=$approval[$field]}
+        }
+        if(-not $consent.ContainsKey('approvalInputsSHA256') -or
+            $consent.approvalInputsSHA256 -ne (Get-Sha256Text (ConvertTo-CanonicalJson $databaseInputs))){
+            throw 'Routine approval changed pinned database compatibility inputs.'
+        }
+    }
     foreach ($key in @('planHash','hostIdentity','actions','approvedBy','expiresLocal','gates')) {
         if (-not $approval.ContainsKey($key)) { throw "Approval missing $key." }
     }
@@ -450,7 +487,9 @@ function Assert-DeploymentApproval {
     }
     if ($Action -in @('Cutover','Deploy','Rollback')) {
         $required += @('gracefulStopVerified','dataInventory','rollbackReady')
-        if ($Plan.databaseActionsRequired) {
+        if ($routine) {
+            $required+=@('schemaCompatible','postgresStateValidated')
+        } elseif ($Plan.databaseActionsRequired) {
             $required += @('independentDatabaseReview','postgresBackupRestoreVerified','postgresRoleIsolation','schemaCompatible')
             if(-not $Plan.ContainsKey('transitionKind') -or $Plan.transitionKind -eq 'LegacyConversion'){$required+='postgresImportValidated'}
             else{$required+='postgresStateValidated'}

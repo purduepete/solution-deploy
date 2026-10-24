@@ -4,6 +4,7 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Placement.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Transfer.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'OperationSafety.psm1') -DisableNameChecking
 
 function Get-AdminSharePath {
     param([Parameter(Mandatory)][hashtable]$Target,[string]$RelativePath='')
@@ -51,7 +52,7 @@ function Copy-ApprovedTransferArchive {
 
 function Submit-DeploymentOperation {
     param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][string]$ApprovalPath,
-        [Parameter(Mandatory)][ValidateSet('Stage','PrepareCutover','Deploy','Cutover','Rollback','Verify')][string]$Action,
+        [Parameter(Mandatory)][ValidateSet('Stage','Preflight','Recover','PrepareCutover','Deploy','Cutover','Rollback','Verify')][string]$Action,
         [string]$RuntimePath,[string]$NpmPath,[string]$TransferDirectory,[string]$TransferArchivePath,[int]$TimeoutSeconds=300)
     if(-not $Plan.ContainsKey('schemaVersion') -or $Plan.schemaVersion -ne 2){throw 'Submission requires a current host-aware plan.'}
     $approval = Assert-DeploymentApproval $Plan $ApprovalPath $Action
@@ -79,8 +80,22 @@ function Submit-DeploymentOperation {
     $session = $null
     try {
         $resumePrepared=$Action -eq 'Cutover' -and $approval.ContainsKey('preparedStateSHA256')
-        Assert-PlacementUnchanged $Plan -Verify:($Action -eq 'Verify') -ResumePrepared:$resumePrepared
+        if($Action -eq 'Recover'){
+            $actual=Read-OptionalRemoteRecord (Join-Path (Get-PlacementRoot $Plan) ("placements\$($Plan.environment)\$($Plan.app).json"))
+            if(-not $actual -or $actual.status -notin @('Pending','Unknown') -or $actual.planHash -ne $Plan.planHash -or
+                $actual.hostIdentity -ne $Plan.hostSnapshot.identity){throw 'Recovery requires the exact unresolved placement.'}
+        }else{Assert-PlacementUnchanged $Plan -Verify:($Action -eq 'Verify') -ResumePrepared:$resumePrepared}
         $lock=Get-DeploymentLock (Join-Path $remote 'control\submission.lock')
+        if($Action -eq 'Deploy' -and $Plan.ContainsKey('routineRelease') -and $Plan.routineRelease -eq $true){
+            $preflightPath=Join-Path $remote ('operations\'+$Plan.id+'-preflight\result.json')
+            $preflight=Read-DeploymentJson $preflightPath
+            if($preflight.status -ne 'Succeeded' -or $preflight.planHash -ne $Plan.planHash -or
+                $preflight.operationId -ne ($Plan.id+'-preflight') -or $preflight.phase -ne 'PreflightVerified' -or
+                $preflight.verification.databaseEvidencePath -ne $approval.databaseEvidencePath -or
+                $preflight.verification.databaseEvidenceSHA256 -ne $approval.databaseEvidenceSHA256){
+                throw 'Routine deployment requires its exact protected preflight result before placement changes.'
+            }
+        }
         $operationId = $Plan.id + '-' + $Action.ToLowerInvariant()
         if($Action -eq 'Verify'){$operationId+='-'+[guid]::NewGuid().ToString('N').Substring(0,8)}
         $relative = 'operations\' + $operationId
@@ -174,7 +189,19 @@ function Submit-DeploymentOperation {
             if (Test-Path -LiteralPath $resultPath) {
                 $result = Read-DeploymentJson $resultPath
                 if ($result.operationId -ne $operationId -or $result.planHash -ne $Plan.planHash) { throw 'Executor result does not match the submitted operation.' }
-                if ($result.status -ne 'Succeeded') { throw "Executor reported $($result.status). Inspect the protected operation journal." }
+                if ($result.status -ne 'Succeeded') {
+                    if($Action -eq 'Deploy' -and $result.ContainsKey('cleanAbort') -and $result.cleanAbort -eq $true){
+                        Restore-VerifiedPlacement -Plan $Plan -RemoteRoot $remote -OperationDirectory $operation
+                        $transitionStarted=$false
+                    }
+                    throw "Executor reported $($result.status). Inspect the protected operation journal."
+                }
+                if($Action -eq 'Recover'){
+                    if($result.phase -ne 'RecoveredPrevious' -or $result.verification.releaseId -ne $Plan.currentRelease.releaseId){
+                        throw 'Recovery result does not establish the previous active release.'
+                    }
+                    Restore-VerifiedPlacement -Plan $Plan -RemoteRoot $remote -OperationDirectory (Join-Path $remote ('operations\'+$Plan.id+'-deploy'))
+                }
                 if($transitionStarted){
                     if($Action -eq 'PrepareCutover'){
                         if($result.phase -ne 'Prepared' -or $result.verification.runtimeStarted -ne $false -or
@@ -197,6 +224,56 @@ function Submit-DeploymentOperation {
                 try{if($lock){$lock.Dispose()}}finally{$placementLock.Dispose()}
             }
         }
+    }
+}
+
+function Restore-VerifiedPlacement {
+    param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][string]$RemoteRoot,
+        [Parameter(Mandatory)][string]$OperationDirectory)
+    if(-not $Plan.placementAuthority -or $Plan.placementAuthority.status -ne 'Active'){throw 'Previous placement is not a verified active baseline.'}
+    $executionLock=$null;$appLock=$null
+    try {
+        $deadline=[DateTimeOffset]::Now.AddSeconds(10)
+        while(-not $executionLock){
+            try{$executionLock=[IO.File]::Open((Join-Path $RemoteRoot 'control\execution.lock'),'OpenOrCreate','ReadWrite','None')}
+            catch [IO.IOException]{
+                if([DateTimeOffset]::Now -ge $deadline){throw 'Executor is still active; placement reconciliation deferred.'}
+                Start-Sleep -Milliseconds 200
+            }
+        }
+        $appRoot=Join-Path $RemoteRoot ('apps\'+$Plan.app)
+        $appLock=Get-DeploymentLock (Join-Path $appRoot 'state\deployment.lock')
+        foreach($directory in Get-ChildItem -LiteralPath (Join-Path $RemoteRoot 'operations') -Directory){
+            $candidatePath=Join-Path $directory.FullName 'request.json'
+            if(-not (Test-Path -LiteralPath $candidatePath) -or (Test-Path -LiteralPath (Join-Path $directory.FullName 'result.json'))){continue}
+            $candidate=Read-DeploymentJson $candidatePath
+            if($candidate.plan.app -eq $Plan.app -and
+                [DateTimeOffset]::Parse($candidate.plan.createdLocal) -ge [DateTimeOffset]::Parse($Plan.createdLocal)){
+                throw 'An incomplete competing operation prevents placement reconciliation.'
+            }
+        }
+        $phase=Read-DeploymentJson (Join-Path $OperationDirectory 'phase.json')
+        $requestPath=Join-Path $OperationDirectory 'request.json'
+        $request=Read-DeploymentJson $requestPath
+        if($phase.phase -ne 'Preflight' -or $phase.planHash -ne $Plan.planHash -or
+            $phase.operationId -ne $request.operationId -or -not $phase.ContainsKey('targetMayHaveWritten') -or
+            $phase.targetMayHaveWritten -ne $false -or
+            $phase.requestSHA256 -ne (Get-FileHash $requestPath).Hash.ToLowerInvariant()){
+            throw 'Clean-abort journal changed; placement reconciliation refused.'
+        }
+        $active=Read-DeploymentJson (Join-Path $appRoot 'state\active.json')
+        if($active.planHash -ne $Plan.currentRelease.planHash -or $active.releaseId -ne $Plan.currentRelease.releaseId -or
+            (Test-Path -LiteralPath (Join-Path $appRoot 'state\maintenance.json'))){throw 'Old release changed after clean-abort verification.'}
+        $placementPath=Join-Path (Get-PlacementRoot $Plan) ("placements\$($Plan.environment)\$($Plan.app).json")
+        $before=Read-DeploymentJson $placementPath
+        if($before.planHash -ne $Plan.planHash -or $before.status -notin @('Pending','Unknown')){throw 'Placement changed before reconciliation.'}
+        $receipt=Join-Path $OperationDirectory 'placement-recovery.json'
+        Write-DeploymentJson $receipt @{planHash=$Plan.planHash;before=$before;restored=$Plan.placementAuthority;verifiedLocal=(Get-Date).ToString('o')} -CreateNew
+        Write-DeploymentJson $placementPath $Plan.placementAuthority
+        if((ConvertTo-CanonicalJson (Read-DeploymentJson $placementPath)) -ne (ConvertTo-CanonicalJson $Plan.placementAuthority)){throw 'Restored placement read-back differs.'}
+    }finally{
+        if($appLock){$appLock.Dispose()}
+        if($executionLock){$executionLock.Dispose()}
     }
 }
 

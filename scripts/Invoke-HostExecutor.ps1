@@ -8,6 +8,8 @@ Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\Deployment.psm1
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\Transfer.psm1') -DisableNameChecking
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\Lifecycle.psm1') -DisableNameChecking
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\Operations.psm1') -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\RoutineRelease.psm1') -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\OperationSafety.psm1') -DisableNameChecking
 $lock = Get-DeploymentLock (Join-Path $Root 'control\execution.lock')
 $request = $null; $resultPath=$null
 try {
@@ -33,11 +35,23 @@ try {
     $approvalPath = Join-Path $operation 'approval.json'
     Write-DeploymentJson $approvalPath $request.approval
     $approval = Assert-DeploymentApproval $plan $approvalPath $request.action
-    if ($request.action -notin @('Stage','PrepareCutover','Deploy','Cutover','Rollback','Verify')) { throw 'Unsupported protected action.' }
+    if ($request.action -notin @('Stage','Preflight','Recover','PrepareCutover','Deploy','Cutover','Rollback','Verify')) { throw 'Unsupported protected action.' }
     $appRoot = Resolve-OwnedPath $Root ('apps\'+$plan.app)
     if ($request.action -eq 'Stage') {
         if ($approval.sourceArchiveSHA256 -ne $request.sourceArchiveSHA256) { throw 'Archive digest is not approved.' }
         if (-not $approval.ContainsKey('runtimeSHA256') -or (Get-FileHash -LiteralPath $request.runtimePath).Hash.ToLowerInvariant() -ne $approval.runtimeSHA256) { throw 'Runtime executable differs from approved bytes.' }
+        if($plan.ContainsKey('routineRelease') -and $plan.routineRelease -eq $true){
+            if($request.runtimePath -ine $plan.routineConsent.runtimePath -or $request.npmPath -ine $plan.routineConsent.npmPath){
+                throw 'Stage tools differ from the exact routine consent.'
+            }
+            if($request.npmPath){
+                $cli=Join-Path (Split-Path -Parent $request.runtimePath) 'node_modules\npm\bin\npm-cli.js'
+                if((Get-FileHash -LiteralPath $request.npmPath).Hash.ToLowerInvariant() -ne $approval.npmSHA256 -or
+                    (Get-FileHash -LiteralPath $cli).Hash.ToLowerInvariant() -ne $approval.npmCliSHA256){
+                    throw 'npm differs from approved routine release bytes.'
+                }
+            }
+        }
         $versionOutput = Invoke-DeploymentCommand $request.runtimePath @('--version') $Root -Capture
         if ($versionOutput -notmatch '(\d+\.\d+\.\d+)') { throw 'Runtime version could not be determined.' }
         if ([version]$Matches[1] -lt [version]$plan.manifest.runtime.minimumVersion) { throw 'Runtime does not meet the manifest minimum version.' }
@@ -54,6 +68,26 @@ try {
     }
     $appLock = Get-DeploymentLock (Join-Path $appRoot 'state\deployment.lock')
     try {
+        if($request.action -eq 'Recover'){
+            $failedDirectory=Join-Path $Root ('operations\'+$plan.id+'-deploy')
+            $failed=Read-DeploymentJson (Join-Path $failedDirectory 'result.json')
+            if($failed.status -ne 'Failed' -or $failed.planHash -ne $plan.planHash){throw 'Recovery requires the exact completed failed deployment.'}
+            $identity=Assert-CleanOperationAbort $plan $failedDirectory $appRoot
+            $path=Resolve-OwnedPath $appRoot ('releases\'+$plan.releaseId)
+            $database=Assert-DatabaseActivationEvidence $plan $approval $appRoot -ReleasePath $path
+            Write-DeploymentJson $resultPath @{operationId=$request.operationId;planHash=$plan.planHash;status='Succeeded'
+                phase='RecoveredPrevious';verification=@{releaseId=$plan.currentRelease.releaseId;identity=$identity;database=$database}
+                completedLocal=(Get-Date).ToString('o')} -CreateNew
+            return
+        }
+        Write-OperationPhase $operation $request Preflight
+        if($request.action -eq 'Preflight'){
+            $path=Resolve-OwnedPath $appRoot ('releases\'+$plan.releaseId)
+            $verification=Get-RoutineDatabaseEvidence $plan $approval $appRoot $path -Create
+            Write-DeploymentJson $resultPath @{operationId=$request.operationId;planHash=$plan.planHash;status='Succeeded'
+                phase='PreflightVerified';verification=$verification;completedLocal=(Get-Date).ToString('o')} -CreateNew
+            return
+        }
         $activePath = Join-Path $appRoot 'state\active.json'
         $active = if(Test-Path -LiteralPath $activePath){Read-DeploymentJson $activePath}else{$null}
         $consumesTransfer=$request.action -eq 'PrepareCutover' -or ($request.action -eq 'Cutover' -and -not $approval.ContainsKey('preparedStateSHA256'))
@@ -98,6 +132,12 @@ try {
         $release = Test-ReleaseInventory $releasePath
         if ($release.manifestHash -ne $plan.manifestHash -and $request.action -ne 'Rollback') { throw 'Release does not match the approved manifest.' }
         if ((Get-FileHash -LiteralPath $release.runtimePath).Hash.ToLowerInvariant() -ne $release.runtimeSHA256) { throw 'Pinned runtime changed since staging.' }
+        if($request.action -eq 'Deploy'){
+            Assert-DatabaseActivationEvidence $plan $approval $appRoot -ReleasePath $releasePath | Out-Null
+            $account=$env:COMPUTERNAME+'\'+$plan.target.apps[$plan.app].account
+            Assert-AppBootTask -AppId $plan.app -AppRoot $appRoot -PowerShellPath $install.powerShellPath -ExpectedAccount $account | Out-Null
+        }
+        Write-OperationPhase $operation $request Maintenance
         Write-DeploymentJson (Join-Path $appRoot 'state\maintenance.json') @{operationId=$plan.id;reason=$request.action}
         if ($active) {
             $oldPath = Resolve-OwnedPath $appRoot ('releases\'+$active.releaseId)
@@ -142,13 +182,29 @@ try {
         if($request.action -eq 'Cutover' -and $approval.ContainsKey('preparedStateSHA256')){
             Assert-SourceContinuity $plan $approval $request.sourceFenceVerification $prepared
         }
+        Assert-DeploymentApproval $plan $approvalPath $request.action | Out-Null
+        Write-OperationPhase $operation $request Switching
         Set-ActiveRelease -AppRoot $appRoot -ReleaseId $releaseId -OperationId $request.operationId -HostName $env:COMPUTERNAME -PlanHash $plan.planHash
+        Write-OperationPhase $operation $request MayWrite
         $verification=Start-ReviewedAppTask -Plan $plan -Approval $approval -AppRoot $appRoot -PowerShellPath $install.powerShellPath -ReleaseId $releaseId
+        Write-OperationPhase $operation $request Verified
         Write-DeploymentJson $resultPath @{operationId=$request.operationId;planHash=$plan.planHash;status='Succeeded';phase='RuntimeVerified';externalAcceptance='Pending';verification=$verification;completedLocal=(Get-Date).ToString('o')} -CreateNew
     } finally { $appLock.Dispose() }
 } catch {
     if ($request -and $resultPath -and -not (Test-Path -LiteralPath $resultPath)) {
-        Write-DeploymentJson $resultPath @{operationId=$request.operationId;planHash=$request.plan.planHash;status='Failed';error=$_.Exception.Message;completedLocal=(Get-Date).ToString('o')} -CreateNew
+        $failure=$_.Exception.Message
+        $cleanAbort=$false
+        if($request.ContainsKey('action') -and $request.action -eq 'Deploy'){
+            $failureLock=$null
+            try {
+                $failureLock=Get-DeploymentLock (Join-Path $Root ('apps\'+$request.plan.app+'\state\deployment.lock'))
+                Assert-CleanOperationAbort $request.plan (Split-Path -Parent $resultPath) (Join-Path $Root ('apps\'+$request.plan.app)) | Out-Null
+                $cleanAbort=$true
+            }catch{Write-Warning 'Failure cannot be classified as a verified pre-mutation abort; placement remains unresolved.'}
+            finally{if($failureLock){$failureLock.Dispose()}}
+        }
+        Write-DeploymentJson $resultPath @{operationId=$request.operationId;planHash=$request.plan.planHash;status='Failed'
+            cleanAbort=$cleanAbort;error=$failure;completedLocal=(Get-Date).ToString('o')} -CreateNew
     }
     throw
 } finally { $lock.Dispose() }

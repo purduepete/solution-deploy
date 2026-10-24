@@ -1,7 +1,7 @@
 #requires -Version 7.5
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('Plan','Stage','PrepareCutover','Deploy','Cutover','Verify','Status','Rollback')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('Release','Plan','Stage','Preflight','Recover','PrepareCutover','Deploy','Cutover','Verify','Status','Rollback')][string]$Action,
     [string]$App,
     [string]$Environment='production',
     [string]$Target,
@@ -15,13 +15,29 @@ param(
     [string]$OutputDirectory=(Join-Path $PSScriptRoot '.local'),
     [ValidateRange(60,1800)][int]$TimeoutSeconds=300,
     [switch]$Offline,
-    [switch]$OpenReport
+    [switch]$OpenReport,
+    [switch]$ApproveRelease,
+    [string]$ApprovalReason,
+    [switch]$DatabaseChangesReviewed,
+    [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(30)),
+    [string]$TailscaleUrl
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'src\Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'src\Controller.psm1') -DisableNameChecking
 
+if ($Action -eq 'Release') {
+    if (-not $App -or -not $Target) { throw 'Release requires explicit -App and -Target.' }
+    if ($PlanPath -or $ApprovalPath -or $Offline -or $RuntimePath -or $NpmPath -or $TransferDirectory -or $TransferArchivePath) {
+        throw 'Release creates its own pinned plan and approvals using installed tools. Saved plans, offline mode, tool overrides and transfers are unsupported.'
+    }
+    Import-Module (Join-Path $PSScriptRoot 'src\Release.psm1') -DisableNameChecking
+    Invoke-RoutineRelease -App $App -Environment $Environment -Target $Target -Commit $Commit `
+        -ApproveRelease:$ApproveRelease -ApprovalReason $ApprovalReason -DatabaseChangesReviewed:$DatabaseChangesReviewed `
+        -ExpiresLocal $ExpiresLocal -TailscaleUrl $TailscaleUrl -OutputDirectory $OutputDirectory -TimeoutSeconds $TimeoutSeconds
+    return
+}
 if ($Action -eq 'Plan') {
     if (-not $App) { throw 'Plan requires -App.' }
     $plan = New-DeploymentPlan -App $App -Environment $Environment -Target $Target -Commit $Commit -Offline:$Offline

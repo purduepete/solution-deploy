@@ -6,7 +6,7 @@ Describe 'Immutable executor results' {
         $tokens=$null;$errors=$null
         $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts\Invoke-HostExecutor.ps1'),[ref]$tokens,[ref]$errors)
         $catches=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.CatchClauseAst]},$true))
-        $body=$catches[-1].Body.Extent.Text
+        $body=($catches | Where-Object {$_.Body.Extent.Text.Contains('if ($request -and $resultPath')})[0].Body.Extent.Text
         $script:failureHandler=[scriptblock]::Create($body.Substring(1,$body.Length-2))
         $script:resultPath=Join-Path $TestDrive ([guid]::NewGuid().ToString('N')+'.json')
         $script:request=@{operationId='synthetic';plan=@{planHash='synthetic-hash'}}
