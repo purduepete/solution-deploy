@@ -84,8 +84,12 @@ catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content 
         $clock=[Diagnostics.Stopwatch]::StartNew()
         while(-not (Test-Path -LiteralPath $result)){
             if($clock.Elapsed.TotalSeconds -gt $TimeoutSeconds){throw "The directory installer ran past $TimeoutSeconds s (host PID $($created.ProcessId))."}
-            if(-not (Get-CimInstance -CimSession $session -ClassName Win32_Process -Filter "ProcessId=$($created.ProcessId)") -and -not (Test-Path -LiteralPath $result)){
-                throw 'The directory installer exited without a result.'
+            if(-not (Get-CimInstance -CimSession $session -ClassName Win32_Process -Filter "ProcessId=$($created.ProcessId)")){
+                # SMB caches a missing file for several seconds, so allow the result to appear after the exit.
+                $exited=[Diagnostics.Stopwatch]::StartNew()
+                while(-not (Test-Path -LiteralPath $result) -and $exited.Elapsed.TotalSeconds -lt 20){Start-Sleep -Seconds 2}
+                if(-not (Test-Path -LiteralPath $result)){throw 'The directory installer exited without a result.'}
+                break
             }
             Write-Host ("Directory installer: elapsed {0:n0}s." -f $clock.Elapsed.TotalSeconds)
             Start-Sleep -Seconds 3
