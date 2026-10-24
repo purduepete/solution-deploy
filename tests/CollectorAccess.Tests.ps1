@@ -149,6 +149,27 @@ InModuleScope CollectorAccess {
             }
             finally { [IO.Directory]::Delete($link) }
         }
+        It 'supports only the two explicit Scoop base junctions including Scripts' {
+            $base = Join-Path $script:fixture 'ScoopApps\apps\python314\3.14.8'
+            $persist = Join-Path $script:fixture 'ScoopApps\persist\python314'
+            New-Item -ItemType Directory -Path "$base\Lib", "$persist\Lib\site-packages", "$persist\Scripts" -Force | Out-Null
+            Set-Content "$persist\Scripts\tool.py" '# fixture'
+            $siteLink = Join-Path $base 'Lib\site-packages'
+            $scriptLink = Join-Path $base 'Scripts'
+            New-Item -ItemType Junction -Path $siteLink -Target "$persist\Lib\site-packages" | Out-Null
+            New-Item -ItemType Junction -Path $scriptLink -Target "$persist\Scripts" | Out-Null
+            try {
+                $tree = @(Get-CollectorTree -Path $base -AllowedRuntimeJunction @($siteLink, $scriptLink))
+                ($tree.FullName -contains $scriptLink) | Should Be $true
+                ($tree.FullName -contains "$persist\Scripts\tool.py") | Should Be $true
+                { Get-CollectorTree -Path $base -AllowedRuntimeJunction @($siteLink) } | Should Throw 'Reparse'
+                Assert-MockCalled Set-Acl -Times 0 -Scope It
+            }
+            finally {
+                [IO.Directory]::Delete($siteLink)
+                [IO.Directory]::Delete($scriptLink)
+            }
+        }
         It 'includes venv dependencies and base runtime without granting either tree' {
             $venv = Join-Path $script:fixture 'venv'
             $base = Join-Path $script:fixture 'base'

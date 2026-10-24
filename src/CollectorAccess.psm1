@@ -2,11 +2,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Get-CollectorTree {
-    param([Parameter(Mandatory)][string]$Path, [switch]$Code, [string]$AllowedRuntimeJunction)
+    param([Parameter(Mandatory)][string]$Path, [switch]$Code, [string[]]$AllowedRuntimeJunction = @())
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
     if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
         if ($Code -or -not $AllowedRuntimeJunction -or
-            $item.FullName -ne $AllowedRuntimeJunction -or $item.LinkType -ne 'Junction') {
+            $item.FullName -notin $AllowedRuntimeJunction -or $item.LinkType -ne 'Junction') {
             throw "Reparse path rejected: $Path"
         }
         $target = $item.ResolveLinkTarget($false)
@@ -113,29 +113,28 @@ public static class CollectorFileAccess {
         foreach ($path in $paths) { $null = $payloadPaths.Add($path) }
         $allPaths = [Collections.Generic.HashSet[string]]::new($payloadPaths, [StringComparer]::OrdinalIgnoreCase)
         foreach ($path in @($paths)) {
-            $item = Get-Item -LiteralPath $path -Force
-            $parent = if ($item.PSIsContainer) { $item.Parent } else { $item.Directory }
-            while ($null -ne $parent) {
-                $null = $allPaths.Add($parent.FullName)
-                $parent = $parent.Parent
+            $parent = [IO.Path]::GetDirectoryName($path.TrimEnd('\'))
+            while ($parent) {
+                $null = $allPaths.Add($parent)
+                $parent = [IO.Path]::GetDirectoryName($parent.TrimEnd('\'))
             }
         }
         $checked = 0
         foreach ($path in $allPaths) {
-            $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
-            if (-not $item.PSIsContainer) {
-                $stream = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite,Delete')
-                $stream.Dispose()
-            }
             # OPEN_EXISTING requests access without writing, truncating or deleting.
             $rights = @(64, 65536, 262144, 524288)
+            $flags = 0x02000000
             if ($payloadPaths.Contains($path)) {
+                $item = Get-Item -LiteralPath $path -Force -ErrorAction Stop
+                if (-not $item.PSIsContainer) {
+                    $stream = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite,Delete')
+                    $stream.Dispose()
+                }
                 $rights = @(2, 4, 16, 256, 65536, 262144, 524288)
                 if ($item.PSIsContainer) { $rights += 64 }
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $flags = $flags -bor 0x00200000 }
             }
             foreach ($right in $rights) {
-                $flags = 0x02000000
-                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $flags = $flags -bor 0x00200000 }
                 $handle = [CollectorFileAccess]::CreateFile($path, $right, 7, [IntPtr]::Zero, 3, $flags, [IntPtr]::Zero)
                 $writable = -not $handle.IsInvalid
                 $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
@@ -227,7 +226,7 @@ function Invoke-CollectorAccessPreflight {
         $_
     })
     $runtimeTrees = @((Split-Path -Parent $PowerShellPath))
-    $allowedRuntimeJunction = ''
+    $allowedRuntimeJunction = @()
     if ($PythonPath) {
         $pythonDirectory = Split-Path -Parent $PythonPath
         $venvRoot = Split-Path -Parent $pythonDirectory
@@ -239,7 +238,10 @@ function Invoke-CollectorAccessPreflight {
             $base = ($homeLine[0] -split '=', 2)[1].Trim()
             if (-not [IO.Path]::IsPathFullyQualified($base)) { throw 'Venv home must be absolute.' }
             if ($base -match '\\ScoopApps\\apps\\python314\\3\.14\.\d+$') {
-                $allowedRuntimeJunction = Join-Path $base 'Lib\site-packages'
+                $allowedRuntimeJunction = @(
+                    (Join-Path $base 'Lib\site-packages'),
+                    (Join-Path $base 'Scripts')
+                )
             }
             $runtimeTrees += @($venvRoot, $base)
         }
