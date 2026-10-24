@@ -1,6 +1,7 @@
 $root=Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $root 'src\CommonRelease.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'src\FitTrackRelease.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'src\HandPlacedRelease.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'src\Lifecycle.psm1') -DisableNameChecking
 Import-Module (Join-Path $root 'src\Deployment.psm1') -DisableNameChecking
 function Assert-CommonThrows([scriptblock]$Action,[string]$Message='*'){
@@ -48,6 +49,17 @@ Describe 'Common release inventory and routing' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1} '*explicit -Component*'
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component postgres-backup} '*baseline*'
         Assert-CommonThrows {Get-CommonReleaseRoute -App web-portfolio -Target jimbrownhome1 -Component web} '*no-downtime*'
+    }
+    It 'routes hand-placed web apps and holds Web Options jobs for the pinned-job procedure' {
+        foreach($app in @('web-bookmarks','work-log','web-inventory','plex','web-options')){
+            $route=Get-CommonReleaseRoute -App $app -Target jimbrownhome1
+            $route.procedure|Should Be hand-placed
+            $route.entry.task|Should Be "SolutionDeploy-$app"
+            ($route.entry.stop -in @('managed','task'))|Should Be $true
+            $route.entry.readiness.path|Should BeLike '/*'
+        }
+        (Get-CommonReleaseRoute -App web-options -Target jimbrownhome1 -Component web).procedure|Should Be hand-placed
+        Assert-CommonThrows {Get-CommonReleaseRoute -App web-options -Target jimbrownhome1 -Component collector} '*pinned-job*'
     }
     It 'keeps both private-only distribution tools out of Git releases' {
         foreach($app in @('ride-and-lift','pgweb')){
@@ -165,5 +177,78 @@ Describe 'Fit Track host result and runtime verification' {
         Mock Test-AppReadiness {[pscustomobject]@{Ready=$true}}
         Mock Get-ManagedAppStatus {[pscustomobject]@{Status='NotOwned';Pid=123;MaintenanceActive=$false}}
         Assert-CommonThrows {Wait-FitTrackRuntime @invokeArguments} '*did not establish owned runtime readiness*'
+    }
+}
+
+Describe 'Hand-placed release boundaries' {
+    BeforeEach {
+        $script:next=Join-Path $TestDrive 'built'
+        $script:old=Join-Path $TestDrive 'live'
+        foreach($directory in @($script:next,$script:old)){
+            [IO.Directory]::CreateDirectory((Join-Path $directory 'db'))|Out-Null
+            [IO.File]::WriteAllText((Join-Path $directory 'db\001.sql'),"select 1;`r`n")
+        }
+        [IO.Directory]::CreateDirectory((Join-Path $script:next 'node_modules\pkg'))|Out-Null
+        [IO.File]::WriteAllText((Join-Path $script:next 'node_modules\pkg\vendor.sql'),'drop table x;')
+    }
+    It 'allows unchanged SQL and ignores dependency folders' {
+        [IO.File]::WriteAllText((Join-Path $script:next 'db\001.sql'),"select 1;`n")
+        Assert-HandPlacedDatabaseInputs $script:next $script:old
+    }
+    It 'blocks added changed and removed SQL' {
+        [IO.File]::WriteAllText((Join-Path $script:next 'db\002.sql'),'select 2;')
+        Assert-CommonThrows {Assert-HandPlacedDatabaseInputs $script:next $script:old} '*Database input changed: db\002.sql*'
+        [IO.File]::Delete((Join-Path $script:next 'db\002.sql'))
+        [IO.File]::WriteAllText((Join-Path $script:next 'db\001.sql'),'select 3;')
+        Assert-CommonThrows {Assert-HandPlacedDatabaseInputs $script:next $script:old} '*Database input changed*'
+        [IO.File]::Delete((Join-Path $script:next 'db\001.sql'))
+        Assert-CommonThrows {Assert-HandPlacedDatabaseInputs $script:next $script:old} '*Database input changed*'
+    }
+    It 'reads both access paths from the site inventory' {
+        $access=Get-SiteAccess work-log
+        $access.tailscale.Port|Should Be 8794
+        $access.tailscale.AbsolutePath|Should Be '/'
+        $access.cloudflare.Host|Should Be 'work-log.jimlertech.com'
+    }
+    It 'needs matching readiness JSON and the Access login redirect' {
+        $access=@{tailscale=[uri]'https://jimbrownhome1.example.ts.net:8794/';cloudflare=[uri]'https://work-log.jimlertech.com/'}
+        Mock Invoke-ReleaseAccessRequest -ModuleName HandPlacedRelease {
+            if($Uri.Host -like '*ts.net'){@{statusCode=200;body='{"ok":true}'}}
+            else{@{statusCode=302;location=[uri]'https://team.cloudflareaccess.com/cdn-cgi/access/login/work-log'}}
+        }
+        (Test-HandPlacedReadiness $access @{path='/healthz';expected=@{ok=$true}} 5).cloudflare.verified|Should Be $true
+        Mock Invoke-ReleaseAccessRequest -ModuleName HandPlacedRelease {@{statusCode=200;body='{"ok":true}'}}
+        Assert-CommonThrows {Test-HandPlacedReadiness $access @{path='/healthz';expected=@{ok=$true}} 5} '*Access login redirect*'
+        Mock Invoke-ReleaseAccessRequest -ModuleName HandPlacedRelease {@{statusCode=200;body='{"ok":false}'}}
+        Assert-CommonThrows {Test-HandPlacedReadiness $access @{path='/healthz';expected=@{ok=$true}} 4} '*ok did not match*'
+    }
+    It 'stops only processes owned by the released app' {
+        $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $root 'scripts\Invoke-HandPlacedRelease.ps1'),[ref]$null,[ref]$null)
+        $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-OwnedProcess'},$true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        function Get-CimInstance {
+            $pwsh='"C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe" -NoProfile -File '
+            @(
+                [pscustomobject]@{ProcessId=1;ExecutablePath='';CommandLine=$pwsh+'"C:\ProgramData\SolutionDeploy\apps\web-options\shared\Start-Service.ps1" -Application web-options'}
+                [pscustomobject]@{ProcessId=2;ExecutablePath='';CommandLine='"C:\Files\ScoopApps\apps\nodejs\current\node.exe" C:\ProgramData\SolutionDeploy\apps\web-options\current\backend\dist\server.js'}
+                [pscustomobject]@{ProcessId=3;ExecutablePath='';CommandLine='python.exe C:\ProgramData\SolutionDeploy\apps\web-options\releases\collector-68f9512\collector\run.py'}
+                [pscustomobject]@{ProcessId=4;ExecutablePath='';CommandLine=$pwsh+'"C:\ProgramData\SolutionDeploy\apps\web-options\shared\Start-Service.ps1" -Application web-options-collector'}
+                [pscustomobject]@{ProcessId=5;ExecutablePath='';CommandLine=$pwsh+'"C:\ProgramData\SolutionDeploy\apps\work-log\current\deploy\Start-WorkLogService.ps1"'}
+                [pscustomobject]@{ProcessId=6;ExecutablePath='C:\Windows\notepad.exe';CommandLine='notepad.exe'}
+                [pscustomobject]@{ProcessId=7;ExecutablePath='';CommandLine='node.exe C:\ProgramData\SolutionDeploy\apps\web-options\releases\history-4052ebc\backend\dist\server.js'}
+            )
+        }
+        $app='web-options'
+        $previous='C:\ProgramData\SolutionDeploy\apps\web-options\releases\history-4052ebc'
+        (@(Get-OwnedProcess).ProcessId -join ',')|Should Be '1,2,7'
+        $app='work-log';$previous=$null
+        (@(Get-OwnedProcess).ProcessId -join ',')|Should Be '5'
+        $app='plex'
+        @(Get-OwnedProcess).Count|Should Be 0
+    }
+    It 'limits the host runner to the five hand-placed apps' {
+        $runner=[IO.File]::ReadAllText((Join-Path $root 'scripts\Invoke-HandPlacedRelease.ps1'))
+        $runner|Should Match ([regex]::Escape('(web-bookmarks|work-log|web-inventory|plex|web-options)'))
+        $runner|Should Not Match 'web-portfolio'
     }
 }

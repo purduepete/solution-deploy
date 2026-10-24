@@ -58,40 +58,57 @@
       "readiness": "/api/ready"
     },
     "web-bookmarks": {
-      "procedure": "blocked",
+      "procedure": "hand-placed",
       "source": "..\\web-bookmarks",
       "components": ["web"],
-      "versionEvidence": "current -> releases\\web-bookmarks-5f9be3e; verify full source before reuse",
+      "versionEvidence": "current -> releases\\web-bookmarks-5f9be3e (source 5f9be3e314ae). First routine release establishes state\\common-release.json.",
       "tasks": ["SolutionDeploy-web-bookmarks"],
-      "preserve": ["shared", "PostgreSQL web_bookmarks"],
-      "blocker": "Watchdog startup is verified, but repository deployment scripts provision/import databases. Establish a routine exact-commit release procedure without those side effects."
+      "task": "SolutionDeploy-web-bookmarks",
+      "stop": "managed",
+      "originPort": 8792,
+      "readiness": { "path": "/healthz", "expected": { "status": "healthy" } },
+      "build": "deploy\\Build-WebBookmarksRelease.ps1",
+      "preserve": ["shared", "PostgreSQL web_bookmarks"]
     },
     "plex": {
-      "procedure": "blocked",
+      "procedure": "hand-placed",
       "source": "..\\plex",
       "components": ["web"],
-      "versionEvidence": "current is an ordinary directory, not a versioned junction",
+      "versionEvidence": "current is an ordinary directory whose files match e668df23c729. The first routine release moves it to releases\\legacy-<op> and makes current a junction.",
+      "legacyDirectory": true,
       "tasks": ["SolutionDeploy-plex"],
-      "preserve": ["PlexWebUI.VolumeState.json", "service configuration"],
-      "blocker": "Start-PlexHost.ps1 is a startup script. Verify source/version mapping and a routine publishing procedure for the live directory."
+      "task": "SolutionDeploy-plex",
+      "stop": "task",
+      "originPort": 18793,
+      "readiness": { "path": "/" },
+      "build": "Tracked files, no build step",
+      "preserve": ["PlexWebUI.VolumeState.json", "service configuration", "plex data, logs and secrets outside current"]
     },
     "work-log": {
-      "procedure": "blocked",
+      "procedure": "hand-placed",
       "source": "..\\work-log",
       "components": ["web"],
-      "versionEvidence": "current -> releases\\20261018; source commit not established",
+      "versionEvidence": "current -> releases\\20261018; the first routine release records its source commit.",
       "tasks": ["SolutionDeploy-work-log"],
-      "preserve": ["shared", "PostgreSQL work_log"],
-      "blocker": "Start-WorkLogService.ps1 is verified startup. Deployment docs describe migration; establish routine exact-commit publishing without import."
+      "task": "SolutionDeploy-work-log",
+      "stop": "task",
+      "originPort": 18794,
+      "readiness": { "path": "/healthz", "expected": { "ok": true } },
+      "build": "api, src, deploy plus dotnet publish deploy\\dependencies",
+      "preserve": ["shared", "PostgreSQL work_log"]
     },
     "web-inventory": {
-      "procedure": "blocked",
+      "procedure": "hand-placed",
       "source": "..\\web-inventory",
       "components": ["web"],
-      "versionEvidence": "current -> releases\\20261018; source commit not established",
+      "versionEvidence": "current -> releases\\20261018; the first routine release records its source commit.",
       "tasks": ["SolutionDeploy-web-inventory"],
-      "preserve": ["shared", "D:\\SolutionDeploy\\apps\\web-inventory\\images", "PostgreSQL web_inventory"],
-      "blocker": "Start-InventoryService.ps1 is verified startup. Establish routine exact-commit publishing without the migration/import procedure."
+      "task": "SolutionDeploy-web-inventory",
+      "stop": "task",
+      "originPort": 18795,
+      "readiness": { "path": "/healthz", "expected": { "ok": true } },
+      "build": "client npm build plus self-contained dotnet publish",
+      "preserve": ["shared", "D:\\SolutionDeploy\\apps\\web-inventory\\images", "PostgreSQL web_inventory"]
     },
     "web-portfolio": {
       "procedure": "blocked",
@@ -112,9 +129,10 @@
       "blocker": "Verify Deploy-PlatformFrontend.ps1 against the current no-downtime path, pin backend and job procedures separately, and map their exact source versions. Legacy web-deploy.ps1 may target retired Azure hosting."
     },
     "web-options": {
-      "procedure": "blocked",
+      "procedure": "hand-placed",
       "source": "..\\web-options",
       "components": ["web", "collector", "audit"],
+      "releasable": ["web"],
       "versionEvidence": "Web current -> releases\\history-4052ebc; collector/watchdog/audit -> collector-68f9512",
       "tasks": [
         "SolutionDeploy-web-options",
@@ -122,8 +140,14 @@
         "SolutionDeploy-web-options-collector-watchdog",
         "SolutionDeploy-web-options-daily-audit"
       ],
+      "task": "SolutionDeploy-web-options",
+      "stop": "task",
+      "originPort": 18797,
+      "readiness": { "path": "/healthz", "expected": { "status": "ok" } },
+      "hostInstall": "npm-production",
+      "build": "npm ci, build:shared, build:backend, build:frontend:access; host npm ci --omit=dev",
       "preserve": ["shared secrets/configuration", "Azure SQL dashboard", "PostgreSQL web_options", "collector state"],
-      "blocker": "Verify separate web and collector publishing procedures. scripts\\update.ps1 is not verified for the live host; do not repoint independently pinned collector tasks with a web release."
+      "componentNote": "Collector and audit tasks are pinned to their own release folder and need the pinned-job procedure. A web release never repoints them."
     },
     "solution-deploy": {
       "procedure": "blocked",

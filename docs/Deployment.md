@@ -28,7 +28,8 @@ inventory does not grant placement authority or enable deployment.
 | Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                                             | Existing complete controller sequence, unchanged                                                                                                                                                                          |
 | Fit Track web (frontend, backend and in-process Strava sync)                                           | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                                                                 |
 | Fit Track upload watcher                                                                               | Compare installed source and task configuration; preserve the separate copied tree and justified Google Drive logon task. Changed watcher code blocks automatic full-app selection until its update procedure is verified |
-| Web Bookmarks, Plex, Work Log, Web Inventory, Web Portfolio, Web Options                               | Inventoried with live version evidence and explicit procedure blockers; no migration/provisioning scripts called                                                                                                          |
+| Web Bookmarks, Plex, Work Log, Web Inventory, Web Options web                                          | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change                                                                     |
+| Web Options collector and audit, Web Portfolio                                                         | Inventoried with live version evidence and explicit procedure blockers; no migration/provisioning scripts called                                                                                                          |
 | Solution Directory, collector monitor/publisher, LAN proxy, PostgreSQL backup, shared finance launcher | Require explicit component selection; blocked until each installed baseline and publisher are verified                                                                                                                    |
 | Ride and Lift, pgweb                                                                                   | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                                                           |
 
@@ -98,6 +99,37 @@ remain failed, even after activation; inspect the active junction, maintenance
 flag and phase results before recovery. Old releases are retained. No automatic
 rollback runs after possible application writes. `NoChanges` means source
 comparison and access checks only; it is not a fresh runtime attestation.
+
+### Release folder swap (Web Bookmarks, Work Log, Web Inventory, Plex, Web Options web)
+
+```powershell
+& C:\Files\Dev\main\solution-deploy\Deploy.ps1 -Action Release -App work-log `
+    -Target jimbrownhome1 -ApproveRelease -ApprovalReason 'commit, push and deploy' `
+    -DatabaseChangesReviewed
+```
+
+`src\HandPlacedRelease.psm1` resolves the pushed commit, then builds it in a
+temporary `git worktree` using the app's documented build. Every `*.sql` file in
+the build must match the installed release (line endings ignored); any added,
+changed or removed SQL file blocks the release, because this procedure never
+runs migrations. The payload and `scripts\Invoke-HandPlacedRelease.ps1` are
+copied to `apps\<id>\state\routine\<op>` and run on the host through CIM.
+
+Prepare expands the payload into `releases\<sha12>-<op8>` with the previous
+release's ACL, runs `npm ci --omit=dev` on the host for Web Options, and writes
+`release.json`. Web Bookmarks keeps its pinned node runtime record. The app keeps
+serving during the build and Prepare.
+
+Activate takes the app lock, checks `current` is unchanged, and stops the app.
+Web Bookmarks stops through `Stop-ManagedApp`; the others stop their task and
+any process running from `current` or the previous release. It then switches
+`current`, restarts the existing task and writes `state\common-release.json`.
+Plex's first release moves the old plain `current` directory to
+`releases\legacy-<op8>`. A failure before the switch restarts the previous
+release. The client then waits for Tailscale readiness and the Cloudflare
+Access redirect. Previous releases are kept. A release of the commit already
+recorded in `state\common-release.json` returns `NoChanges` after an access
+check. Web Options collector and audit tasks are never repointed.
 
 Shared jobs use `-App solution-deploy -Component <name>`, for example
 `collector-monitor` or `postgres-backup`. Unknown, unverified and distribution-only

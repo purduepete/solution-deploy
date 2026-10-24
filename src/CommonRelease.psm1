@@ -26,6 +26,10 @@ function Get-CommonReleaseRoute {
         throw "Shared host jobs require explicit -Component selection: $($entry.components -join ', ')."
     }
     if($entry.procedure -in @('blocked','manual')){throw "$App release blocked: $($entry.blocker)"}
+    if($entry.ContainsKey('releasable')){
+        $held=@($Component|Where-Object {$_ -and $_ -notin $entry.releasable})
+        if($held.Count){throw "$App component $($held -join ', ') is not releasable yet: $($entry.componentNote)"}
+    }
     @{procedure=$entry.procedure;entry=$entry;repository=[IO.Path]::GetFullPath((Join-Path $root $entry.source))}
 }
 
@@ -74,10 +78,19 @@ function Invoke-CommonRelease {
     if($ExpiresLocal -le [DateTimeOffset]::Now -or $ExpiresLocal -gt [DateTimeOffset]::Now.AddHours(1)){
         throw 'Release consent must expire within 1 hour.'
     }
-    if($route.procedure -ne 'fit-track'){throw 'No implemented release procedure for this inventory entry.'}
-    Import-Module (Join-Path $PSScriptRoot 'FitTrackRelease.psm1') -DisableNameChecking
     $arguments.Component=$Component
     $arguments.Repository=$route.repository
+    if($route.procedure -eq 'hand-placed'){
+        Import-Module (Join-Path $PSScriptRoot 'HandPlacedRelease.psm1') -DisableNameChecking
+        $arguments.Entry=$route.entry
+        if($route.entry.ContainsKey('releasable') -and -not $Component){
+            $held=@($route.entry.components|Where-Object {$_ -notin $route.entry.releasable})
+            if($held.Count){Write-Warning "$App releases $($route.entry.releasable -join ', ') only. Not released: $($held -join ', ')."}
+        }
+        return Invoke-HandPlacedRelease @arguments
+    }
+    if($route.procedure -ne 'fit-track'){throw 'No implemented release procedure for this inventory entry.'}
+    Import-Module (Join-Path $PSScriptRoot 'FitTrackRelease.psm1') -DisableNameChecking
     Invoke-FitTrackRelease @arguments
 }
 

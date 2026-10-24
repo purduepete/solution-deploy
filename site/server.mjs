@@ -23,7 +23,14 @@ const defaultReleaseInventoryPath = fileURLToPath(new URL('../environments/relea
 export function publicDeployments(releases, inventory) {
     const methods = {
         controller: ['Controller Release', 'The existing protected controller runs the complete routine release.'],
-        'fit-track': ['App-Specific Release', 'Full frontend/backend release through the common Release command.'],
+        'fit-track': [
+            'Fit Track Release',
+            'Fit Track release of the full frontend and backend through the common Release command.',
+        ],
+        'hand-placed': [
+            'Release Folder Swap',
+            'Builds the pushed commit, stages a new release folder, then restarts the app on it through the common Release command.',
+        ],
         blocked: ['Procedure Unverified', 'The common release procedure is not yet verified for this solution.'],
         manual: ['Manual Update', 'This installation uses a manual or distribution update, not a Git release.'],
     };
@@ -50,7 +57,7 @@ export function publicDeployments(releases, inventory) {
                 components: entry.components,
                 versionEvidence: entry.versionEvidence,
                 blocker: entry.blocker || null,
-                componentNote: entry.watcherBlocker || null,
+                componentNote: entry.watcherBlocker || entry.componentNote || null,
                 explicitComponents: entry.explicitComponents === true,
                 privateOnly: entry.privateOnly === true,
                 repository: entry.procedure === 'manual' ? null : `https://github.com/purduepete/${id}`,

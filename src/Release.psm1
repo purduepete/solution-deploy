@@ -294,4 +294,4 @@ function Invoke-RoutineRelease {
     }
 }
 
-Export-ModuleMember -Function Invoke-RoutineRelease,Get-RoutineReleaseContext,Test-ReleaseAccess,Assert-ReleaseConsent
+Export-ModuleMember -Function Invoke-RoutineRelease,Get-RoutineReleaseContext,Test-ReleaseAccess,Assert-ReleaseConsent,Invoke-ReleaseAccessRequest
