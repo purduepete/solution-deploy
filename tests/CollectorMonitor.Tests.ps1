@@ -32,6 +32,10 @@ Describe 'Independent collector monitoring' {
         $tasks[0].State = 'Running'; $tasks[0].Result = 267009
         @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
     }
+    It 'does not alert on a freshly registered task that has not run yet' {
+        $tasks[0].Result = 267011; $tasks[0].LastRun = [datetimeoffset]'1999-11-30T00:00:00-08:00'
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+    }
     It 'detects missing and disabled expected tasks' {
         $tasks[0].Exists = $false
         (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'missing'

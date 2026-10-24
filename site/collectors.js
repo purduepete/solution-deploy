@@ -232,7 +232,7 @@ function render(snapshot) {
                 rows: rows.map((row) => {
                     const result = element('span');
                     result.append(badge(row.status));
-                    if (row.informational) result.append(element('span', ' info', 'note'));
+                    if (row.informational) result.append(' ', badge('info'));
                     return [row.audit, row.subject, result];
                 }),
             };

@@ -17,6 +17,8 @@ function Get-CollectorMonitorIssue {
         if (-not $task.Exists) { $issues.Add("$name is missing."); continue }
         if ($task.State -eq 'Disabled') { $issues.Add("$name is disabled."); continue }
         $result = [long]$task.Result
+        # 267011: registered but not yet run, as after a reinstall. Heartbeat and audit-age checks cover a task that never starts.
+        if ($result -eq 267011) { continue }
         if ($result -notin @(0, 267009)) {
             $issues.Add("$name last result is $result.")
         }
