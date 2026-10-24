@@ -164,6 +164,7 @@ Cloudflare Access redirect:
 | Plex          | `e668df23c729-610e1794` | 24 s  | Converted `current` to a junction                     |
 | Web Bookmarks | `3f3c01173ec9-440a191e` | 51 s  | First try hit the shared-port check; about 1 min down |
 | Web Options   | `68f95126294d-8bc83793` | 232 s | Host `npm ci` took 2 min before the stop              |
+| Web Portfolio | `2a0a71735dde-1adab3aa` | 350 s | Host `npm ci` about 2 min; Telegram files carried     |
 
 Shared jobs use `-App solution-deploy -Component <name>`, for example
 `collector-monitor` or `postgres-backup`. Unknown, unverified and distribution-only

@@ -114,7 +114,7 @@
       "procedure": "hand-placed",
       "source": "..\\web-portfolio",
       "components": ["web", "stock-collector"],
-      "versionEvidence": "Web current -> releases\\20261018; Telegram runs from current. Stock collector, watchdog, reference jobs and audit -> stock-collector-2a0a7173, matched file for file to commit 2a0a7173 on 10/24/2026",
+      "versionEvidence": "Web: state\\common-release.json, current -> releases\\2a0a71735dde-1adab3aa (source 2a0a71735dde), verified 10/24/2026; previous 20261018. Telegram runs from current. Stock collector, watchdog, reference jobs and audit -> stock-collector-2a0a7173, matched file for file to commit 2a0a7173 on 10/24/2026",
       "jobs": {
         "stock-collector": {
           "prefix": "stock-collector-",
