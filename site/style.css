@@ -409,6 +409,9 @@ footer {
     display: grid;
     gap: 8px;
 }
+.collector-history {
+    padding-top: 32px;
+}
 .days > .empty {
     color: var(--muted);
 }
