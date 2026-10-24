@@ -1,6 +1,35 @@
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CollectorAccess.psm1') -Force
 
 InModuleScope CollectorAccess {
+    Describe 'Control directory local administrator SID trust' {
+        BeforeEach {
+            Mock Get-Item {
+                [pscustomobject]@{ FullName = 'C:\fixture\control'; Attributes = [IO.FileAttributes]::Directory; Parent = $null }
+            }
+            Mock Get-LocalGroupMember {
+                [pscustomobject]@{ SID = [Security.Principal.SecurityIdentifier]::new('S-1-12-1-1315032293-1241704050-1689053827-806548381') }
+            }
+            Mock Get-Acl {
+                $acl = [Security.AccessControl.DirectorySecurity]::new()
+                $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                    [Security.Principal.SecurityIdentifier]::new('S-1-12-1-1315032293-1241704050-1689053827-806548381'),
+                    'FullControl', 'Allow'))
+                $acl
+            }
+        }
+        It 'trusts AzureAD administrators by SID without name translation' {
+            { Assert-CollectorAdminDirectory 'C:\fixture\control' } | Should Not Throw
+            Assert-MockCalled Get-LocalGroupMember -Times 1 -Exactly -Scope It -ParameterFilter { $SID.Value -eq 'S-1-5-32-544' }
+        }
+        It 'rejects an explicit writable user outside Administrators' {
+            Mock Get-LocalGroupMember { @() }
+            { Assert-CollectorAdminDirectory 'C:\fixture\control' } | Should Throw 'administrator-controlled'
+        }
+        It 'fails closed when membership cannot be read' {
+            Mock Get-LocalGroupMember { throw 'fixture membership unavailable' }
+            { Assert-CollectorAdminDirectory 'C:\fixture\control' } | Should Throw 'failed closed'
+        }
+    }
     Describe 'Scoped collector access preflight (no host tasks or accounts)' {
         BeforeEach {
             $script:fixture = Join-Path (Get-Location) ('.local\collector-access-fixtures\' + [guid]::NewGuid().ToString('N'))
@@ -94,6 +123,29 @@ InModuleScope CollectorAccess {
                 { Invoke-CollectorAccessPreflight @script:arguments } | Should Throw 'Reparse'
                 Assert-MockCalled Set-Acl -Times 0 -Scope It
                 Assert-MockCalled Register-ScheduledTask -Times 0 -Scope It
+            }
+            finally { [IO.Directory]::Delete($link) }
+        }
+        It 'checks the explicitly allowed runtime site-packages junction source and canonical target only' {
+            $lib = Join-Path $script:fixture 'ScoopApps\apps\python314\3.14.8\Lib'
+            $target = Join-Path $script:fixture 'persist\site-packages'
+            New-Item -ItemType Directory -Path $lib, $target -Force | Out-Null
+            Set-Content (Join-Path $target 'dependency.py') '# fixture'
+            $link = Join-Path $lib 'site-packages'
+            New-Item -ItemType Junction -Path $link -Target $target | Out-Null
+            try {
+                $tree = @(Get-CollectorTree -Path $lib -AllowedRuntimeJunction $link)
+                ($tree.FullName -contains $link) | Should Be $true
+                ($tree.FullName -contains (Join-Path $target 'dependency.py')) | Should Be $true
+                { Get-CollectorTree -Path $lib } | Should Throw 'Reparse'
+                { Get-CollectorTree -Path $lib -Code -AllowedRuntimeJunction $link } | Should Throw 'Reparse'
+                $nested = Join-Path $target 'nested'
+                New-Item -ItemType Junction -Path $nested -Target $lib | Out-Null
+                try {
+                    { Get-CollectorTree -Path $lib -AllowedRuntimeJunction $link } | Should Throw 'Reparse'
+                }
+                finally { [IO.Directory]::Delete($nested) }
+                Assert-MockCalled Set-Acl -Times 0 -Scope It
             }
             finally { [IO.Directory]::Delete($link) }
         }

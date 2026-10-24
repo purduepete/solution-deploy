@@ -2,9 +2,30 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Get-CollectorTree {
-    param([Parameter(Mandatory)][string]$Path, [switch]$Code)
+    param([Parameter(Mandatory)][string]$Path, [switch]$Code, [string]$AllowedRuntimeJunction)
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Reparse path rejected: $Path" }
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        if ($Code -or -not $AllowedRuntimeJunction -or
+            $item.FullName -ne $AllowedRuntimeJunction -or $item.LinkType -ne 'Junction') {
+            throw "Reparse path rejected: $Path"
+        }
+        $target = $item.ResolveLinkTarget($false)
+        if ($null -eq $target -or $target -isnot [IO.DirectoryInfo] -or $target.FullName.StartsWith('\\')) {
+            throw "Runtime site-packages junction target rejected: $Path"
+        }
+        $ancestor = $target
+        while ($null -ne $ancestor) {
+            if ($ancestor.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+                throw "Runtime junction target ancestor is another reparse path: $($ancestor.FullName)"
+            }
+            $ancestor = $ancestor.Parent
+        }
+        $null = Get-Acl -LiteralPath $item.FullName -ErrorAction Stop
+        $item
+        # No nested junction allowance when checking the canonical target tree.
+        Get-CollectorTree -Path $target.FullName
+        return
+    }
     if ($Code -and $item.Name -match '^\.?(secrets?|credentials?)(\.|$)|^\.env($|\.(?!example$))|^(config|settings)(\.(production|local))?\.json$|\.pgpass$|\.(pem|key|pfx|p12)$|password') {
         throw "Secret-like path rejected (contents not read): $Path"
     }
@@ -13,7 +34,7 @@ function Get-CollectorTree {
     $item
     if ($item.PSIsContainer) {
         foreach ($child in Get-ChildItem -LiteralPath $item.FullName -Force -ErrorAction Stop) {
-            Get-CollectorTree -Path $child.FullName -Code:$Code
+            Get-CollectorTree -Path $child.FullName -Code:$Code -AllowedRuntimeJunction $AllowedRuntimeJunction
         }
     }
 }
@@ -37,6 +58,12 @@ function Assert-CollectorElevated {
 
 function Assert-CollectorAdminDirectory {
     param([string]$Path)
+    $trustedSids = @('S-1-5-18', 'S-1-5-32-544', 'S-1-3-0')
+    try {
+        $trustedSids += @(Get-LocalGroupMember -SID ([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')) -ErrorAction Stop |
+            ForEach-Object { $_.SID.Value })
+    }
+    catch { throw 'Cannot resolve local Administrators membership; control directory trust check failed closed.' }
     $item = Get-Item -LiteralPath $Path -Force
     $first = $true
     while ($null -ne $item) {
@@ -45,7 +72,7 @@ function Assert-CollectorAdminDirectory {
         foreach ($ace in $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])) {
             if ($ace.AccessControlType -eq 'Allow' -and
                 ($ace.FileSystemRights -band $(if ($first) { 0xD0156 } else { 0xD0040 })) -and
-                $ace.IdentityReference.Value -notin @('S-1-5-18', 'S-1-5-32-544', 'S-1-3-0') -and
+                $ace.IdentityReference.Value -notin $trustedSids -and
                 -not ($ace.PropagationFlags -band [Security.AccessControl.PropagationFlags]::InheritOnly)) {
                 throw "Control directory must be administrator-controlled: $($item.FullName)"
             }
@@ -74,7 +101,7 @@ public static class CollectorFileAccess {
         $paths = @($manifest.ReadFiles)
         $enumerated = 0
         foreach ($tree in $manifest.ReadTrees) {
-            $paths += @(Get-CollectorTree -Path $tree | ForEach-Object {
+            $paths += @(Get-CollectorTree -Path $tree -AllowedRuntimeJunction $manifest.AllowedRuntimeJunction | ForEach-Object {
                 $enumerated++
                 if ($enumerated % 100 -eq 0) {
                     "Enumerated $enumerated code/runtime paths" | Set-Content -LiteralPath $manifest.ProgressPath
@@ -107,7 +134,9 @@ public static class CollectorFileAccess {
                 if ($item.PSIsContainer) { $rights += 64 }
             }
             foreach ($right in $rights) {
-                $handle = [CollectorFileAccess]::CreateFile($path, $right, 7, [IntPtr]::Zero, 3, 0x02000000, [IntPtr]::Zero)
+                $flags = 0x02000000
+                if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { $flags = $flags -bor 0x00200000 }
+                $handle = [CollectorFileAccess]::CreateFile($path, $right, 7, [IntPtr]::Zero, 3, $flags, [IntPtr]::Zero)
                 $writable = -not $handle.IsInvalid
                 $errorCode = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
                 $handle.Dispose()
@@ -198,6 +227,7 @@ function Invoke-CollectorAccessPreflight {
         $_
     })
     $runtimeTrees = @((Split-Path -Parent $PowerShellPath))
+    $allowedRuntimeJunction = ''
     if ($PythonPath) {
         $pythonDirectory = Split-Path -Parent $PythonPath
         $venvRoot = Split-Path -Parent $pythonDirectory
@@ -208,6 +238,9 @@ function Invoke-CollectorAccessPreflight {
             if ($homeLine.Count -ne 1) { throw 'Cannot identify venv base interpreter.' }
             $base = ($homeLine[0] -split '=', 2)[1].Trim()
             if (-not [IO.Path]::IsPathFullyQualified($base)) { throw 'Venv home must be absolute.' }
+            if ($base -match '\\ScoopApps\\apps\\python314\\3\.14\.\d+$') {
+                $allowedRuntimeJunction = Join-Path $base 'Lib\site-packages'
+            }
             $runtimeTrees += @($venvRoot, $base)
         }
     }
@@ -217,7 +250,7 @@ function Invoke-CollectorAccessPreflight {
         if ($item.LinkType) { $item.ResolveLinkTarget($true).FullName } else { $item.FullName }
     } | Sort-Object -Unique)
     foreach ($tree in $runtimeTrees) {
-        Get-CollectorTree $tree | ForEach-Object {
+        Get-CollectorTree $tree -AllowedRuntimeJunction $allowedRuntimeJunction | ForEach-Object {
             $scanCount++
             if ($scanCount % 100 -eq 0) { Write-Information "Collector preflight: inspected $scanCount code/runtime paths." -InformationAction Continue }
         }
@@ -264,6 +297,7 @@ function Invoke-CollectorAccessPreflight {
             WriteDirectories = @($WritableDirectories)
             PythonPath = $PythonPath; WorkingDirectory = $run; ResultPath = $resultPath
             ProgressPath = (Join-Path $output.FullName 'progress.txt')
+            AllowedRuntimeJunction = $allowedRuntimeJunction
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8
         $modulePath = $probeModule.Replace("'", "''")
         $command = "Import-Module '$modulePath' -Force; Invoke-CollectorTokenProbe -ManifestPath '$($manifestPath.Replace("'", "''"))'"

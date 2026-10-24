@@ -28,6 +28,23 @@ retain old permissions, and protected descendants or deny entries can block read
 Use the account-level probe and review exact failed paths. Save scoped ACLs and
 task definitions before changing them.
 
+The deployed maintenance copies are under
+`C:\ProgramData\SolutionDeploy\installers\web-options` and
+`C:\ProgramData\SolutionDeploy\installers\web-portfolio`. Use these updated
+installers for task changes, rather than an older install script in a retained
+release. New source releases contain the same gates. The shared helper is
+`control\framework\src\CollectorAccess.psm1`; update it through
+`scripts\Update-HostExecutor.ps1` so its installation inventory stays valid.
+
+`scripts\Test-CollectorAccess.ps1` can check an existing selected release without
+rerunning activation or database probes. It accepts an external configuration,
+optional Python path, additional read paths and writable directories. It starts
+only a disposable LOCAL SERVICE file-access probe and isolated Python interpreter,
+never the application. Failed probes restore the saved release ACLs and leave
+production task definitions unchanged. Scoped ACL snapshots and failure records
+remain under `control\collector-access` for diagnosis; transient probe tasks,
+manifests and output directories are removed.
+
 ## Independent monitor
 
 `scripts\Install-CollectorMonitor.ps1` installs
