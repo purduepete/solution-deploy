@@ -53,13 +53,15 @@ const element = (tag, text, className) => {
 };
 const badge = (status) => element('span', status.replace('_', ' '), `badge ${tone[status] ?? 'muted'}`);
 
+let auditInfoId = 0;
+
 function auditInfo(row) {
     const wrapper = element('span');
     const trigger = element('button', 'info', 'badge muted audit-info');
     trigger.type = 'button';
     trigger.setAttribute('aria-label', `${row.audit} ${row.subject}: advisory comparison details`);
     const popup = element('div', undefined, 'audit-tooltip');
-    popup.id = `audit-info-${crypto.randomUUID()}`;
+    popup.id = `audit-info-${++auditInfoId}`;
     popup.setAttribute('popover', 'auto');
     popup.setAttribute('role', 'tooltip');
     trigger.setAttribute('aria-describedby', popup.id);

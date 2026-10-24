@@ -9,7 +9,7 @@ import { runInNewContext } from 'node:vm';
 
 test('audit info uses report counts, distinguishes unavailable data and renders errors as text', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
-    const code = source.slice(source.indexOf('function auditInfo('), source.indexOf('\nfunction table('));
+    const code = source.slice(source.indexOf('let auditInfoId'), source.indexOf('\nfunction table('));
     const element = (tag, text) => ({
         tag,
         text,
@@ -23,9 +23,12 @@ test('audit info uses report counts, distinguishes unavailable data and renders 
     });
     const info = runInNewContext(`${code}\nauditInfo`, {
         element,
-        crypto: { randomUUID: () => 'fixture' },
+        crypto: {},
         Number,
     });
+    const first = info({ audit: 'Stock', subject: 'splits' });
+    const second = info({ audit: 'Stock', subject: 'splits' });
+    assert.notEqual(first.children[1].id, second.children[1].id);
     const text = (row) =>
         info({ audit: 'Stock', subject: 'splits', ...row })
             .children[1].children.map((child) => child.text)
