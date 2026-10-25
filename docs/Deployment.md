@@ -15,6 +15,10 @@ flags from that request without asking for separate Stage, Preflight, Deploy or
 Verify approvals. Database-changing work still needs the independent review
 described below.
 
+For apps without npm build steps, routine consent records the unused npm path as
+an empty string, matching the controller's typed request parameter. The executor
+still requires exact tool paths and approved hashes.
+
 ### One entry point, existing procedures
 
 `Deploy.ps1 -Action Release` now routes registered apps to the existing protected

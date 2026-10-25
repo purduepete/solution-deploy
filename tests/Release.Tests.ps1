@@ -74,6 +74,23 @@ Describe 'Routine Release orchestration without production access' {
         $saved.routineConsent.approvedManifestSHA256|Should Be ('7'*64)
         Assert-MockCalled Get-RoutineReleaseContext -ModuleName Release -Times 1 -Exactly -Scope It -ParameterFilter {$ApprovedManifestSHA256 -eq ('7'*64)}
     }
+    It 'signs an unused npm path as the empty string sent by the typed controller parameter' {
+        Mock Get-RoutineReleaseContext -ModuleName Release {
+            @{
+                runtimePath='C:\synthetic\python.exe';runtimeSHA256=('d'*64);npmPath=$null
+                npmSHA256=$null;npmCliSHA256=$null;installationSHA256=('1'*64);priorApprovalSHA256=('2'*64)
+                approvalFields=@{expectedSchemaFingerprint=('3'*64);migrationSqlSHA256=('4'*64)}
+            }
+        }
+        Invoke-RoutineRelease sample -Target synthetic -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed -OutputDirectory $global:ReleaseTestOutput|Out-Null
+        $saved=Read-DeploymentJson (Join-Path $global:ReleaseTestOutput ('releases\'+$global:ReleaseTestPlan.id+'\plan.json'))
+        ($null -eq $saved.routineConsent.npmPath)|Should Be $false
+        $saved.routineConsent.npmPath|Should Be ''
+        $saved.routineConsent.runtimePath|Should Be 'C:\synthetic\python.exe'
+        Assert-MockCalled Submit-DeploymentOperation -ModuleName Release -Times 4 -Exactly -Scope It -ParameterFilter {
+            [string]$NpmPath -ceq $Plan.routineConsent.npmPath
+        }
+    }
     It 'binds preflight evidence only into later approvals without changing the plan digest' {
         Invoke-RoutineRelease sample -Target synthetic -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed -OutputDirectory $global:ReleaseTestOutput|Out-Null
         $global:ReleaseTestApprovals[0].ContainsKey('databaseEvidenceSHA256')|Should Be $false

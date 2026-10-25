@@ -260,7 +260,7 @@ function Invoke-RoutineRelease {
         expiresLocal=$ExpiresLocal.ToString('o');actions=@('Stage','Preflight','Deploy','Verify','Recover')
         dataActionsReviewed=$true;sourceArchiveSHA256=$archiveHash;runtimeSHA256=$context.runtimeSHA256
         npmSHA256=$context.npmSHA256;npmCliSHA256=$context.npmCliSHA256
-        runtimePath=$context.runtimePath;npmPath=$context.npmPath
+        runtimePath=$context.runtimePath;npmPath=[string]$context.npmPath
         approvalInputsSHA256=(Get-Sha256Text (ConvertTo-CanonicalJson $context.approvalFields))
         installationSHA256=$context.installationSHA256;priorApprovalSHA256=$context.priorApprovalSHA256
         tailscaleUrl=$TailscaleUrl;initialAccessSHA256=(Get-Sha256Text (ConvertTo-CanonicalJson $initialAccess))
