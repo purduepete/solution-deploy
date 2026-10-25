@@ -8,6 +8,8 @@ Import-Module (Join-Path $PSScriptRoot 'HandPlacedRelease.psm1') -DisableNameChe
 $script:HostClone='\\jimbrownhome1.local\c$\Files\Dev\main\solution-deploy'
 $script:Installed='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\solution-deploy'
 $script:HostTemp='\\jimbrownhome1.local\c$\Windows\Temp'
+# Install-Directory.ps1 installs both components, so a successful release records both.
+$script:DirectoryComponents=@('directory','collector-status')
 
 # Mirrors the copies made by scripts\Install-Directory.ps1.
 function Get-DirectoryInstallMap {
@@ -48,7 +50,7 @@ function Invoke-DirectoryRelease {
     $directory=Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) "releases\solution-deploy-directory-$id"
     [IO.Directory]::CreateDirectory($directory)|Out-Null
     $receiptPath=Join-Path $directory 'release.json'
-    $receipt=@{app='solution-deploy';component='directory';sourceCommit=$commitId;status='Preparing';startedLocal=(Get-Date).ToString('o');reason=$ApprovalReason}
+    $receipt=@{app='solution-deploy';component=$script:DirectoryComponents;sourceCommit=$commitId;status='Preparing';startedLocal=(Get-Date).ToString('o');reason=$ApprovalReason}
     $script=Join-Path $script:HostTemp "sd-directory-$($id.Substring(0,8)).ps1"
     $result=Join-Path $script:HostTemp "sd-directory-$($id.Substring(0,8)).json"
     $session=$null

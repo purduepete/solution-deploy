@@ -271,7 +271,8 @@ since no collector change is waiting.
 ```
 
 `-Component collector-status` runs the same release, because one installer
-publishes both. The release checks that the installed files match the host
+publishes both. A successful install records both components with the same
+commit and completion time. The release checks that the installed files match the host
 clone at `C:\Files\Dev\main\solution-deploy`, fast-forwards that clone to the
 pushed commit, and returns `NoChanges` when no installed file would change.
 Otherwise it runs `scripts\Install-Directory.ps1` on the host, compares the

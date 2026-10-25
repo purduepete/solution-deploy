@@ -514,4 +514,9 @@ Describe 'Directory release boundaries' {
         Copy-Item "$source\scripts\Start-Directory.ps1" $installed
         (@(Compare-DirectoryInstall (Get-DirectoryInstallMap $source) $installed) -join ',')|Should Be 'environments\releases.json,Update-CollectorStatus.ps1'
     }
+    It 'records both components installed by a successful directory release' {
+        $components=& (Get-Module DirectoryRelease) {$script:DirectoryComponents}
+        $receipt=@{status='Succeeded';sourceCommit=('e'*40);completedLocal='2026-10-25T08:14:59-07:00';component=$components}
+        (@(Get-CommonReleaseRecords solution-deploy @($receipt)|ForEach-Object component) -join ',')|Should Be 'directory,collector-status'
+    }
 }
