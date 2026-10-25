@@ -480,6 +480,17 @@ The release has 1,632 files.
 
 The next release hashes 1,632 old files in Preflight, so expect about 6 minutes.
 
+The same change applied to the other Node framework apps, 10/24/2026 local:
+
+| App           | Commit    | node_modules files (before, after) | First slim release |
+| ------------- | --------- | ---------------------------------- | ------------------ |
+| Site Dock     | `d9bad55` | 11,812, 139                        | 583 s              |
+| Ferry Tracker | `f52dfcc` | 16,996, 1,694                      | 773 s              |
+
+Ferry Tracker spent 5:47 in Preflight hashing its old 17k-file release once. Its release
+needs `-TailscaleUrl https://jimbrownhome1.tail8ad282.ts.net:8787`; without it, preparation
+stops with "Manifest does not identify one private HTTPS origin".
+
 ## Migration feedback and reuse
 
 Before each migration, record whether capture gaps are acceptable, whether the old
