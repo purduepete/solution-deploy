@@ -66,6 +66,16 @@ function releaseTime(value) {
     return `${pad(date.getMonth() + 1)}/${pad(date.getDate())}/${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function readSortMode() {
+    try {
+        const saved = localStorage.getItem('solution-deploy-sort');
+        if (saved === 'deployment-date') return saved;
+    } catch (error) {
+        console.warn('Cannot read the saved site sort order:', error);
+    }
+    return 'alphabetical';
+}
+
 function compareSites(a, b, sortMode, deployments) {
     if (sortMode === 'deployment-date') {
         const aDate = Date.parse(deployments.get(a.id)?.lastRelease?.completed ?? '');
@@ -142,7 +152,8 @@ async function load() {
         };
     });
     const sortOptions = [...document.querySelectorAll('.sort-option')];
-    let sortMode = 'alphabetical';
+    const sortControl = document.querySelector('.sort-setting');
+    let sortMode = readSortMode();
     const deploymentInfo = deployments ?? new Map();
     const renderCards = () => {
         root.replaceChildren(
@@ -163,16 +174,25 @@ async function load() {
     };
     const setSortMode = (mode) => {
         sortMode = mode;
+        sortControl.dataset.sortMode = mode;
         sortOptions.forEach((option) => {
             option.setAttribute('aria-pressed', String(option.dataset.sortMode === sortMode));
         });
         renderCards();
         filter();
     };
-    renderCards();
+    setSortMode(sortMode);
     document.getElementById('search').addEventListener('input', filter);
     sortOptions.forEach((option) => {
-        option.addEventListener('click', () => setSortMode(option.dataset.sortMode));
+        option.addEventListener('click', () => {
+            const mode = option.dataset.sortMode;
+            setSortMode(mode);
+            try {
+                localStorage.setItem('solution-deploy-sort', mode);
+            } catch (error) {
+                console.warn('Cannot save the site sort order:', error);
+            }
+        });
     });
     filter();
 }

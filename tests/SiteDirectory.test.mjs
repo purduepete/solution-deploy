@@ -134,6 +134,47 @@ test('site sorting supports alphabetical and newest deployment order', () => {
     assert.doesNotMatch(page, /<(select|datalist)\b/i);
 });
 
+test('sort preference restores valid saved choices and handles unavailable storage', () => {
+    const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('function readSortMode('), source.indexOf('\nfunction compareSites('));
+    for (const saved of [null, 'alphabetical', 'deployment-date', 'invalid']) {
+        const read = runInNewContext(`${code}\nreadSortMode`, {
+            localStorage: {
+                getItem(key) {
+                    assert.equal(key, 'solution-deploy-sort');
+                    return saved;
+                },
+            },
+        });
+        assert.equal(read(), saved === 'deployment-date' ? saved : 'alphabetical');
+    }
+    const warnings = [];
+    const read = runInNewContext(`${code}\nreadSortMode`, {
+        localStorage: {
+            getItem() {
+                throw new Error('Storage blocked');
+            },
+        },
+        console: { warn: (...args) => warnings.push(args) },
+    });
+    assert.equal(read(), 'alphabetical');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0][0], /Cannot read the saved site sort order/);
+});
+
+test('sort selection uses square corners and a reduced-motion-aware sliding fill', () => {
+    const css = readFileSync(new URL('../site/style.css', import.meta.url), 'utf8');
+    for (const selector of ['sort-setting', 'sort-option']) {
+        assert.match(css, new RegExp(`\\.${selector} \\{[^}]*border-radius: 0;`));
+    }
+    assert.match(css, /\.sort-setting::before \{[^}]*transition: transform 0\.25s ease-out;/);
+    assert.match(css, /\.sort-setting\[data-sort-mode='deployment-date'\]::before \{[^}]*translateX\(40px\)/);
+    assert.match(
+        css,
+        /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.sort-setting::before \{[^}]*transition: none;/
+    );
+});
+
 test('deployment fetch failures are visible and preserve site-link loading', async () => {
     const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
     const code = source.slice(

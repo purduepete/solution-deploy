@@ -8,6 +8,10 @@ legacy `dark` choice resolves to Midnight.
 The compact sort control uses an A-Z button for alphabetical order and a calendar
 button for deployment date, newest first. Alphabetical order is the default.
 Sites without a recorded release date appear after dated sites.
+The square control slides its selection fill when switching order, unless reduced
+motion is requested. The selected order is restored from `solution-deploy-sort`
+in local storage on the next visit. If browser storage is blocked, sorting still
+works for the current page and a warning is logged.
 
 The Theme menu uses radio-menu semantics and a stroke checkmark for the saved choice.
 Enter or Space opens the menu and selects the focused choice. Arrow keys move
