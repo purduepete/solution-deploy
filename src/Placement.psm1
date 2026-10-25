@@ -11,7 +11,11 @@ function Get-PlacementRoot {
 }
 
 function Get-PlacementLease {
-    param([Parameter(Mandatory)][hashtable]$Plan)
+    param(
+        [Parameter(Mandatory)][hashtable]$Plan,
+        [ValidateRange(0,86400)][int]$WaitTimeoutSeconds=0,
+        [ValidateRange(0.1,60)][double]$RetryIntervalSeconds=5
+    )
     $root=Get-PlacementRoot $Plan
     if(-not (Test-Path -LiteralPath (Join-Path $root 'installation.json'))){throw 'Provision the protected authority host executor before submitting operations.'}
     $installation=Read-DeploymentJson (Join-Path $root 'installation.json')
@@ -19,7 +23,8 @@ function Get-PlacementLease {
         $installation.root -ne $Plan.databaseTarget.root -or $installation.host -ine $Plan.databaseTarget.host){
         throw 'Central authority installation differs from the verified database host/root.'
     }
-    Get-DeploymentLock (Join-Path $root ("transitions\$($Plan.environment)\$($Plan.app).lock"))
+    Get-DeploymentLock (Join-Path $root ("transitions\$($Plan.environment)\$($Plan.app).lock")) `
+        -WaitTimeoutSeconds $WaitTimeoutSeconds -RetryIntervalSeconds $RetryIntervalSeconds
 }
 
 function Assert-PlacementUnchanged {

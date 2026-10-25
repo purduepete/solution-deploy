@@ -58,11 +58,31 @@ function Assert-Identifier {
     if ($Value -notmatch '^[a-z0-9][a-z0-9-]{1,79}$') { throw 'Invalid deployment identifier.' }
 }
 
+function Test-DeploymentLockSharingViolation {
+    param([Parameter(Mandatory)][Exception]$Exception)
+    $Exception -is [IO.IOException] -and (($Exception.HResult -band 0xffff) -eq 32)
+}
+
 function Get-DeploymentLock {
-    param([Parameter(Mandatory)][string]$Path)
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateRange(0,86400)][int]$WaitTimeoutSeconds=0,
+        [ValidateRange(0.1,60)][double]$RetryIntervalSeconds=5
+    )
     [IO.Directory]::CreateDirectory((Split-Path -Parent $Path)) | Out-Null
-    try { [IO.File]::Open($Path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
-    catch [IO.IOException] { throw 'Another operation holds the deployment lock. Do not start a concurrent deployment.' }
+    $clock=[Diagnostics.Stopwatch]::StartNew()
+    while($true){
+        try { return [IO.File]::Open($Path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+        catch [IO.IOException] {
+            if(-not (Test-DeploymentLockSharingViolation $_.Exception)){throw}
+            if($WaitTimeoutSeconds -eq 0){throw 'Another operation holds the deployment lock.'}
+            if($clock.Elapsed.TotalSeconds -ge $WaitTimeoutSeconds){
+                throw "Timed out after $WaitTimeoutSeconds seconds waiting for the deployment lock."
+            }
+            Write-Host ("Waiting for deployment lock {0}; elapsed {1:n0}s" -f $Path,$clock.Elapsed.TotalSeconds)
+            Start-Sleep -Milliseconds ([int]($RetryIntervalSeconds*1000))
+        }
+    }
 }
 
 function Get-Manifest {

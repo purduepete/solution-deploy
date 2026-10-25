@@ -99,6 +99,24 @@ Describe 'Locks and sealed releases' {
         $handle=Get-DeploymentLock $path
         try { Assert-Throws { Get-DeploymentLock $path } } finally {$handle.Dispose()}
     }
+    It 'waits for a held lock only until its bounded deadline' {
+        $path=Join-Path $TestDrive 'bounded-lock'
+        $handle=Get-DeploymentLock $path
+        try {
+            InModuleScope Deployment {
+                $error=$null
+                try { Get-DeploymentLock (Join-Path $TestDrive 'bounded-lock') -WaitTimeoutSeconds 1 -RetryIntervalSeconds 0.1 | Out-Null }
+                catch { $error=$_.Exception.Message }
+                $error|Should Match 'Timed out after 1 seconds waiting for the deployment lock'
+            }
+        } finally {$handle.Dispose()}
+    }
+    It 'classifies only sharing violations as retryable lock contention' {
+        InModuleScope Deployment {
+            (Test-DeploymentLockSharingViolation ([IO.IOException]::new('sharing failure')))|Should Be $false
+            (Test-DeploymentLockSharingViolation ([UnauthorizedAccessException]::new('access denied')))|Should Be $false
+        }
+    }
     It 'writes JSON atomically and reads it back' {
         $path=Join-Path $TestDrive 'json\record.json'
         Write-DeploymentJson $path @{status='before'}

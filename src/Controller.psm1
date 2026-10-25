@@ -26,6 +26,74 @@ function Get-RemoteDeploymentStatus {
     @{app=$Plan.app;configuredTarget=$Plan.target.host;observedPlacement=$Plan.observedHost;active=$active;host=$observed;verified=$false}
 }
 
+function Wait-ForDeploymentExecutor {
+    param(
+        [Parameter(Mandatory)]$Session,
+        [Parameter(Mandatory)][string]$RemoteRoot,
+        [ValidateRange(1,86400)][int]$TimeoutSeconds,
+        [ValidateRange(0.1,60)][double]$PollIntervalSeconds
+    )
+    $clock=[Diagnostics.Stopwatch]::StartNew()
+    $idlePendingSeen=$false
+    while($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds){
+        $task=Get-ScheduledTask -CimSession $Session -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
+        if(-not $task){throw 'Fixed protected executor task is missing.'}
+        $taskState=[string]$task.State
+        $processes=@(Get-CimInstance -CimSession $Session -ClassName Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" -Property ProcessId,CommandLine |
+            Where-Object {$_.CommandLine -match '(?i)Invoke-HostExecutor\.ps1'})
+        $pendingPath=Join-Path $RemoteRoot 'control\pending.json'
+        $pendingExists=Test-Path -LiteralPath $pendingPath -PathType Leaf
+        $pending=$null
+        $terminalResult=$false
+        if($pendingExists){
+            $pending=Read-DeploymentJson $pendingPath
+            if($pending.operationId -notmatch '^[a-z0-9][a-z0-9-]{1,79}$' -or
+                $pending.requestSHA256 -notmatch '^[a-f0-9]{64}$'){
+                throw 'Protected executor pending record is malformed. Inspect it before submitting another operation.'
+            }
+            $operation=Resolve-OwnedPath $RemoteRoot ('operations\'+$pending.operationId)
+            $requestPath=Join-Path $operation 'request.json'
+            if(-not (Test-Path -LiteralPath $requestPath -PathType Leaf)){
+                throw 'Pending operation has no request file. Inspect it before submitting another operation.'
+            }
+            if((Get-FileHash -LiteralPath $requestPath).Hash.ToLowerInvariant() -ne $pending.requestSHA256){
+                throw 'Pending operation request hash differs from its record. Inspect it before submitting another operation.'
+            }
+            $request=Read-DeploymentJson $requestPath
+            if($request.operationId -ne $pending.operationId){
+                throw 'Pending operation identity differs from its request. Inspect it before submitting another operation.'
+            }
+            $resultPath=Join-Path $operation 'result.json'
+            if(Test-Path -LiteralPath $resultPath -PathType Leaf){
+                $result=Read-DeploymentJson $resultPath
+                if($result.operationId -ne $pending.operationId -or $result.planHash -ne $request.plan.planHash -or
+                    $result.status -notin @('Succeeded','Failed')){
+                    throw 'Pending operation has a mismatched or non-terminal result. Inspect it before submitting another operation.'
+                }
+                $terminalResult=$true
+            }
+        }
+        $busy=$taskState -ne 'Ready' -or $processes.Count -gt 0
+        if($terminalResult -and -not $busy){return}
+        if(-not $pendingExists -and -not $busy){return}
+        if($pendingExists -and -not $terminalResult -and -not $busy){
+            if($idlePendingSeen){
+                throw "Pending operation $($pending.operationId) has no result and the executor is idle. Inspect it before submitting another operation."
+            }
+            $idlePendingSeen=$true
+            Write-Host ("Executor is idle with unresolved operation {0}; checking once more before treating it as stale." -f $pending.operationId)
+        }else{
+            $idlePendingSeen=$false
+            Write-Host ("Waiting for protected executor operation {0}; elapsed {1:n0}s" -f $(if($pending){$pending.operationId}else{'(task startup)'}),$clock.Elapsed.TotalSeconds)
+        }
+        Start-Sleep -Milliseconds ([int]($PollIntervalSeconds*1000))
+    }
+    if($pendingExists -and -not $terminalResult){
+        throw "Timed out after $TimeoutSeconds seconds waiting for the previous executor operation to finish. No new request was submitted; inspect operation $($pending.operationId)."
+    }
+    throw "Timed out after $TimeoutSeconds seconds waiting for the protected executor to become idle. No new request was submitted."
+}
+
 function Copy-ApprovedTransferArchive {
     param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Destination,
         [Parameter(Mandatory)][string]$ApprovedArchiveSHA256)
@@ -53,7 +121,9 @@ function Copy-ApprovedTransferArchive {
 function Submit-DeploymentOperation {
     param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][string]$ApprovalPath,
         [Parameter(Mandatory)][ValidateSet('Stage','Preflight','Recover','PrepareCutover','Deploy','Cutover','Rollback','Verify')][string]$Action,
-        [string]$RuntimePath,[string]$NpmPath,[string]$TransferDirectory,[string]$TransferArchivePath,[int]$TimeoutSeconds=300)
+        [string]$RuntimePath,[string]$NpmPath,[string]$TransferDirectory,[string]$TransferArchivePath,
+        [ValidateRange(1,86400)][int]$TimeoutSeconds=300,[ValidateRange(1,86400)][int]$SubmissionWaitTimeoutSeconds=1800,
+        [ValidateRange(0.1,60)][double]$PollIntervalSeconds=5)
     if(-not $Plan.ContainsKey('schemaVersion') -or $Plan.schemaVersion -ne 2){throw 'Submission requires a current host-aware plan.'}
     $approval = Assert-DeploymentApproval $Plan $ApprovalPath $Action
     if($TransferArchivePath){
@@ -74,7 +144,8 @@ function Submit-DeploymentOperation {
     if (-not (Test-Path -LiteralPath $installPath)) { throw 'Protected host executor is not provisioned. Review and approve Install-Host.ps1 before staging.' }
     $installation = Read-DeploymentJson $installPath
     if ($installation.identity -ne $observed.identity -or $installation.root -ne $Plan.target.root) { throw 'Host executor installation does not match the approved destination.' }
-    $placementLock=Get-PlacementLease $Plan
+    $submissionWaitClock=[Diagnostics.Stopwatch]::StartNew()
+    $placementLock=Get-PlacementLease $Plan -WaitTimeoutSeconds $SubmissionWaitTimeoutSeconds -RetryIntervalSeconds $PollIntervalSeconds
     $lock=$null
     $transitionStarted=$false
     $session = $null
@@ -85,7 +156,13 @@ function Submit-DeploymentOperation {
             if(-not $actual -or $actual.status -notin @('Pending','Unknown') -or $actual.planHash -ne $Plan.planHash -or
                 $actual.hostIdentity -ne $Plan.hostSnapshot.identity){throw 'Recovery requires the exact unresolved placement.'}
         }else{Assert-PlacementUnchanged $Plan -Verify:($Action -eq 'Verify') -ResumePrepared:$resumePrepared}
-        $lock=Get-DeploymentLock (Join-Path $remote 'control\submission.lock')
+        $remainingWait=[int][Math]::Floor($SubmissionWaitTimeoutSeconds-$submissionWaitClock.Elapsed.TotalSeconds)
+        if($remainingWait -le 0){throw "Submission wait exceeded $SubmissionWaitTimeoutSeconds seconds before acquiring the executor lock. No request was submitted."}
+        $lock=Get-DeploymentLock (Join-Path $remote 'control\submission.lock') -WaitTimeoutSeconds $remainingWait -RetryIntervalSeconds $PollIntervalSeconds
+        $session = New-CimSession -ComputerName $Plan.target.host -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
+        $remainingWait=[int][Math]::Floor($SubmissionWaitTimeoutSeconds-$submissionWaitClock.Elapsed.TotalSeconds)
+        if($remainingWait -le 0){throw "Submission wait exceeded $SubmissionWaitTimeoutSeconds seconds before inspecting the executor. No request was submitted."}
+        Wait-ForDeploymentExecutor -Session $session -RemoteRoot $remote -TimeoutSeconds $remainingWait -PollIntervalSeconds $PollIntervalSeconds
         if($Action -eq 'Deploy' -and $Plan.ContainsKey('routineRelease') -and $Plan.routineRelease -eq $true){
             $preflightPath=Join-Path $remote ('operations\'+$Plan.id+'-preflight\result.json')
             $preflight=Read-DeploymentJson $preflightPath
@@ -179,7 +256,6 @@ function Submit-DeploymentOperation {
         Write-DeploymentJson $request $package
         $requestHash = (Get-FileHash -LiteralPath $request).Hash.ToLowerInvariant()
         Write-DeploymentJson (Join-Path $remote 'control\pending.json') @{operationId=$operationId;requestSHA256=$requestHash}
-        $session = New-CimSession -ComputerName $Plan.target.host -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
         $task = Get-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
         if (-not $task) { throw 'Fixed protected executor task is missing.' }
         Start-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
@@ -215,7 +291,7 @@ function Submit-DeploymentOperation {
             Write-Host ("Waiting for {0}; elapsed {1:n0}s" -f $operationId,$clock.Elapsed.TotalSeconds)
             Start-Sleep -Seconds 5
         }
-        throw 'Executor deadline exceeded. Outcome is unknown; inspect the operation result and source/target authority before resuming.'
+        throw "Executor deadline exceeded. Outcome is unknown for operation $operationId; do not resubmit. Inspect its result and source/target authority before resuming."
     } finally {
         try{if($transitionStarted){Set-PlacementTransition $Plan Unknown}}
         finally{

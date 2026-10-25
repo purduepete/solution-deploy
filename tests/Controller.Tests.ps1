@@ -35,7 +35,9 @@ Describe 'Protected submission and central placement with no remote writes' {
         Mock New-CimSessionOption -ModuleName Controller {}
         Mock New-CimSession -ModuleName Controller {$global:SyntheticCimSession}
         Mock Remove-CimSession -ModuleName Controller {}
-        Mock Get-ScheduledTask -ModuleName Controller {[Microsoft.Management.Infrastructure.CimInstance]::new('MSFT_ScheduledTask')}
+        Mock Get-ScheduledTask -ModuleName Controller {[pscustomobject]@{State='Ready'}}
+        Mock Get-CimInstance -ModuleName Controller {@()}
+        Mock Start-Sleep -ModuleName Controller {}
         Mock Start-ScheduledTask -ModuleName Controller {
             $pending=Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')
             Write-DeploymentJson (Join-Path $global:SyntheticControllerRoot "operations\$($pending.operationId)\result.json") @{
@@ -69,6 +71,82 @@ Describe 'Protected submission and central placement with no remote writes' {
     It 'does not change placement while running protected preflight' {
         (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Preflight).status | Should Be Succeeded
         $global:SyntheticPlacementStates.Count | Should Be 0
+    }
+    It 'waits for a running executor before writing the next pending request' {
+        $global:SyntheticTaskStateReads=0
+        Mock Get-ScheduledTask -ModuleName Controller {
+            $global:SyntheticTaskStateReads++
+            [pscustomobject]@{State=if($global:SyntheticTaskStateReads -eq 1){'Running'}else{'Ready'}}
+        }
+        (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -PollIntervalSeconds 0.1).status|Should Be Succeeded
+        $global:SyntheticTaskStateReads|Should BeGreaterThan 2
+        $global:SyntheticPlacementStates.Count|Should Be 2
+        Remove-Variable SyntheticTaskStateReads -Scope Global
+    }
+    It 'waits for an active executor process even when the task reports Ready' {
+        $global:SyntheticProcessReads=0
+        Mock Get-CimInstance -ModuleName Controller {
+            $global:SyntheticProcessReads++
+            if($global:SyntheticProcessReads -eq 1){
+                [pscustomobject]@{CommandLine='pwsh.exe Invoke-HostExecutor.ps1'}
+            }
+        }
+        (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -PollIntervalSeconds 0.1).status|Should Be Succeeded
+        $global:SyntheticProcessReads|Should BeGreaterThan 1
+        Remove-Variable SyntheticProcessReads -Scope Global
+    }
+    It 'does not write a pending request when the submission lock wait expires' {
+        $handle=Get-DeploymentLock (Join-Path $global:SyntheticControllerRoot 'control\submission.lock')
+        try {
+            Assert-ControllerThrows {
+                Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -SubmissionWaitTimeoutSeconds 1 -PollIntervalSeconds 0.1
+            }
+            Test-Path (Join-Path $global:SyntheticControllerRoot 'control\pending.json')|Should Be $false
+            Test-Path (Join-Path $global:SyntheticControllerRoot 'operations\synthetic-operation-deploy')|Should Be $false
+        } finally {$handle.Dispose()}
+    }
+    It 'waits for a prior pending operation with a matching terminal result' {
+        $previousId='prior-operation-deploy'
+        $previous=Join-Path $global:SyntheticControllerRoot "operations\$previousId"
+        $previousRequest=@{operationId=$previousId;plan=@{planHash='prior-hash'}}
+        Write-DeploymentJson (Join-Path $previous 'request.json') $previousRequest
+        $previousHash=(Get-FileHash (Join-Path $previous 'request.json')).Hash.ToLowerInvariant()
+        Write-DeploymentJson (Join-Path $previous 'result.json') @{operationId=$previousId;planHash='prior-hash';status='Succeeded'}
+        Write-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json') @{operationId=$previousId;requestSHA256=$previousHash}
+        (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy).status|Should Be Succeeded
+        (Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')).operationId|Should Be 'synthetic-operation-deploy'
+    }
+    It 'rejects a terminal result that belongs to a different operation' {
+        $previousId='mismatched-operation-deploy'
+        $previous=Join-Path $global:SyntheticControllerRoot "operations\$previousId"
+        Write-DeploymentJson (Join-Path $previous 'request.json') @{operationId=$previousId;plan=@{planHash='prior-hash'}}
+        $previousHash=(Get-FileHash (Join-Path $previous 'request.json')).Hash.ToLowerInvariant()
+        Write-DeploymentJson (Join-Path $previous 'result.json') @{operationId='other-operation';planHash='prior-hash';status='Succeeded'}
+        Write-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json') @{operationId=$previousId;requestSHA256=$previousHash}
+        Assert-ControllerThrows {Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy}
+        (Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')).operationId|Should Be $previousId
+        Assert-MockCalled Start-ScheduledTask -ModuleName Controller -Times 0 -Exactly -Scope It
+    }
+    It 'fails closed when an idle executor has an unresolved pending operation' {
+        $previousId='stale-operation-deploy'
+        $previous=Join-Path $global:SyntheticControllerRoot "operations\$previousId"
+        Write-DeploymentJson (Join-Path $previous 'request.json') @{operationId=$previousId;plan=@{planHash='stale-hash'}}
+        $previousHash=(Get-FileHash (Join-Path $previous 'request.json')).Hash.ToLowerInvariant()
+        Write-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json') @{operationId=$previousId;requestSHA256=$previousHash}
+        Assert-ControllerThrows {Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -PollIntervalSeconds 0.1}
+        (Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')).operationId|Should Be $previousId
+        Test-Path (Join-Path $global:SyntheticControllerRoot 'operations\synthetic-operation-deploy')|Should Be $false
+        Assert-MockCalled Start-ScheduledTask -ModuleName Controller -Times 0 -Exactly -Scope It
+    }
+    It 'does not resubmit after a post-submit deadline leaves the result unknown' {
+        Mock Start-ScheduledTask -ModuleName Controller {}
+        Assert-ControllerThrows {
+            Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -TimeoutSeconds 1 -PollIntervalSeconds 0.1
+        }
+        $pending=Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')
+        $pending.operationId|Should Be 'synthetic-operation-deploy'
+        Test-Path (Join-Path $global:SyntheticControllerRoot 'operations\synthetic-operation-deploy\result.json')|Should Be $false
+        Assert-MockCalled Start-ScheduledTask -ModuleName Controller -Times 1 -Exactly -Scope It
     }
     It 'requires the protected routine preflight result before recording Pending' {
         $global:SyntheticControllerPlan.routineRelease=$true

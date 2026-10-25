@@ -345,6 +345,14 @@ are added to later approvals without changing the plan hash. The executor checks
 them again before activation. Historical import parity or restore gates aren't
 invented for a routine release.
 
+Submission waits for both the per-app placement lease and the shared executor
+submission lock, with one 30-minute deadline. While holding the submission lock,
+the controller checks the executor task/process and the last pending request's
+hash and terminal result before replacing it. A pending request with no result
+gets one delayed recheck, then blocks submission for operator inspection. After
+writing its own pending request, the controller never resubmits it; a deadline
+without a matching result is reported as an unknown outcome.
+
 Before staging and after protected verification, the controller checks Tailscale
 HTTPS readiness against the manifest response and requires a Cloudflare Access
 login redirect on the single public hostname. A public HTTP 200 doesn't satisfy
