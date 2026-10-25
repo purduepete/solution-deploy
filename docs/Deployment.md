@@ -30,6 +30,20 @@ controller and other apps to a verified app-specific procedure. The
 background components. It is separate from `production.json`: appearing in the
 inventory does not grant placement authority or enable deployment.
 
+For every supported hosted app, "commit, push and deploy" means commit and push,
+then run this common `-Action Release` entry point against the exact pushed
+commit. This includes legacy/hand-placed apps and frontend-only changes.
+Resolve the commit before submission; do not deploy an uncommitted working tree.
+Select the requested component explicitly when web and background jobs are
+separate. Follow the executor coordination checks below and wait for active work.
+
+Never substitute a build, direct copy into `current` or an existing release
+folder, launcher invocation, or task restart for the recorded release.
+App-specific build/install scripts are steps called by the release adapter.
+Do not edit metadata or dates to describe an unrecorded copy as a release.
+If the supported adapter is blocked, report the blocker rather than bypass it.
+The manual distributions listed below remain explicit exceptions.
+
 | Apps/components                                                              | Current release support                                                                                                                                                         |
 | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Ferry Tracker, Home Automation, Site Dock, Team Scoreboard                   | Existing complete controller sequence, unchanged                                                                                                                                |
@@ -67,6 +81,16 @@ private. `/deployments.json` reads the records on every request, so a release
 appears without restarting the directory. A NoChanges or failed release writes
 nothing, and a failed record write only warns. Ride and Lift and pgweb are
 updated by hand and show "Manual update, not recorded".
+
+Before reporting deployment complete, verify both access paths and read
+`/deployments.json` from Solution Directory. Require each changed component's
+full commit in its public record (the API displays its short form) and completion
+time to match the successful release receipt and the adapter's active metadata.
+Show times in the user's local zone. Check separately deployed collectors were
+left unchanged when only web was requested. A record-write warning, missing
+record or stale record is an incomplete verification outcome even when the app
+is healthy. Investigate and report it explicitly; do not silently resubmit or
+invent a replacement date. A genuine `NoChanges` retains its existing record/date.
 
 For Fit Track's first release, select the whole web component explicitly:
 
