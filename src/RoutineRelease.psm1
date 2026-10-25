@@ -28,9 +28,9 @@ function Assert-RoutineReleaseConsent {
 
 function Get-RoutineMigrationDigest {
     param([Parameter(Mandatory)][hashtable]$Release)
-    # Only app-owned files; dependency packages often ship unrelated schema.js or MIGRATION.md files.
+    # Dependency packages and their generated caches aren't application migrations.
     $files=@($Release.files | Where-Object {
-        $_.path -notmatch '(?i)(^|\\)node_modules\\' -and $_.path -match '(?i)(^|\\)(migrations?|postgresql|schema)(\\|\.|$)|\.sql$'
+        $_.path -notmatch '(?i)(^|\\)(node_modules|\.venv)\\' -and $_.path -match '(?i)(^|\\)(migrations?|postgresql|schema)(\\|\.|$)|\.sql$'
     } | Sort-Object path | ForEach-Object {@{path=$_.path;sha256=$_.sha256}})
     if(-not $files.Count){throw 'Routine release has no sealed migration/schema baseline.'}
     Get-Sha256Text (ConvertTo-CanonicalJson $files)

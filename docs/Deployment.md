@@ -18,6 +18,9 @@ described below.
 For apps without npm build steps, routine consent records the unused npm path as
 an empty string, matching the controller's typed request parameter. The executor
 still requires exact tool paths and approved hashes.
+Migration comparison excludes dependency files under `node_modules` and `.venv`,
+including regenerated Python bytecode. Application migration and SQL files remain
+part of the comparison.
 
 ### One entry point, existing procedures
 
