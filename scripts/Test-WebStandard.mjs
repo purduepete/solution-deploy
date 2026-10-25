@@ -145,6 +145,11 @@ async function checkApp(context, site, cfg) {
     const errors = [];
     let writes = 0;
     const page = await context.newPage();
+    // A saved profile can retain an active worker even when new registrations are blocked.
+    const network = await context.newCDPSession(page);
+    await network.send('Storage.clearDataForOrigin', { origin, storageTypes: 'service_workers,cache_storage' });
+    await network.send('Network.enable');
+    await network.send('Network.setBypassServiceWorker', { bypass: true });
     await page.route('**/*', (route) => {
         const r = route.request();
         if (new URL(r.url()).origin === origin && !['GET', 'HEAD', 'OPTIONS'].includes(r.method())) {
@@ -418,8 +423,8 @@ const APP_TIMEOUT_MS = 120000;
 const launch = { channel: 'msedge', headless: !signIn };
 let browser = null;
 const context = publicMode
-    ? await chromium.launchPersistentContext(profileDir, launch)
-    : await (browser = await chromium.launch(launch)).newContext();
+    ? await chromium.launchPersistentContext(profileDir, { ...launch, serviceWorkers: 'block' })
+    : await (browser = await chromium.launch(launch)).newContext({ serviceWorkers: 'block' });
 try {
     // Headed Edge shuts down when its last tab closes. Keep an anchor tab between app checks.
     const anchor = context.pages()[0] ?? (await context.newPage());
