@@ -40,3 +40,10 @@ The directory server caches assets in memory. Copy the updated site files and
 restart the directory task during deployment, then reload the browser. No
 database, routing or infrastructure changes are needed. iPhone and iPad
 home-screen behavior still needs device verification after deployment.
+
+The desktop width reference is a centered 1440px border-box outer container with
+20px side padding, leaving at most 1400px for content. Header contents and main
+content share those edges. `scripts\Test-WebStandard.mjs` checks these bounds at
+1280, 1440 and 1920px for the directory, Fit Track, Ferry Tracker, Home Automation,
+Team Scoreboard and Web Inventory. The check accounts for scrollbar gutters and
+keeps Web Inventory's 240px desktop rail outside its inner content area.

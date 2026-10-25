@@ -40,6 +40,14 @@ const apps = {
 };
 const MIDNIGHT = ['#020617', '#0f172a'];
 const LIGHT = ['#ffffff'];
+const desktopLayouts = {
+    'solution-deploy': ['header', 'main'],
+    'fit-track': ['header', 'main.container'],
+    'ferry-tracker': ['.header-inner', 'main'],
+    'team-scoreboard': ['.header-inner', 'main'],
+    'home-automation': ['.app-header-inner', 'header .wrap'],
+    'web-inventory': ['.topbar', 'main.content'],
+};
 
 // Private-only tools (no cloudflareUrl, such as pgweb) are outside the web standard.
 const allSites = JSON.parse(readFileSync(join(repo, 'site', 'sites.json'), 'utf8')).sites;
@@ -309,6 +317,43 @@ async function checkApp(context, site, cfg) {
             bar.off.length === 0,
             bar.off.length ? `theme ${bar.at}; ${bar.off.join(', ')}` : ''
         );
+
+        if (desktopLayouts[site.id]) {
+            const [headerSelector, mainSelector] = desktopLayouts[site.id];
+            for (const desktopWidth of [1280, 1440, 1920]) {
+                await page.setViewportSize({ width: desktopWidth, height: 1000 });
+                await page.waitForTimeout(300);
+                const contentFrame =
+                    site.id === 'home-automation'
+                        ? page.frames().find((frame) => new URL(frame.url()).pathname === '/page/devices')
+                        : page.mainFrame();
+                if (!contentFrame) throw new Error('Desktop content frame is missing.');
+                const measure = (selector) => {
+                    const element = document.querySelector(selector);
+                    if (!element) throw new Error(`Desktop layout element is missing: ${selector}`);
+                    const rect = element.getBoundingClientRect();
+                    const style = getComputedStyle(element);
+                    return {
+                        left: rect.left + parseFloat(style.paddingLeft),
+                        right: rect.right - parseFloat(style.paddingRight),
+                        available: document.body.getBoundingClientRect().width,
+                    };
+                };
+                const header = await page.evaluate(measure, headerSelector);
+                const content = await contentFrame.evaluate(measure, mainSelector);
+                const rail = site.id === 'web-inventory' && desktopWidth >= 1440 ? 240 : 0;
+                const expectedLeft = rail + Math.max(20, (content.available - rail - 1400) / 2);
+                const expectedWidth = Math.min(content.available - rail, 1440) - 40;
+                add(
+                    `Desktop width at ${desktopWidth}px`,
+                    Math.abs(content.left - expectedLeft) <= 1 &&
+                        Math.abs(content.right - content.left - expectedWidth) <= 1 &&
+                        Math.abs(header.left - content.left) <= 1 &&
+                        Math.abs(header.right - content.right) <= 1,
+                    `header ${header.left.toFixed(1)}..${header.right.toFixed(1)}; content ${content.left.toFixed(1)}..${content.right.toFixed(1)}; expected left ${expectedLeft.toFixed(1)}, width ${expectedWidth.toFixed(1)}`
+                );
+            }
+        }
 
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(400);
