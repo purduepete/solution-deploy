@@ -357,7 +357,7 @@ async function checkApp(context, site, cfg) {
                         Math.abs(header.right - content.right) <= 1,
                     `header ${header.left.toFixed(1)}..${header.right.toFixed(1)}; content ${content.left.toFixed(1)}..${content.right.toFixed(1)}; expected left ${expectedLeft.toFixed(1)}, width ${expectedWidth.toFixed(1)}`
                 );
-                if (['solution-deploy', 'ferry-tracker', 'fit-track'].includes(site.id)) {
+                if (['solution-deploy', 'ferry-tracker', 'fit-track', 'web-inventory'].includes(site.id)) {
                     const originalOverflow = await page.evaluate(() => document.documentElement.style.overflowY);
                     try {
                         for (const overflow of ['hidden', 'scroll']) {
