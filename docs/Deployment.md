@@ -317,9 +317,13 @@ writes and data fixes. Database-altering changes still require independent revie
 the separate reviewed deployment procedure. Release performs no database import,
 migration, restore or data fix. Starting the application can resume its ordinary writes.
 
-Release is limited to an existing `ManagedDeploy` on the same host. The entire
-application manifest and sealed database migration/schema inputs must match the active
-release. The current routine verifier requires the application and database to stay
+Release is limited to an existing `ManagedDeploy` on the same host. The application
+manifest and sealed database migration/schema inputs must match the active release.
+The one exception is a build-only manifest change approved by its exact hash; see
+"Slim Node releases" below. The migration/schema digest covers app-owned files only and
+skips `node_modules`, so routine release also requires a plain
+`database.migrationsDirectory` (letters, digits, `_` and `-` segments) outside
+`node_modules`. The current routine verifier requires the application and database to stay
 on the existing colocated host. New installations, host moves, changed database inputs and unresolved
 placement authority require the existing reviewed actions.
 
@@ -429,6 +433,52 @@ inventory hashes now use canonical JSON because unordered JSON caused a
 cross-process digest mismatch that correctly refused the update before copying.
 Run the CLI directly: a PowerShell background-job test wrapper also timed out
 during Git preparation before it submitted any protected operation.
+
+### Slim Node releases
+
+On 10/24/2026 a Team Scoreboard release took over 25 minutes. The release carried
+11,325 files, mostly dev-only `node_modules`, and every phase hashed them again with
+`Get-FileHash`. Three changes cut this:
+
+- Inventory hashing uses .NET SHA-256 directly and reports progress. Every wait prints
+  a heartbeat with the operation's current step, and Release warns when a phase runs
+  well past its recorded median. Waits stop after 30 minutes, or after 5 minutes with
+  no progress from the executor.
+- Apps keep frontend-only packages (React, icon sets, fonts) in `devDependencies`
+  and end their build with `npm prune --omit=dev --ignore-scripts`:
+
+    ```json
+    { "tool": "npm", "arguments": ["prune", "--omit=dev", "--ignore-scripts"], "workingDirectory": "." }
+    ```
+
+- Adding that step changes `deploy\application.json`, which routine Release normally
+  refuses. Approve the exact new manifest by its hash. Only the `build` key may differ
+  from the active release, and the controller and executor both enforce that:
+
+    ```powershell
+    $hash=(Get-FileHash .\deploy\application.json).Hash.ToLowerInvariant()
+    & C:\Files\Dev\main\solution-deploy\Deploy.ps1 -Action Release -App team-scoreboard `
+        -Environment production -Target jimbrownhome1 -Commit HEAD -ApproveRelease `
+        -ApprovalReason 'Slim release' -DatabaseChangesReviewed -ApprovedManifestSHA256 $hash
+    ```
+
+    Check the hash against the committed bytes (`git cat-file blob HEAD:deploy/application.json`)
+    if the working copy might have CRLF line endings. Later releases with the same manifest
+    need no extra flag.
+
+Team Scoreboard slim release, commit `6642ef6`, 10/24/2026 20:37 local: 552 s total.
+The release has 1,632 files.
+
+| Phase               | Elapsed | Note                                         |
+| ------------------- | ------- | -------------------------------------------- |
+| Preparation         | 00:40   |                                              |
+| Stage               | 03:03   | npm ci 2:00, build 0:15, prune 0:25          |
+| Protected Preflight | 03:31   | one-time hash of the old 11,325-file release |
+| Deploy              | 01:15   |                                              |
+| Protected Verify    | 00:43   |                                              |
+| Total               | 09:12   |                                              |
+
+The next release hashes 1,632 old files in Preflight, so expect about 6 minutes.
 
 ## Migration feedback and reuse
 
