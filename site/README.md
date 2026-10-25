@@ -1,6 +1,8 @@
 # Directory appearance
 
-The header's custom Theme menu lists System, Light and Midnight. Midnight is the
+The header's palette icon opens an appearance popover on both the directory and
+Collectors pages. Its square segmented Theme control lists Light, Midnight and
+System, matching Home Automation's icon and layout. Midnight is the
 default. System follows OS changes live; fixed choices stay fixed. Preferences
 persist in `solution-deploy-theme` as `system`, `light` or `midnight`. A saved
 legacy `dark` choice resolves to Midnight.
@@ -13,12 +15,14 @@ motion is requested. The selected order is restored from `solution-deploy-sort`
 in local storage on the next visit. If browser storage is blocked, sorting still
 works for the current page and a warning is logged.
 
-The Theme menu uses radio-menu semantics and a stroke checkmark for the saved choice.
-Enter or Space opens the menu and selects the focused choice. Arrow keys move
+The Theme group uses pressed buttons, theme icons and a sliding selection fill.
+Reduced motion disables the slide. Enter or Space opens the popover and selects
+the focused choice. Arrow keys move
 between choices; Home and End jump to the first and last. Escape dismisses the
 menu and returns focus to its button. Tab or Shift+Tab dismisses it and continues
 through the page. Clicking or focusing outside dismisses it without moving focus.
-The opaque, square menu and its scrollbar use the current theme's color tokens.
+The opaque, square popover uses the current theme's color tokens. The palette
+button's accessible name includes the selected preference.
 
 Light uses a white page and header. Midnight uses a `#020617` page and opaque
 `#0f172a` header. The header is full-width and sticky. Roboto Flex loads from

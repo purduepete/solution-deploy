@@ -25,12 +25,17 @@
         const control = document.getElementById('theme');
         const value = document.getElementById('theme-value');
         const menu = document.getElementById('theme-menu');
-        const options = [...menu.querySelectorAll('[role="menuitemradio"]')];
+        const picker = document.getElementById('theme-picker');
+        const options = [...menu.querySelectorAll('[data-theme-preference]')];
         const selectedIndex = () => options.findIndex((option) => option.dataset.themePreference === preference);
         const sync = () => {
             value.textContent = options[selectedIndex()].querySelector('span').textContent;
+            control.setAttribute('aria-label', `Theme: ${value.textContent}`);
+            picker.style.setProperty('--theme-index', selectedIndex());
             options.forEach((option) => {
-                option.setAttribute('aria-checked', String(option.dataset.themePreference === preference));
+                const selected = option.dataset.themePreference === preference;
+                option.setAttribute('aria-pressed', String(selected));
+                option.tabIndex = selected ? 0 : -1;
             });
         };
         const close = (returnFocus = false) => {
@@ -66,8 +71,8 @@
             });
             option.addEventListener('keydown', (event) => {
                 let next;
-                if (event.key === 'ArrowDown') next = (index + 1) % options.length;
-                if (event.key === 'ArrowUp') next = (index + options.length - 1) % options.length;
+                if (['ArrowDown', 'ArrowRight'].includes(event.key)) next = (index + 1) % options.length;
+                if (['ArrowUp', 'ArrowLeft'].includes(event.key)) next = (index + options.length - 1) % options.length;
                 if (event.key === 'Home') next = 0;
                 if (event.key === 'End') next = options.length - 1;
                 if (next !== undefined) {

@@ -31,7 +31,14 @@ function launch(stored, dark = false, blocked = false) {
     }
     const control = element();
     const value = element();
-    const options = ['system', 'light', 'midnight'].map((preference) =>
+    const picker = {
+        style: {
+            setProperty(key, value) {
+                this[key] = value;
+            },
+        },
+    };
+    const options = ['light', 'midnight', 'system'].map((preference) =>
         element({
             dataset: { themePreference: preference },
             querySelector: () => ({ textContent: preference[0].toUpperCase() + preference.slice(1) }),
@@ -54,7 +61,8 @@ function launch(stored, dark = false, blocked = false) {
         document: {
             documentElement: root,
             querySelector: () => meta,
-            getElementById: (id) => ({ theme: control, 'theme-value': value, 'theme-menu': menu })[id],
+            getElementById: (id) =>
+                ({ theme: control, 'theme-value': value, 'theme-menu': menu, 'theme-picker': picker })[id],
             addEventListener(type, fn) {
                 if (type === 'DOMContentLoaded') ready = fn;
                 else listeners[type] = fn;
@@ -79,6 +87,7 @@ function launch(stored, dark = false, blocked = false) {
         meta,
         control,
         value,
+        picker,
         menu,
         options,
         storage,
@@ -143,18 +152,24 @@ test('storage denial leaves system tracking functional', () => {
     assert.equal(app.meta.content, '#0f172a');
 });
 
-test('menu opens at the saved preference and selection updates radio state and restores focus', () => {
+test('popover opens at the saved preference and selection updates pressed state and restores focus', () => {
     const app = launch('system');
     app.control.listeners.click();
     assert.equal(app.menu.hidden, false);
     assert.equal(app.control.attributes['aria-expanded'], 'true');
-    assert.equal(app.focused, app.options[0]);
+    assert.equal(app.focused, app.options[2]);
     app.choose('light');
     assert.equal(app.value.textContent, 'Light');
     assert.deepEqual(
-        app.options.map((option) => option.attributes['aria-checked']),
-        ['false', 'true', 'false']
+        app.options.map((option) => option.attributes['aria-pressed']),
+        ['true', 'false', 'false']
     );
+    assert.equal(app.picker.style['--theme-index'], 0);
+    assert.deepEqual(
+        app.options.map((option) => option.tabIndex),
+        [0, -1, -1]
+    );
+    assert.equal(app.control.attributes['aria-label'], 'Theme: Light');
     assert.equal(app.storage.get('solution-deploy-theme'), 'light');
     assert.equal(app.menu.hidden, true);
     assert.equal(app.control.attributes['aria-expanded'], 'false');
@@ -165,11 +180,15 @@ test('arrows wrap, Home and End jump, and navigation leaves the preference uncha
     const app = launch();
     for (const key of ['ArrowDown', 'ArrowUp']) {
         assert.equal(app.key(app.control, key), true);
-        assert.equal(app.focused, app.options[2]);
+        assert.equal(app.focused, app.options[1]);
     }
     app.key(app.options[2], 'ArrowDown');
     assert.equal(app.focused, app.options[0]);
     app.key(app.options[0], 'ArrowUp');
+    assert.equal(app.focused, app.options[2]);
+    app.key(app.options[2], 'ArrowRight');
+    assert.equal(app.focused, app.options[0]);
+    app.key(app.options[0], 'ArrowLeft');
     assert.equal(app.focused, app.options[2]);
     app.key(app.options[2], 'Home');
     assert.equal(app.focused, app.options[0]);
@@ -203,7 +222,7 @@ test('outside pointer and focus dismiss without stealing focus; internal events 
         assert.equal(app.menu.hidden, false);
         app.outside(type);
         assert.equal(app.menu.hidden, true);
-        assert.equal(app.focused, app.options[2]);
+        assert.equal(app.focused, app.options[1]);
     }
     app.control.listeners.click();
     app.control.listeners.click();
@@ -221,8 +240,19 @@ test('opaque full-width sticky header, standard surfaces and font load are retai
     assert(html.includes('Roboto+Flex:opsz,wght@8..144,100..1000'));
     assert(html.indexOf('src="/theme.js"') < html.indexOf('href="/style.css"'));
     assert(!html.includes('<select'));
-    assert(html.includes('aria-haspopup="menu"'));
-    for (const value of ['system', 'light', 'midnight']) assert(html.includes(`data-theme-preference="${value}"`));
+    assert(html.includes('aria-haspopup="dialog"'));
+    for (const page of ['index.html', 'collectors.html']) {
+        const markup = readFileSync(new URL(`./${page}`, import.meta.url), 'utf8');
+        assert.deepEqual(
+            [...markup.matchAll(/data-theme-preference="([^"]+)"/g)].map((match) => match[1]),
+            ['light', 'midnight', 'system']
+        );
+        assert(markup.includes('role="group"'));
+        assert(markup.includes('M12 3a9 9 0 1 0 0 18h1'));
+        assert(!markup.includes('<select'));
+    }
+    assert(css.includes('transition:transform 0.25s ease-out'));
+    assert(css.includes('prefers-reduced-motion:reduce'));
     assert(css.includes('scrollbar-color:var(--accent) var(--panel)'));
     assert(css.includes('max-width:100%'));
 });

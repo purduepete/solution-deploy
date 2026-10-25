@@ -28,16 +28,15 @@
                 <p class="intro">Your hosted sites, access paths, data sources and deployment procedures.</p>
             </div>
             <div class="theme-setting">
-                <span id="theme-label">Theme</span>
                 <button
                     id="theme"
                     type="button"
-                    aria-haspopup="menu"
+                    aria-haspopup="dialog"
                     aria-expanded="false"
                     aria-controls="theme-menu"
-                    aria-labelledby="theme-label theme-value"
+                    aria-label="Theme: Midnight"
                 >
-                    <span id="theme-value">Midnight</span>
+                    <span id="theme-value" hidden>Midnight</span>
                     <svg
                         aria-hidden="true"
                         width="18"
@@ -47,70 +46,63 @@
                         stroke="currentColor"
                         stroke-width="2"
                     >
-                        <path d="m6 9 6 6 6-6" />
+                        <path d="M12 3a9 9 0 1 0 0 18h1a2 2 0 0 0 0-4 1.5 1.5 0 0 1 0-3h2a6 6 0 0 0 6-6c0-3-4-5-9-5Z" />
+                        <circle cx="7.5" cy="10" r=".5" />
+                        <circle cx="10" cy="6.5" r=".5" />
+                        <circle cx="15" cy="7" r=".5" />
                     </svg>
                 </button>
-                <div id="theme-menu" role="menu" aria-labelledby="theme-label" hidden>
-                    <button
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked="false"
-                        tabindex="-1"
-                        data-theme-preference="system"
-                    >
-                        <span>System</span
-                        ><svg
-                            aria-hidden="true"
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="m5 12 4 4L19 6" />
-                        </svg>
-                    </button>
-                    <button
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked="false"
-                        tabindex="-1"
-                        data-theme-preference="light"
-                    >
-                        <span>Light</span
-                        ><svg
-                            aria-hidden="true"
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="m5 12 4 4L19 6" />
-                        </svg>
-                    </button>
-                    <button
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked="true"
-                        tabindex="-1"
-                        data-theme-preference="midnight"
-                    >
-                        <span>Midnight</span
-                        ><svg
-                            aria-hidden="true"
-                            width="18"
-                            height="18"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2"
-                        >
-                            <path d="m5 12 4 4L19 6" />
-                        </svg>
-                    </button>
+                <div id="theme-menu" role="dialog" aria-label="Appearance settings" hidden>
+                    <span id="theme-label">Theme</span>
+                    <div id="theme-picker" role="group" aria-labelledby="theme-label">
+                        <span class="theme-selection" aria-hidden="true"></span>
+                        <button type="button" aria-pressed="false" tabindex="-1" data-theme-preference="light">
+                            <span>Light</span
+                            ><svg
+                                aria-hidden="true"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <circle cx="12" cy="12" r="4" />
+                                <path
+                                    d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"
+                                />
+                            </svg>
+                        </button>
+                        <button type="button" aria-pressed="true" tabindex="0" data-theme-preference="midnight">
+                            <span>Midnight</span
+                            ><svg
+                                aria-hidden="true"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z" />
+                            </svg>
+                        </button>
+                        <button type="button" aria-pressed="false" tabindex="-1" data-theme-preference="system">
+                            <span>System</span
+                            ><svg
+                                aria-hidden="true"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                            >
+                                <rect x="3" y="3" width="18" height="13" rx="1" />
+                                <path d="M8 21h8m-4-5v5" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
         </header>
