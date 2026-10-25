@@ -173,14 +173,42 @@ function Assert-ReleaseClocks {
     }
 }
 
+function Get-ReleasePhaseMedians {
+    param([Parameter(Mandatory)][string]$ReleaseRoot,[Parameter(Mandatory)][string]$App,[int]$Count=5)
+    $samples=@{}
+    if(-not (Test-Path -LiteralPath $ReleaseRoot)){return @{}}
+    $directories=@(Get-ChildItem -LiteralPath $ReleaseRoot -Directory | Sort-Object LastWriteTime -Descending)
+    foreach($directory in $directories){
+        try{
+            $receiptPath=Join-Path $directory.FullName 'release.json'
+            $planPath=Join-Path $directory.FullName 'plan.json'
+            if(-not (Test-Path -LiteralPath $receiptPath) -or -not (Test-Path -LiteralPath $planPath)){continue}
+            $receipt=Read-DeploymentJson $receiptPath
+            if($receipt.status -ne 'Succeeded' -or (Read-DeploymentJson $planPath).app -ne $App){continue}
+            foreach($phase in $receipt.phases){
+                if(-not $samples.ContainsKey($phase.action)){$samples[$phase.action]=[Collections.Generic.List[double]]::new()}
+                if($samples[$phase.action].Count -lt $Count){$samples[$phase.action].Add([double]$phase.elapsedSeconds)}
+            }
+        }catch{continue}
+    }
+    $medians=@{}
+    foreach($action in $samples.Keys){
+        $sorted=@($samples[$action]|Sort-Object)
+        if($sorted.Count -lt 3){continue}
+        $middle=[int][Math]::Floor($sorted.Count/2)
+        $medians[$action]=if($sorted.Count % 2){$sorted[$middle]}else{($sorted[$middle-1]+$sorted[$middle])/2}
+    }
+    $medians
+}
+
 function Invoke-RoutineRelease {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$App,[string]$Environment='production',
         [Parameter(Mandatory)][string]$Target,[string]$Commit='HEAD',
         [switch]$ApproveRelease,[Parameter(Mandatory)][string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
-        [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(30)),[string]$TailscaleUrl,
+        [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
-        [ValidateRange(60,1800)][int]$TimeoutSeconds=300)
+        [ValidateRange(60,1800)][int]$TimeoutSeconds=1800)
     if(-not $ApproveRelease -or -not $DatabaseChangesReviewed -or [string]::IsNullOrWhiteSpace($ApprovalReason)){
         throw 'Release requires -ApproveRelease, a non-empty -ApprovalReason and -DatabaseChangesReviewed.'
     }
@@ -213,6 +241,7 @@ function Invoke-RoutineRelease {
     }
     $initialAccess=Test-ReleaseAccess $plan $TailscaleUrl
     $directory=Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) ('releases\'+$plan.id)
+    $phaseMedians=Get-ReleasePhaseMedians (Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) 'releases') $App
     [IO.Directory]::CreateDirectory($directory)|Out-Null
     $archive=Join-Path $directory 'source.zip'
     try{
@@ -266,6 +295,9 @@ function Invoke-RoutineRelease {
             $receipt.phases+=@{action=$action;result=$result;approvalSHA256=(Get-FileHash -LiteralPath $approvalPath).Hash.ToLowerInvariant()
                 startedLocal=$phaseStarted;completedLocal=(Get-Date).ToString('o');elapsedSeconds=[Math]::Round($phaseClock.Elapsed.TotalSeconds,2)}
             Write-DeploymentJson $receiptPath $receipt
+            if($phaseMedians.ContainsKey($action) -and $phaseClock.Elapsed.TotalSeconds -gt 2*$phaseMedians[$action]){
+                Write-Warning ("Release: {0} took {1:n0}s, more than twice its recent median of {2:n0}s for {3}." -f $action,$phaseClock.Elapsed.TotalSeconds,$phaseMedians[$action],$App)
+            }
             if($action -eq 'Preflight'){
                 $proof=$result.verification
                 if($proof.databaseEvidenceSHA256 -notmatch '^[a-f0-9]{64}$' -or [string]::IsNullOrWhiteSpace($proof.databaseEvidencePath)){

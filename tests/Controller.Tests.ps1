@@ -72,6 +72,51 @@ Describe 'Protected submission and central placement with no remote writes' {
         (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Preflight).status | Should Be Succeeded
         $global:SyntheticPlacementStates.Count | Should Be 0
     }
+    It 'stops with an unknown outcome when the executor shows no progress' {
+        Mock Start-ScheduledTask -ModuleName Controller {}
+        $message=$null
+        try{Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -TimeoutSeconds 60 -IdleTimeoutSeconds 1|Out-Null}catch{$message=$_.Exception.Message}
+        $message|Should Match 'no progress for 1 seconds.*do not resubmit'
+        ($global:SyntheticPlacementStates -join ',')|Should Be 'Pending,Unknown'
+        Assert-MockCalled Start-ScheduledTask -ModuleName Controller -Times 1 -Exactly -Scope It
+    }
+    It 'keeps waiting past the idle limit while executor progress advances' {
+        $global:SyntheticProgressCount=0
+        Mock Start-ScheduledTask -ModuleName Controller {}
+        Mock Start-Sleep -ModuleName Controller {
+            [Threading.Thread]::Sleep(300)
+            $pending=Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')
+            $operation=Join-Path $global:SyntheticControllerRoot "operations\$($pending.operationId)"
+            $global:SyntheticProgressCount++
+            if($global:SyntheticProgressCount -eq 3){[IO.File]::WriteAllText((Join-Path $operation 'progress.json'),'{"step":')}
+            else{Write-DeploymentJson (Join-Path $operation 'progress.json') @{step='Hashing new-release';completed=$global:SyntheticProgressCount;total=20}}
+            if($global:SyntheticProgressCount -ge 10){
+                Write-DeploymentJson (Join-Path $operation 'result.json') @{
+                    operationId=$pending.operationId;planHash=$global:SyntheticControllerPlan.planHash;status='Succeeded'
+                    verification=@{releaseId='new-release'}
+                }
+            }
+        }
+        try{
+            $result=Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -TimeoutSeconds 60 -IdleTimeoutSeconds 1
+            $result.status|Should Be Succeeded
+            ($global:SyntheticPlacementStates -join ',')|Should Be 'Pending,Active'
+        }finally{Remove-Variable SyntheticProgressCount -Scope Global -ErrorAction SilentlyContinue}
+    }
+    It 'accepts a result written during the sleep that crosses the idle limit' {
+        Mock Start-ScheduledTask -ModuleName Controller {}
+        Mock Start-Sleep -ModuleName Controller {
+            [Threading.Thread]::Sleep(1200)
+            $pending=Read-DeploymentJson (Join-Path $global:SyntheticControllerRoot 'control\pending.json')
+            Write-DeploymentJson (Join-Path $global:SyntheticControllerRoot "operations\$($pending.operationId)\result.json") @{
+                operationId=$pending.operationId;planHash=$global:SyntheticControllerPlan.planHash;status='Succeeded'
+                verification=@{releaseId='new-release'}
+            }
+        }
+        $result=Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy -TimeoutSeconds 60 -IdleTimeoutSeconds 1
+        $result.status|Should Be Succeeded
+        ($global:SyntheticPlacementStates -join ',')|Should Be 'Pending,Active'
+    }
     It 'waits for a running executor before writing the next pending request' {
         $global:SyntheticTaskStateReads=0
         Mock Get-ScheduledTask -ModuleName Controller {

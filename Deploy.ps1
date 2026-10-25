@@ -14,13 +14,13 @@ param(
     [string]$TransferDirectory,
     [string]$TransferArchivePath,
     [string]$OutputDirectory=(Join-Path $PSScriptRoot '.local'),
-    [ValidateRange(60,1800)][int]$TimeoutSeconds=300,
+    [ValidateRange(60,1800)][int]$TimeoutSeconds=1800,
     [switch]$Offline,
     [switch]$OpenReport,
     [switch]$ApproveRelease,
     [string]$ApprovalReason,
     [switch]$DatabaseChangesReviewed,
-    [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(30)),
+    [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),
     [string]$TailscaleUrl
 )
 Set-StrictMode -Version Latest
@@ -34,9 +34,11 @@ if ($Action -eq 'Release') {
         throw 'Release creates its own pinned plan and approvals using installed tools. Saved plans, offline mode, tool overrides and transfers are unsupported.'
     }
     Import-Module (Join-Path $PSScriptRoot 'src\CommonRelease.psm1') -DisableNameChecking
+    # Each release procedure keeps its own default deadline unless one is given explicitly.
+    $releaseTimeout=@{}; if($PSBoundParameters.ContainsKey('TimeoutSeconds')){$releaseTimeout.TimeoutSeconds=$TimeoutSeconds}
     Invoke-CommonRelease -App $App -Component $Component -Environment $Environment -Target $Target -Commit $Commit `
         -ApproveRelease:$ApproveRelease -ApprovalReason $ApprovalReason -DatabaseChangesReviewed:$DatabaseChangesReviewed `
-        -ExpiresLocal $ExpiresLocal -TailscaleUrl $TailscaleUrl -OutputDirectory $OutputDirectory -TimeoutSeconds $TimeoutSeconds
+        -ExpiresLocal $ExpiresLocal -TailscaleUrl $TailscaleUrl -OutputDirectory $OutputDirectory @releaseTimeout
     return
 }
 if($Component){throw '-Component is supported only by -Action Release.'}

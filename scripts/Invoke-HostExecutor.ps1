@@ -23,6 +23,7 @@ try {
     $pending = Read-DeploymentJson (Join-Path $Root 'control\pending.json')
     Assert-Identifier $pending.operationId
     $operation = Resolve-OwnedPath $Root ('operations\'+$pending.operationId)
+    Set-DeploymentProgressPath (Join-Path $operation 'progress.json')
     $requestPath = Join-Path $operation 'request.json'
     if ((Get-FileHash -LiteralPath $requestPath).Hash.ToLowerInvariant() -ne $pending.requestSHA256) { throw 'Protected request hash mismatch.' }
     $request = Read-DeploymentJson $requestPath

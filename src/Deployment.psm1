@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $script:FrameworkRoot = Split-Path -Parent $PSScriptRoot
+$script:DeploymentProgressPath = $null
 
 function Get-Sha256Text {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
@@ -27,6 +28,19 @@ function Write-DeploymentJson {
     } finally {
         if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
     }
+}
+
+function Set-DeploymentProgressPath {
+    param([AllowNull()][string]$Path)
+    $script:DeploymentProgressPath = $Path
+}
+
+function Write-DeploymentProgress {
+    param([Parameter(Mandatory)][string]$Step, [long]$Completed = 0, [long]$Total = 0)
+    if (-not $script:DeploymentProgressPath) { return }
+    # Progress is informational for the controller; a failed write must never fail the operation.
+    try { Write-DeploymentJson $script:DeploymentProgressPath @{step=$Step; completed=$Completed; total=$Total; updatedLocal=(Get-Date).ToString('o')} }
+    catch { Write-Verbose 'Progress write skipped.' }
 }
 
 function Resolve-OwnedPath {
@@ -63,11 +77,27 @@ function Test-DeploymentLockSharingViolation {
     $Exception -is [IO.IOException] -and (($Exception.HResult -band 0xffff) -eq 32)
 }
 
+function Get-SubmissionHolderText {
+    param([Parameter(Mandatory)][string]$RemoteRoot)
+    try {
+        $pendingPath = Join-Path $RemoteRoot 'control\pending.json'
+        if (-not (Test-Path -LiteralPath $pendingPath)) { return '' }
+        $pending = Read-DeploymentJson $pendingPath
+        Assert-Identifier $pending.operationId
+        $age = [DateTime]::Now - (Get-Item -LiteralPath $pendingPath).LastWriteTime
+        $app = ''
+        $requestPath = Join-Path $RemoteRoot ('operations\' + $pending.operationId + '\request.json')
+        if (Test-Path -LiteralPath $requestPath) { $app = [string](Read-DeploymentJson $requestPath).plan.app }
+        '{0}operation {1} submitted {2:n0} min ago' -f $(if($app){"$app "}else{''}),$pending.operationId,$age.TotalMinutes
+    } catch { '' }
+}
+
 function Get-DeploymentLock {
     param(
         [Parameter(Mandatory)][string]$Path,
         [ValidateRange(0,86400)][int]$WaitTimeoutSeconds=0,
-        [ValidateRange(0.1,60)][double]$RetryIntervalSeconds=5
+        [ValidateRange(0.1,60)][double]$RetryIntervalSeconds=5,
+        [string]$HolderRoot
     )
     [IO.Directory]::CreateDirectory((Split-Path -Parent $Path)) | Out-Null
     $clock=[Diagnostics.Stopwatch]::StartNew()
@@ -79,7 +109,9 @@ function Get-DeploymentLock {
             if($clock.Elapsed.TotalSeconds -ge $WaitTimeoutSeconds){
                 throw "Timed out after $WaitTimeoutSeconds seconds waiting for the deployment lock."
             }
-            Write-Host ("Waiting for deployment lock {0}; elapsed {1:n0}s" -f $Path,$clock.Elapsed.TotalSeconds)
+            $holder = ''
+            if ($HolderRoot) { $holder = Get-SubmissionHolderText $HolderRoot }
+            Write-Host ("Waiting for deployment lock {0}; elapsed {1:n0}s{2}" -f $Path,$clock.Elapsed.TotalSeconds,$(if($holder){"; $holder"}else{''}))
             Start-Sleep -Milliseconds ([int]($RetryIntervalSeconds*1000))
         }
     }
@@ -222,7 +254,10 @@ function Invoke-DeploymentCommand {
                 $process.Kill($true); $process.WaitForExit()
                 throw "Deployment tool exceeded its $TimeoutSeconds-second timeout."
             }
-            if ([int]$clock.Elapsed.TotalSeconds % 10 -eq 0) { Write-Host ("Tool running, elapsed {0:n0}s" -f $clock.Elapsed.TotalSeconds) }
+            if ([int]$clock.Elapsed.TotalSeconds % 10 -eq 0) {
+                Write-Host ("Tool running, elapsed {0:n0}s" -f $clock.Elapsed.TotalSeconds)
+                Write-DeploymentProgress ('Running ' + [IO.Path]::GetFileName($Executable)) ([long]$clock.Elapsed.TotalSeconds) $TimeoutSeconds
+            }
         }
         if ($process.ExitCode -ne 0) { throw "Deployment tool failed with exit code $($process.ExitCode). Output withheld because it may contain sensitive configuration." }
         if ($Capture) { $stdout.GetAwaiter().GetResult().TrimEnd("`r","`n") }
@@ -534,17 +569,28 @@ function Assert-PlanInputs {
 
 function Get-ReleaseInventory {
     param([Parameter(Mandatory)][string]$ReleasePath)
-    $result = [Collections.Generic.List[object]]::new()
-    $stack = [Collections.Generic.Stack[string]]::new(); $stack.Push([IO.Path]::GetFullPath($ReleasePath))
+    $root = [IO.Path]::GetFullPath($ReleasePath)
+    $seal = Join-Path $root 'release.json'
+    $files = [Collections.Generic.List[IO.FileInfo]]::new()
+    $stack = [Collections.Generic.Stack[string]]::new(); $stack.Push($root)
     while ($stack.Count) {
         foreach ($item in Get-ChildItem -LiteralPath $stack.Pop() -Force) {
             if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Release inventory cannot contain reparse points.' }
             if ($item.PSIsContainer) { $stack.Push($item.FullName) }
-            elseif ($item.FullName -ine (Join-Path $ReleasePath 'release.json')) {
-                $result.Add(@{path=[IO.Path]::GetRelativePath($ReleasePath,$item.FullName); length=$item.Length; sha256=(Get-FileHash -LiteralPath $item.FullName).Hash.ToLowerInvariant()})
-            }
+            elseif ($item.FullName -ine $seal) { $files.Add($item) }
         }
     }
+    $step = 'Hashing ' + [IO.Path]::GetFileName($root.TrimEnd('\'))
+    $result = [Collections.Generic.List[object]]::new()
+    $clock = [Diagnostics.Stopwatch]::StartNew(); $next = 0
+    foreach ($file in $files) {
+        if ($clock.Elapsed.TotalSeconds -ge $next) { Write-DeploymentProgress $step $result.Count $files.Count; $next = $clock.Elapsed.TotalSeconds + 2 }
+        $stream = [IO.File]::Open($file.FullName, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+        try { $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($stream)).ToLowerInvariant() }
+        finally { $stream.Dispose() }
+        $result.Add(@{path=[IO.Path]::GetRelativePath($root,$file.FullName); length=$file.Length; sha256=$hash})
+    }
+    Write-DeploymentProgress $step $result.Count $files.Count
     @($result.ToArray() | Sort-Object { $_.path })
 }
 
@@ -649,7 +695,10 @@ function New-StagedRelease {
         }
         $manifestFile = Join-Path $release 'deploy\application.json'
         if ((Get-FileHash -LiteralPath $manifestFile).Hash.ToLowerInvariant() -ne $Plan.manifestHash) { throw 'Committed manifest differs from the approved manifest.' }
+        $commandIndex = 0
         foreach ($command in $Plan.manifest.build.commands) {
+            $commandIndex++
+            Write-DeploymentProgress ('Build command ' + $commandIndex + ': ' + $command.tool + ' ' + [string]@($command.arguments)[0]) $commandIndex @($Plan.manifest.build.commands).Count
             $working = $release
             if ($command.ContainsKey('workingDirectory')) { $working = Resolve-OwnedPath $release $command.workingDirectory -AllowRoot }
             if ($command.tool -eq 'npm') {
@@ -824,4 +873,4 @@ function Export-DeploymentReport {
     [IO.Path]::GetFullPath($Path)
 }
 
-Export-ModuleMember -Function Get-Sha256Text,Read-DeploymentJson,Read-OptionalDeploymentText,Read-OptionalRemoteRecord,Write-DeploymentJson,Resolve-OwnedPath,Assert-Identifier,Get-DeploymentLock,Get-Manifest,Get-DeploymentEnvironment,Invoke-DeploymentCommand,Get-HostSnapshot,Get-PlanDigest,ConvertTo-CanonicalJson,New-DeploymentPlan,Assert-DeploymentApproval,Assert-PlanInputs,Get-ReleaseInventory,Test-ReleaseInventory,Expand-TrustedRelease,New-StagedRelease,Set-ActiveRelease,Repair-ReleaseSwitch,Get-RollbackDecision,Export-DeploymentReport
+Export-ModuleMember -Function Get-Sha256Text,Read-DeploymentJson,Read-OptionalDeploymentText,Read-OptionalRemoteRecord,Write-DeploymentJson,Set-DeploymentProgressPath,Write-DeploymentProgress,Resolve-OwnedPath,Assert-Identifier,Get-DeploymentLock,Get-Manifest,Get-DeploymentEnvironment,Invoke-DeploymentCommand,Get-HostSnapshot,Get-PlanDigest,ConvertTo-CanonicalJson,New-DeploymentPlan,Assert-DeploymentApproval,Assert-PlanInputs,Get-ReleaseInventory,Test-ReleaseInventory,Expand-TrustedRelease,New-StagedRelease,Set-ActiveRelease,Repair-ReleaseSwitch,Get-RollbackDecision,Export-DeploymentReport

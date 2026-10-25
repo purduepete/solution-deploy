@@ -112,7 +112,7 @@ function Invoke-CommonRelease {
     param([Parameter(Mandatory)][string]$App,[string[]]$Component,[string]$Environment='production',
         [Parameter(Mandatory)][string]$Target,[string]$Commit='HEAD',
         [switch]$ApproveRelease,[Parameter(Mandatory)][string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
-        [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(30)),[string]$TailscaleUrl,
+        [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
         [ValidateRange(60,1800)][int]$TimeoutSeconds=300)
     $route=Get-CommonReleaseRoute -App $App -Component $Component -Environment $Environment -Target $Target

@@ -140,6 +140,56 @@ Describe 'Locks and sealed releases' {
         [IO.File]::WriteAllText((Join-Path $release 'extra'),'unexpected')
         Assert-Throws { Test-ReleaseInventory $release }
     }
+    It 'records the same inventory as Get-FileHash, sorted and without the seal' {
+        $release=Join-Path $TestDrive 'parity'
+        New-Item -ItemType Directory -Path (Join-Path $release 'b\nested') -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $release 'z.js'),'last')
+        [IO.File]::WriteAllText((Join-Path $release 'a.js'),'first')
+        [IO.File]::WriteAllBytes((Join-Path $release 'b\nested\data.bin'),[byte[]](0..255))
+        [IO.File]::WriteAllText((Join-Path $release 'empty.txt'),'')
+        (Get-Item -LiteralPath (Join-Path $release 'a.js')).Attributes='Hidden'
+        Write-DeploymentJson (Join-Path $release 'release.json') @{files=@()}
+        $inventory=@(Get-ReleaseInventory ($release+'\'))
+        $expected=@(Get-ChildItem -LiteralPath $release -Recurse -File -Force | Where-Object Name -ne 'release.json' |
+            ForEach-Object {@{path=[IO.Path]::GetRelativePath($release,$_.FullName);length=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName).Hash.ToLowerInvariant()}} |
+            Sort-Object {$_.path})
+        $inventory.Count | Should Be 4
+        ($inventory | ConvertTo-Json -Compress) | Should Be ($expected | ConvertTo-Json -Compress)
+    }
+    It 'rejects a nested reparse point while hashing' {
+        $release=Join-Path $TestDrive 'nested-link'
+        $target=New-Item -ItemType Directory -Path (Join-Path $TestDrive 'nested-link-target') -Force
+        New-Item -ItemType Directory -Path (Join-Path $release 'lib') -Force | Out-Null
+        New-Item -ItemType Junction -Path (Join-Path $release 'lib\link') -Target $target.FullName | Out-Null
+        try { Assert-Throws { Get-ReleaseInventory $release } }
+        finally { [IO.Directory]::Delete((Join-Path $release 'lib\link')) }
+    }
+    It 'fails closed when a release file cannot be read' {
+        $release=Join-Path $TestDrive 'locked'
+        New-Item -ItemType Directory -Path $release | Out-Null
+        $path=Join-Path $release 'app.js'
+        [IO.File]::WriteAllText($path,'locked')
+        $holder=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+        try { Assert-Throws { Get-ReleaseInventory $release } } finally { $holder.Dispose() }
+    }
+    It 'writes hashing progress only when a progress path is set' {
+        $release=Join-Path $TestDrive 'progress-release'
+        New-Item -ItemType Directory -Path $release | Out-Null
+        [IO.File]::WriteAllText((Join-Path $release 'app.js'),'x')
+        $progress=Join-Path $TestDrive 'progress\progress.json'
+        Get-ReleaseInventory $release | Out-Null
+        Test-Path -LiteralPath $progress | Should Be $false
+        Set-DeploymentProgressPath $progress
+        try { Get-ReleaseInventory $release | Out-Null } finally { Set-DeploymentProgressPath $null }
+        $record=Read-DeploymentJson $progress
+        $record.step | Should Be 'Hashing progress-release'
+        $record.completed | Should Be 1
+        $record.total | Should Be 1
+    }
+    It 'never fails an operation because a progress write fails' {
+        Set-DeploymentProgressPath (Join-Path $TestDrive 'missing-drive-check\:bad')
+        try { { Write-DeploymentProgress 'step' 1 2 } | Should Not Throw } finally { Set-DeploymentProgressPath $null }
+    }
     It 'does not switch releases without maintenance' {
         $app=Join-Path $TestDrive 'no-maintenance'
         $release=Join-Path $app 'releases\abc-123'

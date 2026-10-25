@@ -118,11 +118,27 @@ function Copy-ApprovedTransferArchive {
     finally{$hasher.Dispose()}
 }
 
+function Get-OperationActivity {
+    param([Parameter(Mandatory)][string]$OperationDirectory)
+    # Remote reads can race the executor's atomic replace over SMB; treat any failure as no new activity.
+    $phase = $null; $progress = $null
+    try { $path = Join-Path $OperationDirectory 'phase.json'; if (Test-Path -LiteralPath $path) { $phase = Read-DeploymentJson $path } } catch { $phase = $null }
+    try { $path = Join-Path $OperationDirectory 'progress.json'; if (Test-Path -LiteralPath $path) { $progress = Read-DeploymentJson $path } } catch { $progress = $null }
+    $parts = @(); $text = @()
+    if ($phase -is [Collections.IDictionary] -and $phase.Contains('phase')) { $parts += [string]$phase.phase; $text += 'phase ' + [string]$phase.phase }
+    if ($progress -is [Collections.IDictionary] -and $progress.Contains('step')) {
+        $parts += '{0}|{1}|{2}' -f $progress.step,$progress.completed,$progress.total
+        $text += '{0} {1}/{2}' -f $progress.step,$progress.completed,$progress.total
+    }
+    @{key=($parts -join '|'); text=($text -join '; ')}
+}
+
 function Submit-DeploymentOperation {
     param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][string]$ApprovalPath,
         [Parameter(Mandatory)][ValidateSet('Stage','Preflight','Recover','PrepareCutover','Deploy','Cutover','Rollback','Verify')][string]$Action,
         [string]$RuntimePath,[string]$NpmPath,[string]$TransferDirectory,[string]$TransferArchivePath,
-        [ValidateRange(1,86400)][int]$TimeoutSeconds=300,[ValidateRange(1,86400)][int]$SubmissionWaitTimeoutSeconds=1800,
+        [ValidateRange(1,86400)][int]$TimeoutSeconds=1800,[ValidateRange(1,86400)][int]$IdleTimeoutSeconds=300,
+        [ValidateRange(1,86400)][int]$SubmissionWaitTimeoutSeconds=1800,
         [ValidateRange(0.1,60)][double]$PollIntervalSeconds=5)
     if(-not $Plan.ContainsKey('schemaVersion') -or $Plan.schemaVersion -ne 2){throw 'Submission requires a current host-aware plan.'}
     $approval = Assert-DeploymentApproval $Plan $ApprovalPath $Action
@@ -158,7 +174,8 @@ function Submit-DeploymentOperation {
         }else{Assert-PlacementUnchanged $Plan -Verify:($Action -eq 'Verify') -ResumePrepared:$resumePrepared}
         $remainingWait=[int][Math]::Floor($SubmissionWaitTimeoutSeconds-$submissionWaitClock.Elapsed.TotalSeconds)
         if($remainingWait -le 0){throw "Submission wait exceeded $SubmissionWaitTimeoutSeconds seconds before acquiring the executor lock. No request was submitted."}
-        $lock=Get-DeploymentLock (Join-Path $remote 'control\submission.lock') -WaitTimeoutSeconds $remainingWait -RetryIntervalSeconds $PollIntervalSeconds
+        $lock=Get-DeploymentLock (Join-Path $remote 'control\submission.lock') -WaitTimeoutSeconds $remainingWait -RetryIntervalSeconds $PollIntervalSeconds `
+            -HolderRoot $remote
         $session = New-CimSession -ComputerName $Plan.target.host -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
         $remainingWait=[int][Math]::Floor($SubmissionWaitTimeoutSeconds-$submissionWaitClock.Elapsed.TotalSeconds)
         if($remainingWait -le 0){throw "Submission wait exceeded $SubmissionWaitTimeoutSeconds seconds before inspecting the executor. No request was submitted."}
@@ -260,8 +277,11 @@ function Submit-DeploymentOperation {
         if (-not $task) { throw 'Fixed protected executor task is missing.' }
         Start-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
         $clock = [Diagnostics.Stopwatch]::StartNew()
+        $idleClock = [Diagnostics.Stopwatch]::StartNew()
+        $lastActivity = $null
         $resultPath = Join-Path $operation 'result.json'
-        while ($clock.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+        # Deadlines are evaluated only after the result and activity are re-read, so a result written during a sleep is never discarded.
+        while ($true) {
             if (Test-Path -LiteralPath $resultPath) {
                 $result = Read-DeploymentJson $resultPath
                 if ($result.operationId -ne $operationId -or $result.planHash -ne $Plan.planHash) { throw 'Executor result does not match the submitted operation.' }
@@ -288,8 +308,14 @@ function Submit-DeploymentOperation {
                 }
                 return $result
             }
-            Write-Host ("Waiting for {0}; elapsed {1:n0}s" -f $operationId,$clock.Elapsed.TotalSeconds)
+            $activity = Get-OperationActivity $operation
+            if ($activity.key -and $activity.key -ne $lastActivity) { $lastActivity = $activity.key; $idleClock.Restart() }
+            if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds -or $idleClock.Elapsed.TotalSeconds -ge $IdleTimeoutSeconds) { break }
+            Write-Host ("Waiting for {0}; elapsed {1:n0}s{2}" -f $operationId,$clock.Elapsed.TotalSeconds,$(if($activity.text){'; '+$activity.text}else{''}))
             Start-Sleep -Seconds 5
+        }
+        if ($idleClock.Elapsed.TotalSeconds -ge $IdleTimeoutSeconds) {
+            throw "Executor showed no progress for $IdleTimeoutSeconds seconds. Outcome is unknown for operation $operationId; do not resubmit. Inspect its result and source/target authority before resuming."
         }
         throw "Executor deadline exceeded. Outcome is unknown for operation $operationId; do not resubmit. Inspect its result and source/target authority before resuming."
     } finally {
