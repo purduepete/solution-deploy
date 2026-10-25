@@ -85,6 +85,9 @@ function Get-CollectorMonitorIssue {
                 $issues.Add("$job report is overdue.")
             }
             foreach ($row in @($rows | Where-Object date -EQ $latest.date)) {
+                $expectedSkip = $job -eq 'options-audit' -and $row.status -eq 'not_run' -and
+                    $row.PSObject.Properties['reportStatus'] -and $row.reportStatus -eq 'pass'
+                if ($expectedSkip) { continue }
                 if (-not $row.informational -and $row.status -ne 'pass') {
                     $issues.Add("$job section $($row.subject) reports $($row.status).")
                 }

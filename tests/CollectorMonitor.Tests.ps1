@@ -98,6 +98,24 @@ Describe 'Independent collector monitoring' {
         $snapshot.audits[0].status = 'fail'; $snapshot.audits[0].informational = $true
         @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
     }
+    It 'accepts options non-session skips only when the overall audit passed' {
+        $row = $snapshot.audits[1]
+        $row.status = 'not_run'
+        $row | Add-Member -NotePropertyName reportStatus -NotePropertyValue 'pass'
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+        $row.reportStatus = 'fail'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
+            Should Match 'options-audit section coverage reports not_run'
+    }
+    It 'still reports unverified skips and missing stock earnings runs' {
+        $snapshot.audits[1].status = 'not_run'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
+            Should Match 'options-audit section coverage reports not_run'
+        $snapshot.audits[0].status = 'not_run'
+        $snapshot.audits[0] | Add-Member -NotePropertyName reportStatus -NotePropertyValue 'pass'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
+            Should Match 'stock-audit section coverage reports not_run'
+    }
     It 'allows nightly schedules until the next report is due' {
         $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
         @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0

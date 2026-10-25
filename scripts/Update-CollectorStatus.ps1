@@ -101,6 +101,7 @@ $audits = foreach ($source in @(
         foreach ($section in $report.sections.PSObject.Properties) {
             [ordered]@{ job = $source.Job; audit = $source.Audit; date = [string]$report.date; subject = $section.Name
                 status = [string]$section.Value.status; informational = [bool]$section.Value.informational; writtenAt = $written
+                reportStatus = [string]$report.status
                 counts = $section.Value.counts; error = [string]$section.Value.error }
         }
     }

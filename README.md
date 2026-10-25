@@ -19,6 +19,9 @@ sessions, reads the audit JSON under each app's `shared\logs\audit`, and writes
 `data\collector-status.json`. The server reads that file on each request and returns
 503 when it is missing. The job catalog at the top of the script mirrors the
 collector schedules; update it when a schedule changes.
+Audit snapshot rows retain the overall `reportStatus`. The monitor accepts options
+`not_run` sections only when that report passed, as on non-session days. Missing
+reports, failed reports and unverified skips still alert.
 
 Collector release-access checks and the separate host-level failure monitor are
 described in [Collector reliability](docs/CollectorReliability.md).
