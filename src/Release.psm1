@@ -294,6 +294,7 @@ function Invoke-RoutineRelease {
             $approvalPath=Join-Path $directory ($action.ToLowerInvariant()+'-approval.json')
             Write-DeploymentJson $approvalPath $approval -CreateNew
             $phaseStarted=(Get-Date).ToString('o')
+            Write-Host ("Release: {0} consent, tool and clock checks done, elapsed {1:n0}s." -f $action,$releaseClock.Elapsed.TotalSeconds)
             $phaseClock=[Diagnostics.Stopwatch]::StartNew()
             $result=Submit-DeploymentOperation -Plan $plan -ApprovalPath $approvalPath -Action $action `
                 -RuntimePath $context.runtimePath -NpmPath $context.npmPath -TimeoutSeconds $TimeoutSeconds

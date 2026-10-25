@@ -231,7 +231,8 @@ function Get-DeploymentEnvironment {
 
 function Invoke-DeploymentCommand {
     param([Parameter(Mandatory)][string]$Executable, [string[]]$Arguments = @(),
-        [Parameter(Mandatory)][string]$WorkingDirectory, [int]$TimeoutSeconds = 120, [switch]$Capture)
+        [Parameter(Mandatory)][string]$WorkingDirectory, [int]$TimeoutSeconds = 120, [switch]$Capture,
+        [hashtable]$Environment = @{})
     $start = [Diagnostics.ProcessStartInfo]::new()
     $start.FileName = $Executable; $start.WorkingDirectory = $WorkingDirectory
     $start.UseShellExecute = $false; $start.CreateNoWindow = $true
@@ -243,6 +244,7 @@ function Invoke-DeploymentCommand {
     $start.Environment['GIT_TERMINAL_PROMPT'] = '0'
     $start.Environment['GCM_INTERACTIVE'] = 'Never'
     $start.Environment['GIT_SSH_COMMAND'] = 'ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes'
+    foreach ($name in $Environment.Keys) { $start.Environment[[string]$name] = [string]$Environment[$name] }
     $process = [Diagnostics.Process]::new(); $process.StartInfo = $start
     try {
         if (-not $process.Start()) { throw 'Failed to start the requested deployment tool.' }
@@ -284,6 +286,15 @@ function Get-HostSnapshot {
             collectedLocal=(Get-Date).ToString('o'); verified=$true
         }
     } finally { if ($session) { Remove-CimSession $session } }
+}
+
+function Test-SameDeploymentHost {
+    param([Parameter(Mandatory)][hashtable]$First,[Parameter(Mandatory)][hashtable]$Second)
+    foreach($field in @('host','address','root')){
+        if(-not $First.ContainsKey($field) -or -not $Second.ContainsKey($field)){return $false}
+        if([string]::IsNullOrWhiteSpace([string]$First[$field]) -or [string]$First[$field] -ine [string]$Second[$field]){return $false}
+    }
+    $true
 }
 
 function Get-PlanDigest {
@@ -394,10 +405,11 @@ function New-DeploymentPlan {
         $blockers.Add('PostgreSQL is required with a separate database per solution. Persistence adapters, schema/import scripts, backup/restore, and revised-plan approval are pending.')
     }
     if ($dirty) { $blockers.Add('Source checkout has changes. Commit the reviewed manifest/adapters before staging a pinned release.') }
+    $freshHostSnapshot = $false
     if ($Offline) {
         $HostSnapshot = @{host=$env.host; address=$env.address; verified=$false; identity=$null}
         $blockers.Add('Offline plan: destination identity and current placement are unverified.')
-    } elseif (-not $HostSnapshot) { $HostSnapshot = Get-HostSnapshot $env }
+    } elseif (-not $HostSnapshot) { $HostSnapshot = Get-HostSnapshot $env; $freshHostSnapshot = $true }
     if (-not $HostSnapshot.verified -or $HostSnapshot.host -ine $env.host -or $HostSnapshot.address -ne $env.address) { $blockers.Add('Target identity/address verification is incomplete.') }
     $placement = $env.apps[$App]['observedHost']
     $active = $null
@@ -431,7 +443,12 @@ function New-DeploymentPlan {
         }
     }
     if(-not $Offline){
-        if(-not $DatabaseHostSnapshot){$dbEnvironment=@{}+$env;foreach($field in @('host','address','root')){$dbEnvironment[$field]=$configuration.databaseTarget[$field]};$DatabaseHostSnapshot=Get-HostSnapshot $dbEnvironment}
+        if(-not $DatabaseHostSnapshot){
+            $dbEnvironment=@{}+$env;foreach($field in @('host','address','root')){$dbEnvironment[$field]=$configuration.databaseTarget[$field]}
+            # One fresh snapshot of the same machine proves both identities; each is still pinned separately in the plan.
+            if($freshHostSnapshot -and (Test-SameDeploymentHost $env $dbEnvironment)){$DatabaseHostSnapshot=@{}+$HostSnapshot}
+            else{$DatabaseHostSnapshot=Get-HostSnapshot $dbEnvironment}
+        }
     }else{$DatabaseHostSnapshot=@{host=$configuration.databaseTarget.host;address=$configuration.databaseTarget.address;identity=$null;verified=$false}}
     $transferManifest=@{}+$manifest
     if($transitionKind -eq 'ManagedMove'){
@@ -663,6 +680,10 @@ function Convert-NodeWorkspaceLinks {
     }
 }
 
+function Get-ReleaseNpmEnvironment {
+    @{ npm_config_audit='false'; npm_config_fund='false'; npm_config_update_notifier='false' }
+}
+
 function New-StagedRelease {
     param([Parameter(Mandatory)][hashtable]$Plan, [Parameter(Mandatory)][string]$RepositoryRoot,
         [Parameter(Mandatory)][string]$AppRoot, [Parameter(Mandatory)][string]$RuntimePath,
@@ -703,12 +724,14 @@ function New-StagedRelease {
             if ($command.ContainsKey('workingDirectory')) { $working = Resolve-OwnedPath $release $command.workingDirectory -AllowRoot }
             if ($command.tool -eq 'npm') {
                 if (-not $NpmPath -or -not [IO.Path]::IsPathFullyQualified($NpmPath)) { throw 'An explicit npm executable path is required for a Node build.' }
+                # The advisory audit gates nothing here and its registry calls added minutes to npm ci; lockfile integrity checks still run.
+                $npmEnvironment = Get-ReleaseNpmEnvironment
                 if ($NpmPath.EndsWith('.cmd')) {
                     # Invoke a fixed Node npm CLI path without cmd.exe string interpolation.
                     $npmCli = Join-Path (Split-Path -Parent $RuntimePath) 'node_modules\npm\bin\npm-cli.js'
                     if (-not (Test-Path -LiteralPath $npmCli)) { throw 'Cannot resolve npm CLI beside the pinned Node runtime.' }
-                    Invoke-DeploymentCommand $RuntimePath (@($npmCli) + @($command.arguments)) $working -TimeoutSeconds $BuildTimeoutSeconds
-                } else { Invoke-DeploymentCommand $NpmPath @($command.arguments) $working -TimeoutSeconds $BuildTimeoutSeconds }
+                    Invoke-DeploymentCommand $RuntimePath (@($npmCli) + @($command.arguments)) $working -TimeoutSeconds $BuildTimeoutSeconds -Environment $npmEnvironment
+                } else { Invoke-DeploymentCommand $NpmPath @($command.arguments) $working -TimeoutSeconds $BuildTimeoutSeconds -Environment $npmEnvironment }
             } else {
                 $python = $RuntimePath
                 if ($command.arguments -contains 'pip') {
@@ -873,4 +896,4 @@ function Export-DeploymentReport {
     [IO.Path]::GetFullPath($Path)
 }
 
-Export-ModuleMember -Function Get-Sha256Text,Read-DeploymentJson,Read-OptionalDeploymentText,Read-OptionalRemoteRecord,Write-DeploymentJson,Set-DeploymentProgressPath,Write-DeploymentProgress,Resolve-OwnedPath,Assert-Identifier,Get-DeploymentLock,Get-Manifest,Get-DeploymentEnvironment,Invoke-DeploymentCommand,Get-HostSnapshot,Get-PlanDigest,ConvertTo-CanonicalJson,New-DeploymentPlan,Assert-DeploymentApproval,Assert-PlanInputs,Get-ReleaseInventory,Test-ReleaseInventory,Expand-TrustedRelease,New-StagedRelease,Set-ActiveRelease,Repair-ReleaseSwitch,Get-RollbackDecision,Export-DeploymentReport
+Export-ModuleMember -Function Get-Sha256Text,Read-DeploymentJson,Read-OptionalDeploymentText,Read-OptionalRemoteRecord,Write-DeploymentJson,Set-DeploymentProgressPath,Write-DeploymentProgress,Resolve-OwnedPath,Assert-Identifier,Get-DeploymentLock,Get-Manifest,Get-DeploymentEnvironment,Invoke-DeploymentCommand,Get-HostSnapshot,Test-SameDeploymentHost,Get-ReleaseNpmEnvironment,Get-PlanDigest,ConvertTo-CanonicalJson,New-DeploymentPlan,Assert-DeploymentApproval,Assert-PlanInputs,Get-ReleaseInventory,Test-ReleaseInventory,Expand-TrustedRelease,New-StagedRelease,Set-ActiveRelease,Repair-ReleaseSwitch,Get-RollbackDecision,Export-DeploymentReport

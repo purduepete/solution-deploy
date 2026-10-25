@@ -241,6 +241,17 @@ Describe 'Protected submission and central placement with no remote writes' {
         Assert-ControllerThrows {Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Deploy}
         Assert-MockCalled Start-ScheduledTask -ModuleName Controller -Times 0 -Exactly -Scope It
     }
+    It 'snapshots separate database and target hosts independently' {
+        (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Preflight).status|Should Be Succeeded
+        Assert-MockCalled Get-HostSnapshot -ModuleName Controller -Times 2 -Exactly -Scope It
+    }
+    It 'takes one snapshot when the database is on the target host and checks both identities' {
+        $global:SyntheticControllerPlan.databaseTarget=@{host='TARGET';address='192.168.2.10';root='c:\programdata\solutiondeploy'}
+        (Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Preflight).status|Should Be Succeeded
+        Assert-MockCalled Get-HostSnapshot -ModuleName Controller -Times 1 -Exactly -Scope It
+        $global:SyntheticControllerPlan.databaseHostSnapshot=@{identity='other-uuid'}
+        Assert-ControllerThrows {Submit-DeploymentOperation $global:SyntheticControllerPlan $script:approval Preflight}
+    }
     It 'records prepared authority without marking a runtime active' {
         $export=Join-Path $global:SyntheticControllerRoot 'synthetic-export'
         $global:SyntheticControllerPlan.observedHost='source'

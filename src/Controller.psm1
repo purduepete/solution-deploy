@@ -139,8 +139,9 @@ function Submit-DeploymentOperation {
         [string]$RuntimePath,[string]$NpmPath,[string]$TransferDirectory,[string]$TransferArchivePath,
         [ValidateRange(1,86400)][int]$TimeoutSeconds=1800,[ValidateRange(1,86400)][int]$IdleTimeoutSeconds=300,
         [ValidateRange(1,86400)][int]$SubmissionWaitTimeoutSeconds=1800,
-        [ValidateRange(0.1,60)][double]$PollIntervalSeconds=5)
+        [ValidateRange(0.1,60)][double]$PollIntervalSeconds=1)
     if(-not $Plan.ContainsKey('schemaVersion') -or $Plan.schemaVersion -ne 2){throw 'Submission requires a current host-aware plan.'}
+    $submitClock=[Diagnostics.Stopwatch]::StartNew()
     $approval = Assert-DeploymentApproval $Plan $ApprovalPath $Action
     if($TransferArchivePath){
         if($Action -notin @('PrepareCutover','Cutover') -or ($Action -eq 'Cutover' -and $approval.ContainsKey('preparedStateSHA256'))){
@@ -151,10 +152,12 @@ function Submit-DeploymentOperation {
     }
     $databaseHost=@{}+$Plan.target
     foreach($field in @('host','address','root')){$databaseHost[$field]=$Plan.databaseTarget[$field]}
-    $databaseObserved=Get-HostSnapshot $databaseHost
-    if($databaseObserved.identity -ne $Plan.databaseHostSnapshot.identity){throw 'Database/authority host identity drifted.'}
     $observed = Get-HostSnapshot $Plan.target
+    # Same machine: one fresh snapshot is checked against both approved identities.
+    $databaseObserved=if(Test-SameDeploymentHost $Plan.target $databaseHost){$observed}else{Get-HostSnapshot $databaseHost}
+    if($databaseObserved.identity -ne $Plan.databaseHostSnapshot.identity){throw 'Database/authority host identity drifted.'}
     if ($observed.identity -ne $Plan.hostSnapshot.identity) { throw 'Destination identity drifted.' }
+    Write-Host ("Controller: {0} host identity checked, elapsed {1:n1}s" -f $Action,$submitClock.Elapsed.TotalSeconds)
     $remote = Get-AdminSharePath $Plan.target
     $installPath = Join-Path $remote 'control\installation.json'
     if (-not (Test-Path -LiteralPath $installPath)) { throw 'Protected host executor is not provisioned. Review and approve Install-Host.ps1 before staging.' }
@@ -180,6 +183,7 @@ function Submit-DeploymentOperation {
         $remainingWait=[int][Math]::Floor($SubmissionWaitTimeoutSeconds-$submissionWaitClock.Elapsed.TotalSeconds)
         if($remainingWait -le 0){throw "Submission wait exceeded $SubmissionWaitTimeoutSeconds seconds before inspecting the executor. No request was submitted."}
         Wait-ForDeploymentExecutor -Session $session -RemoteRoot $remote -TimeoutSeconds $remainingWait -PollIntervalSeconds $PollIntervalSeconds
+        Write-Host ("Controller: {0} executor idle and locks held, elapsed {1:n1}s" -f $Action,$submitClock.Elapsed.TotalSeconds)
         if($Action -eq 'Deploy' -and $Plan.ContainsKey('routineRelease') -and $Plan.routineRelease -eq $true){
             $preflightPath=Join-Path $remote ('operations\'+$Plan.id+'-preflight\result.json')
             $preflight=Read-DeploymentJson $preflightPath
@@ -276,9 +280,11 @@ function Submit-DeploymentOperation {
         $task = Get-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
         if (-not $task) { throw 'Fixed protected executor task is missing.' }
         Start-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
+        Write-Host ("Controller: {0} request submitted, elapsed {1:n1}s" -f $Action,$submitClock.Elapsed.TotalSeconds)
         $clock = [Diagnostics.Stopwatch]::StartNew()
         $idleClock = [Diagnostics.Stopwatch]::StartNew()
         $lastActivity = $null
+        $nextLog = 0
         $resultPath = Join-Path $operation 'result.json'
         # Deadlines are evaluated only after the result and activity are re-read, so a result written during a sleep is never discarded.
         while ($true) {
@@ -311,8 +317,11 @@ function Submit-DeploymentOperation {
             $activity = Get-OperationActivity $operation
             if ($activity.key -and $activity.key -ne $lastActivity) { $lastActivity = $activity.key; $idleClock.Restart() }
             if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds -or $idleClock.Elapsed.TotalSeconds -ge $IdleTimeoutSeconds) { break }
-            Write-Host ("Waiting for {0}; elapsed {1:n0}s{2}" -f $operationId,$clock.Elapsed.TotalSeconds,$(if($activity.text){'; '+$activity.text}else{''}))
-            Start-Sleep -Seconds 5
+            if ($clock.Elapsed.TotalSeconds -ge $nextLog) {
+                Write-Host ("Waiting for {0}; elapsed {1:n0}s{2}" -f $operationId,$clock.Elapsed.TotalSeconds,$(if($activity.text){'; '+$activity.text}else{''}))
+                $nextLog = $clock.Elapsed.TotalSeconds + 5
+            }
+            Start-Sleep -Seconds 1
         }
         if ($idleClock.Elapsed.TotalSeconds -ge $IdleTimeoutSeconds) {
             throw "Executor showed no progress for $IdleTimeoutSeconds seconds. Outcome is unknown for operation $operationId; do not resubmit. Inspect its result and source/target authority before resuming."

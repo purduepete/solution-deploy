@@ -491,6 +491,27 @@ Ferry Tracker spent 5:47 in Preflight hashing its old 17k-file release once. Its
 needs `-TailscaleUrl https://jimbrownhome1.tail8ad282.ts.net:8787`; without it, preparation
 stops with "Manifest does not identify one private HTTPS origin".
 
+### Phase overhead cuts
+
+Measured on the Ferry Tracker release: its 184 s `npm ci` made 17 audit fetches to the
+registry totaling 207 s (they overlap), and each phase spent 22 to 28 s outside its own work.
+The controller now trims that overhead:
+
+- Release builds run `npm ci` with `npm_config_audit`, `npm_config_fund` and
+  `npm_config_update_notifier` set to `false`, on the child process only. Run `npm audit`
+  in the app repo instead.
+- When the database lives on the target host (same host, address and root), planning and
+  each phase take one host snapshot and check it against both approved identities. Separate
+  hosts still get one snapshot each. Snapshots are never reused across phases.
+- The controller polls for the executor result every 1 s (was 5 s) and logs progress every 5 s.
+- Each phase prints `Controller: <action> host identity checked`, then
+  `executor idle and locks held` and `request submitted`, each with elapsed seconds.
+  Release prints when its consent, tool and clock checks finish. Use these lines to find the
+  next slow step.
+
+Expected saving is 40 to 110 s per routine Node release. Confirm it on the next real release
+by comparing `npm ci` wall time and the gaps between phases.
+
 ## Migration feedback and reuse
 
 Before each migration, record whether capture gaps are acceptable, whether the old
