@@ -52,7 +52,7 @@ $executor = Join-Path $Root 'control\framework\scripts\Invoke-HostExecutor.ps1'
 if ($Root.Contains('"') -or $executor.Contains('"')) { throw 'Invalid task path.' }
 $action = New-ScheduledTaskAction -Execute $PowerShellPath -Argument "-NoLogo -NoProfile -NonInteractive -File `"$executor`" -Root `"$Root`"" -WorkingDirectory (Split-Path -Parent $executor)
 $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 Initialize-AppTaskFolder -TaskPath '\JimlerTech\'|Out-Null
 Register-ScheduledTask -TaskName 'SolutionDeploy-Executor' -TaskPath '\JimlerTech\' -Action $action -Principal $principal -Settings $settings -Description 'Fixed protected SolutionDeploy operation dispatcher. No arbitrary commands.' -ErrorAction Stop | Out-Null
 Get-ScheduledTask -TaskName 'SolutionDeploy-Executor' -TaskPath '\JimlerTech\' | Select-Object TaskName,TaskPath,State

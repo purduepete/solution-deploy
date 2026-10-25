@@ -29,8 +29,32 @@ Describe 'Reviewed protected controller updates' {
         $script:newDigest=Get-Sha256Text (ConvertTo-CanonicalJson $script:newInventory)
         Write-DeploymentJson (Join-Path $script:hostRoot 'control\installation.json') @{
             identity='host-test';root=$script:hostRoot;codeSHA256=$script:oldDigest;files=$script:oldInventory
+            powerShellPath='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
         }
+        $script:task=[pscustomobject]@{
+            State='Ready'
+            Actions=@([pscustomobject]@{
+                Execute='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
+                Arguments="-NoLogo -NoProfile -NonInteractive -File `"$($script:hostRoot)\control\framework\scripts\Invoke-HostExecutor.ps1`" -Root `"$($script:hostRoot)`""
+            })
+            Settings=(New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 10) `
+                -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries)
+        }
+        $global:FailHostTaskLimitUpdate=$false
+        $global:UpdateHostFailurePath=$null
         Mock Get-CimInstance {[pscustomobject]@{UUID='host-test'}}
+        Mock Get-ScheduledTask {$script:task}
+        Mock Set-ScheduledTask {
+            param($Settings)
+            $script:task.Settings=$Settings
+            if($global:FailHostTaskLimitUpdate -and $Settings.ExecutionTimeLimit -eq 'PT30M'){
+                throw 'Simulated task update failure'
+            }
+        }
+    }
+    It 'installs the protected executor with a 30-minute run limit' {
+        (Get-Content (Join-Path $root 'scripts\Install-Host.ps1') -Raw) |
+            Should Match '(?m)^\$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit \(New-TimeSpan -Minutes 30\)'
     }
     It 'copies reviewed changes and additions with a verified new installation digest' {
         & $script:updateHost -Root $script:hostRoot -Confirm:$false -ApproveUpdate `
@@ -39,6 +63,19 @@ Describe 'Reviewed protected controller updates' {
         (Read-DeploymentJson (Join-Path $script:hostRoot 'control\installation.json')).codeSHA256 | Should Be $script:newDigest
         (Get-Content (Join-Path $script:hostRoot 'control\framework\src\a.psm1') -Raw).Trim() | Should Be new
         Test-Path (Join-Path $script:hostRoot 'control\framework\src\b.psm1') | Should Be $true
+        $script:task.Settings.ExecutionTimeLimit | Should Be 'PT30M'
+    }
+    It 'refuses to change files or task settings while the executor is running' {
+        $script:task.State='Running'
+        $rejected=$false
+        try{
+            & $script:updateHost -Root $script:hostRoot -Confirm:$false -ApproveUpdate `
+                -ExpectedHostIdentity host-test -ExpectedInstalledCodeSHA256 $script:oldDigest `
+                -ExpectedCodeSHA256 $script:newDigest
+        }catch{$rejected=$_.Exception.Message -eq 'Protected executor is running; wait for its operation to finish.'}
+        $rejected | Should Be $true
+        (Get-Content (Join-Path $script:hostRoot 'control\framework\src\a.psm1') -Raw).Trim() | Should Be old
+        $script:task.Settings.ExecutionTimeLimit | Should Be 'PT10M'
     }
     It 'rejects an unexpected old installation without copying code' {
         $rejected=$false
@@ -63,5 +100,18 @@ Describe 'Reviewed protected controller updates' {
         (Read-DeploymentJson (Join-Path $script:hostRoot 'control\installation.json')).codeSHA256 | Should Be $script:oldDigest
         (Get-Content (Join-Path $script:hostRoot 'control\framework\src\a.psm1') -Raw).Trim() | Should Be old
         Test-Path (Join-Path $script:hostRoot 'control\framework\src\b.psm1') | Should Be $false
+    }
+    It 'restores the prior executor limit if the task update fails' {
+        $global:FailHostTaskLimitUpdate=$true
+        $failure=$null
+        try{
+            & $script:updateHost -Root $script:hostRoot -Confirm:$false -ApproveUpdate `
+                -ExpectedHostIdentity host-test -ExpectedInstalledCodeSHA256 $script:oldDigest `
+                -ExpectedCodeSHA256 $script:newDigest
+        }catch{$failure=$_.Exception.Message}
+        $failure | Should Match 'Simulated task update failure'
+        $script:task.Settings.ExecutionTimeLimit | Should Be 'PT10M'
+        (Read-DeploymentJson (Join-Path $script:hostRoot 'control\installation.json')).codeSHA256 | Should Be $script:oldDigest
+        (Get-Content (Join-Path $script:hostRoot 'control\framework\src\a.psm1') -Raw).Trim() | Should Be old
     }
 }

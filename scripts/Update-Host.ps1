@@ -23,6 +23,8 @@ if($digest -ne $ExpectedCodeSHA256){throw 'Updated executor code differs from th
 if(-not $PSCmdlet.ShouldProcess("$env:COMPUTERNAME / $Root",'Update protected deployment executor without restarting applications')){return}
 $locks=[Collections.Generic.List[IDisposable]]::new()
 $changed=[Collections.Generic.List[object]]::new()
+$taskLimitChanged=$false
+$previousTaskLimit=$null
 $installationPath=Join-Path $Root 'control\installation.json'
 $backup=Join-Path $Root ('control\executor-updates\'+[guid]::NewGuid().ToString('N'))
 try{
@@ -35,6 +37,14 @@ try{
         if((Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant() -ne $file.sha256){throw 'Installed executor has unrecorded changes.'}
     }
     foreach($file in $installation.files){if($file.path -notin $inventory.path){throw 'Removing installed executor files requires separate review.'}}
+    $task=Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
+    if($task.State -eq 'Running'){throw 'Protected executor is running; wait for its operation to finish.'}
+    $expectedExecutor=Join-Path $Root 'control\framework\scripts\Invoke-HostExecutor.ps1'
+    if(@($task.Actions).Count -ne 1 -or $task.Actions[0].Execute -ine $installation.powerShellPath -or
+        $task.Actions[0].Arguments -notmatch [regex]::Escape($expectedExecutor)){
+        throw 'Protected executor task differs from the installed baseline.'
+    }
+    $previousTaskLimit=[string]$task.Settings.ExecutionTimeLimit
     [IO.Directory]::CreateDirectory($backup) | Out-Null
     [IO.File]::Copy($installationPath,(Join-Path $backup 'installation.json'),$false)
     foreach($file in $inventory){
@@ -54,10 +64,28 @@ try{
     $updated=@{}+$installation
     $updated.files=$inventory;$updated.codeSHA256=$digest;$updated.updatedLocal=(Get-Date).ToString('o')
     Write-DeploymentJson $installationPath $updated
-    Write-DeploymentJson (Join-Path $backup 'result.json') @{status='Succeeded';previousCodeSHA256=$ExpectedInstalledCodeSHA256;codeSHA256=$digest;changed=@($changed);completedLocal=(Get-Date).ToString('o')}
+    $settings=$task.Settings
+    $settings.ExecutionTimeLimit='PT30M'
+    $taskLimitChanged=$true
+    Set-ScheduledTask -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -Settings $settings -ErrorAction Stop | Out-Null
+    $updatedTask=Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
+    if([string]$updatedTask.Settings.ExecutionTimeLimit -ne 'PT30M'){throw 'Protected executor task limit did not update to 30 minutes.'}
+    Write-DeploymentJson (Join-Path $backup 'result.json') @{
+        status='Succeeded';previousCodeSHA256=$ExpectedInstalledCodeSHA256;codeSHA256=$digest
+        changed=@($changed);executionTimeLimit='PT30M';completedLocal=(Get-Date).ToString('o')
+    }
     @{status='Succeeded';codeSHA256=$digest;backup=$backup}
 }catch{
     $failure=$_.Exception.Message
+    $rollbackFailure=$null
+    if($taskLimitChanged){
+        try{
+            $restoreTask=Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
+            $restoreSettings=$restoreTask.Settings
+            $restoreSettings.ExecutionTimeLimit=$previousTaskLimit
+            Set-ScheduledTask -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -Settings $restoreSettings -ErrorAction Stop | Out-Null
+        }catch{$rollbackFailure=$_.Exception.Message}
+    }
     for($i=$changed.Count-1;$i -ge 0;$i--){
         $file=$changed[$i]
         $target=Resolve-OwnedPath (Join-Path $Root 'control\framework') $file.path
@@ -68,5 +96,6 @@ try{
         [IO.File]::Copy((Join-Path $backup 'installation.json'),$installationPath,$true)
         Write-DeploymentJson (Join-Path $backup 'result.json') @{status='Failed';error=$failure;completedLocal=(Get-Date).ToString('o')}
     }
+    if($rollbackFailure){throw "Executor update failed: $failure. Restoring the prior task limit also failed: $rollbackFailure"}
     throw
 }finally{for($i=$locks.Count-1;$i -ge 0;$i--){$locks[$i].Dispose()}}

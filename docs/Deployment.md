@@ -386,8 +386,10 @@ from a source tree outside `control\framework`:
 ```
 
 The updater takes submission and execution locks, checks the existing and new
-inventories, backs up changed bytes and restores them if the update fails.
-It doesn't restart applications. Retain its protected update receipt and backups.
+inventories, backs up changed bytes and restores them if the update fails. It
+sets the fixed executor task's `ExecutionTimeLimit` to 30 minutes and verifies
+the saved setting. It doesn't restart applications. Retain its protected update
+receipt and backups.
 
 The existing Plan, Stage, Deploy, Cutover, Verify and Rollback entry points retain
 their separate approval flow.
