@@ -22,6 +22,8 @@ collector schedules; update it when a schedule changes.
 Audit snapshot rows retain the overall `reportStatus`. The monitor accepts options
 `not_run` sections only when that report passed, as on non-session days. Missing
 reports, failed reports and unverified skips still alert.
+The page labels these expected options skips as neutral "Market closed" results.
+They do not prevent the combined day summary from passing when its required checks pass.
 
 Collector release-access checks and the separate host-level failure monitor are
 described in [Collector reliability](docs/CollectorReliability.md).

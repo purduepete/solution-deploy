@@ -23,6 +23,7 @@ const tone = {
     running: 'warn',
     pending: 'warn',
     not_run: 'warn',
+    market_closed: 'muted',
     stale: 'warn',
     failed: 'bad',
     fail: 'bad',
@@ -171,10 +172,17 @@ function days(id, groups, empty) {
     );
 }
 
+function auditStatus(row) {
+    return row.job === 'options-audit' && row.status === 'not_run' && row.reportStatus === 'pass'
+        ? 'market_closed'
+        : row.status;
+}
+
 function auditOutcome(rows) {
     const required = rows.filter((row) => !row.informational);
     if (required.some((row) => ['fail', 'unreadable'].includes(row.status))) return 'fail';
-    if (required.some((row) => row.status !== 'pass')) return 'not_run';
+    if (required.some((row) => !['pass', 'market_closed'].includes(auditStatus(row)))) return 'not_run';
+    if (required.length && required.every((row) => auditStatus(row) === 'market_closed')) return 'market_closed';
     return 'pass';
 }
 
@@ -281,7 +289,9 @@ function render(snapshot) {
             const rows = audits.filter((row) => row.date === latest);
             lastAt.set(job.id, new Date(rows[0].writtenAt).getTime());
             const last = element('dd');
-            last.append(badge(auditOutcome(rows)), ` ${showDate(latest)} (written ${clock(rows[0].writtenAt)})`);
+            const outcome = auditOutcome(rows);
+            last.append(badge(outcome), ` ${showDate(latest)} (written ${clock(rows[0].writtenAt)})`);
+            if (outcome === 'market_closed') last.append(element('span', ' No exchange session.', 'note'));
             facts.append(element('dt', 'Last audit'), last);
         } else if (job.id.endsWith('-audit')) {
             facts.append(element('dt', 'Last audit'), element('dd', 'No report yet'));
@@ -408,7 +418,7 @@ function render(snapshot) {
                 headers: [['Audit'], ['Subject'], ['Result']],
                 rows: rows.map((row) => {
                     const result = element('span');
-                    result.append(badge(row.status));
+                    result.append(badge(auditStatus(row)));
                     if (row.informational) result.append(' ', auditInfo(row));
                     return [row.audit, row.subject, result];
                 }),

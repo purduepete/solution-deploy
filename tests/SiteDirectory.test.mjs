@@ -212,6 +212,30 @@ test('history ranges include today and exactly the selected number of calendar d
     assert.match(source, /const historyDays = \{ alerts: 7, runs: 7, audits: 7 \}/);
 });
 
+test('expected options skips show market closed while missing audits remain warnings', () => {
+    const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('function auditStatus('), source.indexOf('\nconst historyDays'));
+    const { auditStatus, auditOutcome } = runInNewContext(`${code}\n({ auditStatus, auditOutcome })`);
+    const closed = { job: 'options-audit', status: 'not_run', reportStatus: 'pass' };
+    const passed = { job: 'stock-audit', status: 'pass', reportStatus: 'pass' };
+    assert.equal(auditStatus(closed), 'market_closed');
+    assert.equal(auditOutcome([closed, closed, closed]), 'market_closed');
+    assert.equal(auditOutcome([passed, closed]), 'pass');
+    for (const row of [
+        { ...closed, reportStatus: 'fail' },
+        { ...closed, reportStatus: undefined },
+        { ...closed, job: 'stock-audit' },
+    ]) {
+        assert.equal(auditStatus(row), 'not_run');
+        assert.equal(auditOutcome([passed, row]), 'not_run');
+    }
+    assert.equal(auditOutcome([passed, { ...closed, status: 'fail' }]), 'fail');
+    assert.equal(auditOutcome([passed, { ...closed, status: 'unreadable' }]), 'fail');
+    assert.match(source, /market_closed: 'muted'/);
+    assert.match(source, /No exchange session\./);
+    assert.match(source, /result\.append\(badge\(auditStatus\(row\)\)\)/);
+});
+
 test('audit info uses report counts, distinguishes unavailable data and renders errors as text', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
     const code = source.slice(source.indexOf('let auditInfoId'), source.indexOf('\nfunction table('));
