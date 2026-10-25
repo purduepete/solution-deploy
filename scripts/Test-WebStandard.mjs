@@ -357,6 +357,30 @@ async function checkApp(context, site, cfg) {
                         Math.abs(header.right - content.right) <= 1,
                     `header ${header.left.toFixed(1)}..${header.right.toFixed(1)}; content ${content.left.toFixed(1)}..${content.right.toFixed(1)}; expected left ${expectedLeft.toFixed(1)}, width ${expectedWidth.toFixed(1)}`
                 );
+                if (['solution-deploy', 'ferry-tracker'].includes(site.id)) {
+                    const originalOverflow = await page.evaluate(() => document.documentElement.style.overflowY);
+                    try {
+                        for (const overflow of ['hidden', 'scroll']) {
+                            await page.evaluate((value) => {
+                                document.documentElement.style.overflowY = value;
+                            }, overflow);
+                            const nextHeader = await page.evaluate(measure, headerSelector);
+                            const nextContent = await page.evaluate(measure, mainSelector);
+                            add(
+                                `Stable desktop edges at ${desktopWidth}px (${overflow})`,
+                                Math.abs(nextHeader.left - content.left) <= 1 &&
+                                    Math.abs(nextHeader.right - content.right) <= 1 &&
+                                    Math.abs(nextContent.left - content.left) <= 1 &&
+                                    Math.abs(nextContent.right - content.right) <= 1,
+                                `header ${nextHeader.left.toFixed(1)}..${nextHeader.right.toFixed(1)}; content ${nextContent.left.toFixed(1)}..${nextContent.right.toFixed(1)}`
+                            );
+                        }
+                    } finally {
+                        await page.evaluate((value) => {
+                            document.documentElement.style.overflowY = value;
+                        }, originalOverflow);
+                    }
+                }
             }
         }
 

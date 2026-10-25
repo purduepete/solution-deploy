@@ -47,3 +47,9 @@ content share those edges. `scripts\Test-WebStandard.mjs` checks these bounds at
 1280, 1440 and 1920px for the directory, Fit Track, Ferry Tracker, Home Automation,
 Team Scoreboard and Web Inventory. The check accounts for scrollbar gutters and
 keeps Web Inventory's 240px desktop rail outside its inner content area.
+
+The directory and Ferry Tracker reserve a normal-width desktop scrollbar gutter
+even on short pages. Header and main containers both use the remaining layout
+width, rather than viewport units, so their edges match and stay fixed when
+content starts or stops scrolling. Ferry Tracker keeps thin scrollbars inside
+controls and at phone/tablet widths.
