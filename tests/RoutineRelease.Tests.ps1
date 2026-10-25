@@ -67,6 +67,14 @@ Describe 'Routine manifest changes need an exact build-only approval' {
     It 'rejects a release manifest that differs from the plan' {
         Assert-RoutineThrows {Assert-RoutineManifest $script:plan $script:old $script:old}
     }
+    It 'rejects migrations kept under node_modules or behind a path alias even when the manifest is unchanged' {
+        foreach($dir in @('node_modules\app-db\migrations','Node_Modules/x','node_modules.\x','node_modules \x','node_modules::$INDEX_ALLOCATION\x','NODE_M~1\x','x\..\node_modules\x','')){
+            $m=@{id='app';database=@{migrationsDirectory=$dir}}
+            Assert-RoutineThrows {Assert-RoutineManifest @{manifest=$m;manifestHash=('a'*64)} $m $m}
+        }
+        $m=@{id='app';database=@{migrationsDirectory='deploy\postgresql'}}
+        Assert-RoutineManifest @{manifest=$m;manifestHash=('a'*64)} $m $m
+    }
 }
 
 Describe 'Routine migration classification uses sealed file hashes' {
@@ -76,6 +84,12 @@ Describe 'Routine migration classification uses sealed file hashes' {
         (Get-RoutineMigrationDigest $old) | Should Not Be (Get-RoutineMigrationDigest $next)
         $next.files=@($old.files)+@(@{path='server\repair.sql';sha256=('d'*64)})
         (Get-RoutineMigrationDigest $old) | Should Not Be (Get-RoutineMigrationDigest $next)
+    }
+    It 'ignores dependency package files that only look like schema or migration files' {
+        $old=@{files=@(@{path='deploy\postgresql\001.sql';sha256=('a'*64)},@{path='node_modules\js-yaml\lib\schema.js';sha256=('b'*64)},
+            @{path='server\node_modules\pkg\migrations\x.sql';sha256=('c'*64)})}
+        $next=@{files=@(@{path='deploy\postgresql\001.sql';sha256=('a'*64)})}
+        (Get-RoutineMigrationDigest $old) | Should Be (Get-RoutineMigrationDigest $next)
     }
 }
 

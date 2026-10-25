@@ -28,8 +28,9 @@ function Assert-RoutineReleaseConsent {
 
 function Get-RoutineMigrationDigest {
     param([Parameter(Mandatory)][hashtable]$Release)
+    # Only app-owned files; dependency packages often ship unrelated schema.js or MIGRATION.md files.
     $files=@($Release.files | Where-Object {
-        $_.path -match '(?i)(^|\\)(migrations?|postgresql|schema)(\\|\.|$)|\.sql$'
+        $_.path -notmatch '(?i)(^|\\)node_modules\\' -and $_.path -match '(?i)(^|\\)(migrations?|postgresql|schema)(\\|\.|$)|\.sql$'
     } | Sort-Object path | ForEach-Object {@{path=$_.path;sha256=$_.sha256}})
     if(-not $files.Count){throw 'Routine release has no sealed migration/schema baseline.'}
     Get-Sha256Text (ConvertTo-CanonicalJson $files)
@@ -38,6 +39,14 @@ function Get-RoutineMigrationDigest {
 function Assert-RoutineManifest {
     param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][hashtable]$OldManifest,[Parameter(Mandatory)][hashtable]$NextManifest)
     if((ConvertTo-CanonicalJson $NextManifest) -cne (ConvertTo-CanonicalJson $Plan.manifest)){throw 'Application manifest changed; use the reviewed deployment path.'}
+    # The migration digest skips node_modules, so routine release accepts only a plain migrations path outside it.
+    # Allowlisting segment characters rules out Windows aliases such as trailing dots or spaces, streams and 8.3 names.
+    if($NextManifest.ContainsKey('database')){
+        $segments=([string]$NextManifest.database.migrationsDirectory) -split '[\\/]'
+        if(@($segments | Where-Object {$_ -cnotmatch '^[A-Za-z0-9_-]+$' -or $_ -ieq 'node_modules'}).Count){
+            throw 'Routine release needs a plain migrations directory outside node_modules; use the reviewed deployment path.'
+        }
+    }
     if((ConvertTo-CanonicalJson $OldManifest) -ceq (ConvertTo-CanonicalJson $NextManifest)){return}
     $consent=if($Plan.ContainsKey('routineConsent')){$Plan.routineConsent}else{@{}}
     if(-not $consent.ContainsKey('approvedManifestSHA256') -or $consent.approvedManifestSHA256 -cnotmatch '^[a-f0-9]{64}$' -or
