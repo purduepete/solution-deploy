@@ -35,6 +35,18 @@ function Get-RoutineMigrationDigest {
     Get-Sha256Text (ConvertTo-CanonicalJson $files)
 }
 
+function Assert-RoutineManifest {
+    param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][hashtable]$OldManifest,[Parameter(Mandatory)][hashtable]$NextManifest)
+    if((ConvertTo-CanonicalJson $NextManifest) -cne (ConvertTo-CanonicalJson $Plan.manifest)){throw 'Application manifest changed; use the reviewed deployment path.'}
+    if((ConvertTo-CanonicalJson $OldManifest) -ceq (ConvertTo-CanonicalJson $NextManifest)){return}
+    $consent=if($Plan.ContainsKey('routineConsent')){$Plan.routineConsent}else{@{}}
+    if(-not $consent.ContainsKey('approvedManifestSHA256') -or $consent.approvedManifestSHA256 -cnotmatch '^[a-f0-9]{64}$' -or
+        $consent.approvedManifestSHA256 -cne $Plan.manifestHash){throw 'Application manifest changed; use the reviewed deployment path.'}
+    # An operator-approved manifest change may alter build commands only.
+    $oldRest=@{}+$OldManifest; $nextRest=@{}+$NextManifest; [void]$oldRest.Remove('build'); [void]$nextRest.Remove('build')
+    if((ConvertTo-CanonicalJson $oldRest) -cne (ConvertTo-CanonicalJson $nextRest)){throw 'An approved manifest change may alter only build commands; use the reviewed deployment path.'}
+}
+
 function Assert-RoutineReleaseEligibility {
     param([Parameter(Mandatory)][hashtable]$Plan,[Parameter(Mandatory)][hashtable]$Approval,
         [Parameter(Mandatory)][string]$AppRoot,[Parameter(Mandatory)][string]$ReleasePath)
@@ -54,10 +66,7 @@ function Assert-RoutineReleaseEligibility {
     }
     $oldManifest=Get-Manifest (Join-Path $oldPath 'deploy\application.json')
     $nextManifest=Get-Manifest (Join-Path $ReleasePath 'deploy\application.json')
-    if((ConvertTo-CanonicalJson $oldManifest) -ne (ConvertTo-CanonicalJson $nextManifest) -or
-        (ConvertTo-CanonicalJson $nextManifest) -ne (ConvertTo-CanonicalJson $Plan.manifest)){
-        throw 'Application manifest changed; use the reviewed deployment path.'
-    }
+    Assert-RoutineManifest $Plan $oldManifest $nextManifest
     $migrationDigest=Get-RoutineMigrationDigest $old
     if($migrationDigest -ne (Get-RoutineMigrationDigest $next)){throw 'Migration or schema files changed; independent database review is required.'}
     $baselinePath=Join-Path $AppRoot 'state\verification.json'
@@ -116,4 +125,4 @@ function Get-RoutineDatabaseEvidence {
     @{database=$live;databaseEvidencePath=(Split-Path $path -Leaf);databaseEvidenceSHA256=(Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()}
 }
 
-Export-ModuleMember -Function Assert-RoutineReleaseConsent,Get-RoutineMigrationDigest,Assert-RoutineReleaseEligibility,Get-RoutineDatabaseEvidence
+Export-ModuleMember -Function Assert-RoutineReleaseConsent,Get-RoutineMigrationDigest,Assert-RoutineManifest,Assert-RoutineReleaseEligibility,Get-RoutineDatabaseEvidence

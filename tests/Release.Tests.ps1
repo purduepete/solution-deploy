@@ -68,6 +68,12 @@ Describe 'Routine Release orchestration without production access' {
         Assert-MockCalled Test-ReleaseAccess -ModuleName Release -Times 2 -Exactly -Scope It
         Assert-MockCalled Assert-ReleaseClocks -ModuleName Release -Times 5 -Exactly -Scope It
     }
+    It 'records an approved manifest hash in the consent and passes it to the context check' {
+        Invoke-RoutineRelease sample -Target synthetic -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed -OutputDirectory $global:ReleaseTestOutput -ApprovedManifestSHA256 ('7'*64)|Out-Null
+        $saved=Read-DeploymentJson (Join-Path $global:ReleaseTestOutput ('releases\'+$global:ReleaseTestPlan.id+'\plan.json'))
+        $saved.routineConsent.approvedManifestSHA256|Should Be ('7'*64)
+        Assert-MockCalled Get-RoutineReleaseContext -ModuleName Release -Times 1 -Exactly -Scope It -ParameterFilter {$ApprovedManifestSHA256 -eq ('7'*64)}
+    }
     It 'binds preflight evidence only into later approvals without changing the plan digest' {
         Invoke-RoutineRelease sample -Target synthetic -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed -OutputDirectory $global:ReleaseTestOutput|Out-Null
         $global:ReleaseTestApprovals[0].ContainsKey('databaseEvidenceSHA256')|Should Be $false
@@ -256,6 +262,19 @@ Describe 'Routine Release prior approval context' {
     It 'rejects manifest changes before deriving any inherited approval' {
         $global:ReleaseContextPlan.manifest=@{build=@{commands=@()};database=@{name='different';schemaVersion=1}}
         Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
+    }
+    It 'accepts a build-only manifest change only with its exact approved hash' {
+        $global:ReleaseContextPlan.manifest=@{build=@{commands=@(@{tool='npm';arguments=@('prune')})};database=@{name='sample';schemaVersion=1}}
+        $global:ReleaseContextPlan.manifestHash=('9'*64)
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan -ApprovedManifestSHA256 ('8'*64)}
+        (Get-RoutineReleaseContext $global:ReleaseContextPlan -ApprovedManifestSHA256 ('9'*64)).runtimePath|Should Be 'C:\fixed\node.exe'
+    }
+    It 'rejects an approved hash for a change outside build commands or an unchanged manifest' {
+        $global:ReleaseContextPlan.manifestHash=('9'*64)
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan -ApprovedManifestSHA256 ('9'*64)}
+        $global:ReleaseContextPlan.manifest=@{build=@{commands=@()};database=@{name='different';schemaVersion=1}}
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan -ApprovedManifestSHA256 ('9'*64)}
     }
     It 'rejects a runtime with changed bytes' {
         Mock Get-ReleaseToolHash -ModuleName Release {('c'*64)}

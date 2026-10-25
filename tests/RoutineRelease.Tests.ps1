@@ -42,6 +42,33 @@ Describe 'Routine release consent is exact and bounded' {
     }
 }
 
+Describe 'Routine manifest changes need an exact build-only approval' {
+    BeforeEach {
+        $script:old=@{id='app';build=@{commands=@(@{tool='npm';arguments=@('ci')})};launch=@{port=1}}
+        $script:next=@{id='app';build=@{commands=@(@{tool='npm';arguments=@('ci')},@{tool='npm';arguments=@('prune','--omit=dev')})};launch=@{port=1}}
+        $script:plan=@{manifest=$script:next;manifestHash=('a'*64);routineConsent=@{approvedManifestSHA256=('a'*64)}}
+    }
+    It 'accepts an unchanged manifest without approval' {
+        Assert-RoutineManifest @{manifest=$script:old;manifestHash=('a'*64);routineConsent=@{}} $script:old $script:old
+    }
+    It 'accepts a build-only change whose exact hash was approved' {
+        Assert-RoutineManifest $script:plan $script:old $script:next
+    }
+    It 'rejects a change without approval or with another hash' {
+        $script:plan.routineConsent=@{}
+        Assert-RoutineThrows {Assert-RoutineManifest $script:plan $script:old $script:next}
+        $script:plan.routineConsent=@{approvedManifestSHA256=('b'*64)}
+        Assert-RoutineThrows {Assert-RoutineManifest $script:plan $script:old $script:next}
+    }
+    It 'rejects an approved change outside build commands' {
+        $script:next.launch=@{port=2}
+        Assert-RoutineThrows {Assert-RoutineManifest $script:plan $script:old $script:next}
+    }
+    It 'rejects a release manifest that differs from the plan' {
+        Assert-RoutineThrows {Assert-RoutineManifest $script:plan $script:old $script:old}
+    }
+}
+
 Describe 'Routine migration classification uses sealed file hashes' {
     It 'detects a changed migration or added SQL file' {
         $old=@{files=@(@{path='deploy\postgresql\001.sql';sha256=('a'*64)},@{path='src\App.tsx';sha256=('b'*64)})}

@@ -21,7 +21,8 @@ param(
     [string]$ApprovalReason,
     [switch]$DatabaseChangesReviewed,
     [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),
-    [string]$TailscaleUrl
+    [string]$TailscaleUrl,
+    [string]$ApprovedManifestSHA256
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -36,12 +37,14 @@ if ($Action -eq 'Release') {
     Import-Module (Join-Path $PSScriptRoot 'src\CommonRelease.psm1') -DisableNameChecking
     # Each release procedure keeps its own default deadline unless one is given explicitly.
     $releaseTimeout=@{}; if($PSBoundParameters.ContainsKey('TimeoutSeconds')){$releaseTimeout.TimeoutSeconds=$TimeoutSeconds}
+    if($ApprovedManifestSHA256){$releaseTimeout.ApprovedManifestSHA256=$ApprovedManifestSHA256}
     Invoke-CommonRelease -App $App -Component $Component -Environment $Environment -Target $Target -Commit $Commit `
         -ApproveRelease:$ApproveRelease -ApprovalReason $ApprovalReason -DatabaseChangesReviewed:$DatabaseChangesReviewed `
         -ExpiresLocal $ExpiresLocal -TailscaleUrl $TailscaleUrl -OutputDirectory $OutputDirectory @releaseTimeout
     return
 }
 if($Component){throw '-Component is supported only by -Action Release.'}
+if($ApprovedManifestSHA256){throw '-ApprovedManifestSHA256 is supported only by -Action Release.'}
 if ($Action -eq 'Plan') {
     if (-not $App) { throw 'Plan requires -App.' }
     $plan = New-DeploymentPlan -App $App -Environment $Environment -Target $Target -Commit $Commit -Offline:$Offline

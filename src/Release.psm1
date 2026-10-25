@@ -12,7 +12,7 @@ function Get-ReleaseToolHash {
 }
 
 function Get-RoutineReleaseContext {
-    param([hashtable]$Plan)
+    param([hashtable]$Plan,[string]$ApprovedManifestSHA256)
     if($Plan.transitionKind -ne 'ManagedDeploy' -or $Plan.operation -ne 'Deploy' -or
         -not $Plan.currentRelease -or $Plan.observedHost -ine $Plan.target.host){
         throw 'Release supports only an existing managed deployment on the same host.'
@@ -55,8 +55,13 @@ function Get-RoutineReleaseContext {
     if($matches.Count -ne 1){throw 'A unique successful prior activation approval is required.'}
     $prior=$matches[0]
     if((ConvertTo-CanonicalJson $prior.plan.manifest) -cne (ConvertTo-CanonicalJson $Plan.manifest)){
-        throw 'Application manifest changes require a separately reviewed deployment.'
-    }
+        # The operator names the exact reviewed manifest; any other change is still rejected.
+        if($ApprovedManifestSHA256 -cnotmatch '^[a-f0-9]{64}$' -or $ApprovedManifestSHA256 -cne $Plan.manifestHash){
+            throw 'Application manifest changes require a separately reviewed deployment, or -ApprovedManifestSHA256 naming the exact new manifest SHA-256.'
+        }
+        $priorRest=@{}+$prior.plan.manifest; $nextRest=@{}+$Plan.manifest; [void]$priorRest.Remove('build'); [void]$nextRest.Remove('build')
+        if((ConvertTo-CanonicalJson $priorRest) -cne (ConvertTo-CanonicalJson $nextRest)){throw 'An approved manifest change may alter only build commands; use the reviewed deployment path.'}
+    }elseif($ApprovedManifestSHA256){throw '-ApprovedManifestSHA256 was given but the manifest is unchanged.'}
     foreach($gate in @('gracefulStopVerified','dataInventory','rollbackReady')){
         if(-not $prior.approval.gates.ContainsKey($gate) -or $prior.approval.gates[$gate] -ne $true){
             throw "Prior activation did not approve $gate."
@@ -208,7 +213,7 @@ function Invoke-RoutineRelease {
         [switch]$ApproveRelease,[Parameter(Mandatory)][string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
         [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
-        [ValidateRange(60,1800)][int]$TimeoutSeconds=1800)
+        [ValidateRange(60,1800)][int]$TimeoutSeconds=1800,[string]$ApprovedManifestSHA256)
     if(-not $ApproveRelease -or -not $DatabaseChangesReviewed -or [string]::IsNullOrWhiteSpace($ApprovalReason)){
         throw 'Release requires -ApproveRelease, a non-empty -ApprovalReason and -DatabaseChangesReviewed.'
     }
@@ -218,7 +223,7 @@ function Invoke-RoutineRelease {
     Write-Host 'Release: preparing the exact deployment plan.'
     $plan=New-DeploymentPlan -App $App -Environment $Environment -Target $Target -Commit $Commit
     Write-Host 'Release: checking active metadata and pinned tools. Full release hashes are checked on the protected host before downtime.'
-    $context=Get-RoutineReleaseContext $plan
+    $context=Get-RoutineReleaseContext $plan -ApprovedManifestSHA256 $ApprovedManifestSHA256
     Assert-ReleaseClocks $plan
     $configuration=Get-DeploymentEnvironment $Environment
     $framework=Split-Path -Parent $PSScriptRoot
@@ -260,6 +265,7 @@ function Invoke-RoutineRelease {
         installationSHA256=$context.installationSHA256;priorApprovalSHA256=$context.priorApprovalSHA256
         tailscaleUrl=$TailscaleUrl;initialAccessSHA256=(Get-Sha256Text (ConvertTo-CanonicalJson $initialAccess))
     }
+    if($ApprovedManifestSHA256){$plan.routineConsent.approvedManifestSHA256=$ApprovedManifestSHA256}
     $plan.planHash=Get-PlanDigest $plan
     $consentHash=Get-Sha256Text (ConvertTo-CanonicalJson $plan.routineConsent)
     Write-DeploymentJson (Join-Path $directory 'plan.json') $plan -CreateNew

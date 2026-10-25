@@ -114,8 +114,9 @@ function Invoke-CommonRelease {
         [switch]$ApproveRelease,[Parameter(Mandatory)][string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
         [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
-        [ValidateRange(60,1800)][int]$TimeoutSeconds=300)
+        [ValidateRange(60,1800)][int]$TimeoutSeconds=300,[string]$ApprovedManifestSHA256)
     $route=Get-CommonReleaseRoute -App $App -Component $Component -Environment $Environment -Target $Target
+    if($ApprovedManifestSHA256 -and $route.procedure -ne 'controller'){throw '-ApprovedManifestSHA256 applies only to framework-managed apps.'}
     $arguments=@{}+$PSBoundParameters
     [void]$arguments.Remove('Component')
     if($route.procedure -eq 'controller'){
