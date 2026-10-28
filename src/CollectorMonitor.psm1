@@ -1,11 +1,36 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Test-OptionsAuditTaskRecovery {
+    param($Report, $Task, [datetimeoffset]$Now)
+    if ($null -eq $Report) { return $false }
+    foreach ($property in @('date', 'status', 'notification_sent', 'generated_at_local', 'sections')) {
+        if (-not $Report.PSObject.Properties[$property]) { return $false }
+    }
+    if ($Report.status -ne 'pass' -or $Report.notification_sent -isnot [bool] -or
+        -not $Report.notification_sent -or $null -eq $Report.sections) { return $false }
+    $lastRun = [datetimeoffset]$Task.LastRun
+    if ([string]$Report.date -ne $lastRun.ToString('yyyy-MM-dd')) { return $false }
+    $generated = [datetimeoffset]::MinValue
+    if (-not [datetimeoffset]::TryParse([string]$Report.generated_at_local, [ref]$generated) -or
+        $generated -le $lastRun -or $generated -gt $Now.AddMinutes(2) -or
+        $Now - $generated -gt [timespan]::FromHours(26)) { return $false }
+    foreach ($name in @('vader', 'portfolio', 'coverage')) {
+        if (-not $Report.sections.PSObject.Properties[$name]) { return $false }
+    }
+    foreach ($section in $Report.sections.PSObject.Properties) {
+        if ($null -eq $section.Value -or -not $section.Value.PSObject.Properties['status'] -or
+            $section.Value.status -notin @('pass', 'not_run')) { return $false }
+    }
+    return $true
+}
+
 function Get-CollectorMonitorIssue {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Tasks,
         [AllowNull()]$Snapshot,
+        [AllowNull()]$OptionsAuditReport,
         [datetimeoffset]$Now = [datetimeoffset]::Now,
         [string]$SnapshotError,
         [int]$SnapshotMaxAgeMinutes = 12,
@@ -21,7 +46,9 @@ function Get-CollectorMonitorIssue {
         if ($result -eq 267011) { continue }
         # 2147946720 (0x800710E0): a trigger skipped because the previous run was still going (IgnoreNew).
         # A run that stays stuck is caught by the overdue and heartbeat checks.
-        if ($result -notin @(0, 267009, 2147946720)) {
+        $recoveredAudit = $name -eq 'SolutionDeploy-web-options-daily-audit' -and
+            $task.State -eq 'Ready' -and (Test-OptionsAuditTaskRecovery $OptionsAuditReport $task $Now)
+        if ($result -notin @(0, 267009, 2147946720) -and -not $recoveredAudit) {
             $label = switch ($name) {
                 'SolutionDeploy-web-portfolio-stock-watchdog' { 'Stock collector health check' }
                 'SolutionDeploy-web-options-collector-watchdog' { 'Options collector health check' }

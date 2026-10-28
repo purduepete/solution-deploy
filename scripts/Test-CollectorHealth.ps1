@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$SnapshotPath = 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\collector-status.json',
+    [string]$AppsRoot = 'C:\ProgramData\SolutionDeploy\apps',
     [string]$StatePath = 'C:\ProgramData\SolutionDeploy\monitor\state.json',
     [string]$AlertScript = 'C:\ProgramData\JimlerTech\PostgreSQL\Send-BackupAlert.ps1',
     # Shown on the Collectors page; the LOCAL SERVICE snapshot builder can read this folder, not the monitor's.
@@ -45,7 +46,17 @@ try {
     $snapshotError = ''
     try { $snapshot = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json -ErrorAction Stop }
     catch { $snapshotError = $_.Exception.Message }
-    $issues = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -SnapshotError $snapshotError)
+    $optionsAuditReport = $null
+    $optionsTask = @($tasks | Where-Object Name -EQ 'SolutionDeploy-web-options-daily-audit')[0]
+    if ($optionsTask.Exists -and $optionsTask.Result -notin @(0, 267009, 267011, 2147946720)) {
+        $date = ([datetimeoffset]$optionsTask.LastRun).ToString('yyyy-MM-dd')
+        $reportPath = Join-Path $AppsRoot "web-options\shared\logs\audit\options-$date.json"
+        if (Test-Path -LiteralPath $reportPath) {
+            $optionsAuditReport = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -ErrorAction Stop
+        }
+    }
+    $issues = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -SnapshotError $snapshotError `
+            -OptionsAuditReport $optionsAuditReport)
 }
 catch {
     $issues = @("Collector monitor check failed: $($_.Exception.Message)")

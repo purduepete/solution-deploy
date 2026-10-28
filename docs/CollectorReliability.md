@@ -63,6 +63,14 @@ freshness is checked continuously. Daily audit tasks/reports have a 26-hour
 allowance. The five-minute snapshot has a 12-minute freshness allowance;
 heartbeats and minute tasks have 10 minutes.
 
+A successful Options audit rerun can supersede an older failed Options audit
+task result. The monitor reads the saved report for that task's local run date
+and requires overall pass, all three sections present and passing (or
+`not_run`), successful notification, and a fresh generation time after the
+failed execution. An older, incomplete, future-dated or different-date report
+does not clear the task failure. Snapshot, section and schedule checks still
+apply. Historical alert entries remain; recovery adds a new event.
+
 Identical findings send one alert, then a daily reminder. A changed finding or
 full recovery sends another notification. A failed delivery does not mark the
 notification as sent. State is in `monitor\state.json`; a nonzero monitor result

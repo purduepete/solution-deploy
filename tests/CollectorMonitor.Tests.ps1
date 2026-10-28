@@ -20,6 +20,15 @@ Describe 'Independent collector monitoring' {
                 }
             }
         }
+        $optionsReport = [pscustomobject]@{
+            date = '2026-10-22'; status = 'pass'; notification_sent = $true
+            generated_at_local = $now.AddMinutes(-5).ToString('o')
+            sections = [pscustomobject]@{
+                vader = [pscustomobject]@{ status = 'pass' }
+                portfolio = [pscustomobject]@{ status = 'pass' }
+                coverage = [pscustomobject]@{ status = 'pass' }
+            }
+        }
     }
     It 'accepts fresh data outside market hours because minute tasks still run' {
         @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
@@ -94,6 +103,57 @@ Describe 'Independent collector monitoring' {
         $snapshot.audits[0].status = 'fail'
         (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'stock-audit section coverage reports fail'
     }
+    It 'accepts a verified successful rerun after the failed options task' {
+        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
+        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport).Count | Should Be 0
+    }
+    It 'still reports a failing snapshot section after a successful rerun' {
+        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
+        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
+        $snapshot.audits[1].status = 'fail'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'options-audit section coverage reports fail'
+    }
+    It 'retains a task failure when the report predates the failed execution' {
+        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
+        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
+        $optionsReport.generated_at_local = $now.AddHours(-21).ToString('o')
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
+    }
+    It 'requires the failed execution date and a successful notification' {
+        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
+        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
+        $optionsReport.date = '2026-10-23'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
+        $optionsReport.date = '2026-10-22'; $optionsReport.notification_sent = $false
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
+    }
+    It 'does not accept missing or failing audit sections as recovery' {
+        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
+        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
+        $optionsReport.sections.coverage.status = 'fail'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
+        $optionsReport.sections.PSObject.Properties.Remove('coverage')
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
+    }
+    It 'rejects future-dated recovery and still detects a stale snapshot' {
+        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
+        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
+        $optionsReport.generated_at_local = $now.AddMinutes(3).ToString('o')
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
+        $optionsReport.generated_at_local = $now.AddMinutes(-5).ToString('o')
+        $snapshot.generatedAt = $now.AddMinutes(-13).ToString('o')
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
+                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'snapshot timestamp'
+    }
     It 'ignores informational audit differences' {
         $snapshot.audits[0].status = 'fail'; $snapshot.audits[0].informational = $true
         @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
@@ -125,6 +185,30 @@ Describe 'Independent collector monitoring' {
 }
 
 Describe 'Monitor runner read-only evaluation' {
+    It 'reads the failed task date report for rerun verification' {
+        $lastRun = (Get-Date).AddHours(-20)
+        $scheduledTask = New-CimInstance -ClassName MSFT_ScheduledTask -ClientOnly -Property @{
+            TaskName = 'SolutionDeploy-web-options-daily-audit'; State = 'Ready'
+        }
+        Mock Get-ScheduledTask { $scheduledTask }
+        Mock Get-ScheduledTaskInfo { [pscustomobject]@{ LastTaskResult = 1; LastRunTime = $lastRun } }
+        $folder = Join-Path $TestDrive 'web-options\shared\logs\audit'
+        New-Item -ItemType Directory -Path $folder -Force | Out-Null
+        $report = [ordered]@{
+            date = $lastRun.ToString('yyyy-MM-dd'); status = 'pass'; notification_sent = $true
+            generated_at_local = (Get-Date).AddMinutes(-1).ToString('o')
+            sections = @{ vader = @{status='pass'}; portfolio = @{status='pass'}; coverage = @{status='pass'} }
+        }
+        $report | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $folder "options-$($report.date).json")
+        $snapshotPath = Join-Path $TestDrive 'snapshot.json'
+        @{schemaVersion=1; generatedAt=(Get-Date).ToString('o'); errors=@(); health=@(); audits=@()} |
+            ConvertTo-Json | Set-Content $snapshotPath
+        $result = & (Join-Path $PSScriptRoot '..\scripts\Test-CollectorHealth.ps1') `
+            -EvaluateOnly -AppsRoot $TestDrive -SnapshotPath $snapshotPath
+        $record = $result | ConvertFrom-Json
+        $record.issues -join ';' | Should Not Match 'Options nightly audit failed'
+        $record.issues -join ';' | Should Not Match 'monitor check failed'
+    }
     It 'surfaces task-query failures without writing state or attempting notifications' {
         Mock Get-ScheduledTask { throw 'fixture scheduler unavailable' }
         $state = Join-Path $TestDrive 'not-created.json'
