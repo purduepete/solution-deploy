@@ -86,6 +86,32 @@ Describe 'Independent collector monitoring' {
         (Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-28T13:12:15')).Cause |
             Should Be 'heartbeat overdue, last 13:05:00 (7 min ago)'
     }
+    It 'keeps only the failed run when later runs follow it in the log' {
+        $log = Join-Path $TestDrive 'tick-later.log'
+        @(
+            '2026-10-28 13:11:15,083 INFO local time 2026-10-28T13:11:15.083690-07:00'
+            '2026-10-28 13:11:18,113 ERROR Quote stream timed out with missing prices'
+            '2026-10-28 13:11:18,200 INFO run=417676 kind=settle {"status": "partial", "expected": 346, "price": 344}'
+            '2026-10-28 13:12:15,000 INFO local time 2026-10-28T13:12:15-07:00'
+            '2026-10-28 13:12:35,000 INFO run=417676 kind=settle {"status": "complete", "expected": 346, "price": 346}'
+            '2026-10-28 14:48:00,000 INFO local time 2026-10-28T14:48:00-07:00'
+            '2026-10-28 14:48:01,000 INFO no eligible capture slot'
+        ) | Set-Content $log
+        $read = Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-28T13:11:15')
+        $read.Lines.Count | Should Be 2
+        $read.Lines -join "`n" | Should Not Match '13:12|14:48|complete'
+        $read.Cause | Should Be 'Quote stream timed out with missing prices; settle run partial, 344 of 346 prices'
+    }
+    It 'returns no lines when the failed run is no longer in the log' {
+        $log = Join-Path $TestDrive 'tick-rotated.log'
+        @(
+            '2026-10-28 14:48:00,000 INFO local time 2026-10-28T14:48:00-07:00'
+            '2026-10-28 14:48:01,000 INFO no eligible capture slot'
+        ) | Set-Content $log
+        $read = Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-28T13:10:15')
+        $read.Lines.Count | Should Be 0
+        $read.Cause | Should Be ''
+    }
     It 'keeps the last lines of an untimestamped audit log and names failed sections' {
         $log = Join-Path $TestDrive 'audit.log'
         @('Options audit 2026-10-27: FAIL', 'vader: pass matched=1/1', 'portfolio: fail matched=6/19') | Set-Content $log

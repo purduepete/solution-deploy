@@ -268,7 +268,7 @@ test('alert issues open a dialog with cause, meaning and log lines', () => {
     const { issueLinks } = runInNewContext(`${code}\n({ issueLinks })`, {
         element: node,
         stamp: (value) => `stamp:${value}`,
-        document: { getElementById: (id) => nodes[id] },
+        document: { getElementById: (id) => nodes[id], createElementNS: (_ns, tag) => node(tag) },
     });
     assert.equal(issueLinks({ issues: [] }), 'All checks healthy.');
     const row = {
@@ -292,6 +292,10 @@ test('alert issues open a dialog with cause, meaning and log lines', () => {
     const link = issueLinks(row).children[0].children[0];
     assert.equal(link.tag, 'button');
     assert.equal(link.attributes['aria-haspopup'], 'dialog');
+    assert.equal(link.text, undefined);
+    assert.equal(link.children[0].tag, 'svg');
+    assert.equal(link.title, 'Option quote collection failed');
+    assert.equal(link.attributes['aria-label'], 'Option quote collection failed. Open details');
     link.listeners.click();
     assert.equal(nodes['issue-dialog'].opened, true);
     assert.equal(nodes['issue-dialog-title'].textContent, 'Option quote collection failed');

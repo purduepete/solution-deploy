@@ -72,12 +72,23 @@ function Read-CollectorTaskLog {
     $stampPattern = '^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ (\w+) (.*)$'
     $kept = [Collections.Generic.List[string]]::new()
     if ($null -ne $Since -and @($raw -match $stampPattern).Count) {
+        # Each collector run opens with a "local time" line, so the run ends at the next one.
+        # A first match well after Since means that run is no longer in the log tail.
         $from = ([datetime]$Since).AddSeconds(-1)
+        $latestStart = ([datetime]$Since).AddMinutes(2)
         $inRun = $false
         foreach ($line in $raw) {
             if ($line -match $stampPattern) {
-                $inRun = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) -ge $from
-                if ($Matches[3] -like 'HTTP Request:*' -or $Matches[3] -like 'local time *') { continue }
+                $message = $Matches[3]
+                $isRunStart = $message -like 'local time *'
+                if (-not $inRun) {
+                    $stamp = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+                    if ($stamp -lt $from) { continue }
+                    if ($stamp -gt $latestStart) { break }
+                    $inRun = $true
+                }
+                elseif ($isRunStart) { break }
+                if ($isRunStart -or $message -like 'HTTP Request:*') { continue }
             }
             if ($inRun -and $line.Trim()) { $kept.Add((Protect-CollectorLogLine $line)) }
         }

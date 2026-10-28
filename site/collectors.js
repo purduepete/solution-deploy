@@ -178,14 +178,50 @@ function openIssue(row, detail) {
     body.scrollTop = 0;
 }
 
+// Lucide "triangle-alert" outline.
+function alertIcon() {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    for (const [name, value] of Object.entries({
+        viewBox: '0 0 24 24',
+        width: '20',
+        height: '20',
+        fill: 'none',
+        stroke: 'currentColor',
+        'stroke-width': '2',
+        'stroke-linecap': 'round',
+        'stroke-linejoin': 'round',
+        'aria-hidden': 'true',
+    }))
+        svg.setAttribute(name, value);
+    for (const d of [
+        'm21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3',
+        'M12 9v4',
+        'M12 17h.01',
+    ]) {
+        const path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', d);
+        svg.append(path);
+    }
+    return svg;
+}
+
+function issueLabel(detail) {
+    if (detail.label) return `${detail.label} failed`;
+    return (detail.summary ?? detail.text ?? 'Alert').split(/[.:]/)[0];
+}
+
 function issueLinks(row) {
     if (!row.issues?.length) return 'All checks healthy.';
     const list = element('ul', undefined, 'issue-list');
     row.issues.forEach((text, index) => {
         const detail = row.details?.[index] ?? { text, summary: text };
-        const link = element('button', text, 'issue-link');
+        const link = element('button', undefined, 'issue-link');
         link.type = 'button';
+        link.title = issueLabel(detail);
+        link.setAttribute('aria-label', `${issueLabel(detail)}. Open details`);
         link.setAttribute('aria-haspopup', 'dialog');
+        link.append(alertIcon());
         link.addEventListener('click', () => openIssue(row, detail));
         const item = element('li');
         item.append(link);
