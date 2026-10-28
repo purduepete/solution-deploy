@@ -136,6 +136,64 @@ function table(target, headers, rows, empty) {
     target.replaceChildren(head, body);
 }
 
+const issueDialog = document.getElementById('issue-dialog');
+issueDialog.querySelector('.issue-dialog-close').addEventListener('click', () => issueDialog.close());
+// A click on the backdrop lands on the dialog element itself.
+issueDialog.addEventListener('click', (event) => {
+    if (event.target === issueDialog) issueDialog.close();
+});
+
+function openIssue(row, detail) {
+    document.getElementById('issue-dialog-title').textContent = detail.label
+        ? `${detail.label} failed`
+        : row.kind === 'alert'
+          ? 'Monitor alert'
+          : 'Monitor notification';
+    const body = document.getElementById('issue-dialog-body');
+    const parts = [element('p', detail.summary ?? detail.text, 'issue-lead')];
+    const facts = element('dl', undefined, 'facts issue-facts');
+    const fact = (label, value) => {
+        if (value === undefined || value === null || value === '') return;
+        facts.append(element('dt', label), element('dd', String(value)));
+    };
+    fact('Alert sent', stamp(row.sentAt));
+    fact('Run started', detail.lastRun ? stamp(detail.lastRun) : '');
+    fact('Task', detail.task);
+    fact('Exit code', detail.exitCode);
+    fact('Log file', detail.logPath);
+    parts.push(facts);
+    const section = (title, content) => {
+        if (!content) return;
+        parts.push(element('h3', title), content);
+    };
+    section('Cause', detail.cause ? element('p', detail.cause) : null);
+    section('What this means', detail.meaning ? element('p', detail.meaning) : null);
+    if (detail.log?.length) section('Log lines from this run', element('pre', detail.log.join('\n'), 'issue-log'));
+    else if (detail.task && detail.exitCode)
+        section('Log lines from this run', element('p', 'No log lines were captured for this run.', 'note'));
+    if (!detail.meaning && !detail.task)
+        parts.push(element('p', 'This alert was recorded before detailed alert history was kept.', 'note'));
+    body.replaceChildren(...parts);
+    issueDialog.showModal();
+    body.scrollTop = 0;
+}
+
+function issueLinks(row) {
+    if (!row.issues?.length) return 'All checks healthy.';
+    const list = element('ul', undefined, 'issue-list');
+    row.issues.forEach((text, index) => {
+        const detail = row.details?.[index] ?? { text, summary: text };
+        const link = element('button', text, 'issue-link');
+        link.type = 'button';
+        link.setAttribute('aria-haspopup', 'dialog');
+        link.addEventListener('click', () => openIssue(row, detail));
+        const item = element('li');
+        item.append(link);
+        list.append(item);
+    });
+    return list;
+}
+
 function groupByDay(items, key) {
     const groups = new Map();
     for (const item of items) {
@@ -385,12 +443,8 @@ function render(snapshot) {
                         ? element('span', raised === 1 ? '1 alert' : `${raised} alerts`, 'badge bad')
                         : badge('recovered'),
                 ],
-                headers: [['Time'], ['Kind'], ['Issues', true]],
-                rows: rows.map((row) => [
-                    clock(row.sentAt),
-                    badge(row.kind),
-                    row.issues?.length ? row.issues.join(' ') : 'All checks healthy.',
-                ]),
+                headers: [['Time'], ['Kind'], ['Issues']],
+                rows: rows.map((row) => [clock(row.sentAt), badge(row.kind), issueLinks(row)]),
             };
         }),
         `No monitor notifications in the last ${historyDays.alerts} days.`

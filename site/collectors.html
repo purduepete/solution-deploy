@@ -144,5 +144,24 @@
                 collector databases (read-only) and the audit reports.
             </footer>
         </main>
+        <dialog id="issue-dialog" class="issue-dialog" aria-labelledby="issue-dialog-title">
+            <div class="issue-dialog-head">
+                <h2 id="issue-dialog-title">Alert details</h2>
+                <button type="button" class="issue-dialog-close" aria-label="Close">
+                    <svg
+                        aria-hidden="true"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path d="M6 6l12 12M18 6 6 18" />
+                    </svg>
+                </button>
+            </div>
+            <div id="issue-dialog-body" class="issue-dialog-body"></div>
+        </dialog>
     </body>
 </html>

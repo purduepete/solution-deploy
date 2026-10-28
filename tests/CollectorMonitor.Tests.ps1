@@ -41,17 +41,57 @@ Describe 'Independent collector monitoring' {
         $tasks[0].Name = 'SolutionDeploy-web-portfolio-stock-watchdog'
         $tasks[0].Result = 1
         $message = (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';'
-        $message | Should Match '^Stock collector health check failed\.'
-        $message | Should Match 'does not by itself mean collected prices are wrong'
-        $message | Should Match 'watchdog log'
-        $message | Should Match 'exit code 1'
+        $message | Should Be 'Stock collector health check failed (exit code 1).'
+        $detail = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)[0]
+        $detail.meaning | Should Match 'does not by itself mean collected prices are wrong'
+        $detail.task | Should Be 'SolutionDeploy-web-portfolio-stock-watchdog'
+        $detail.exitCode | Should Be 1
     }
     It 'names collection failures and explains the possible impact' {
         $tasks[0].Name = 'SolutionDeploy-web-options-collector'
         $tasks[0].Result = 1
         $message = (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';'
-        $message | Should Match '^Option quote collection failed\.'
-        $message | Should Match 'data may be incomplete'
+        $message | Should Be 'Option quote collection failed (exit code 1).'
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)[0].meaning |
+            Should Match 'may be incomplete'
+    }
+    It 'reads the cause and run lines from the failed task log' {
+        $logs = Join-Path $TestDrive 'web-options\shared\logs'
+        New-Item -ItemType Directory -Path $logs -Force | Out-Null
+        @(
+            '2026-10-28 13:10:35,731 INFO run=1 kind=settle {"status": "complete", "expected": 2, "price": 2}'
+            '2026-10-28 13:11:15,083 INFO local time 2026-10-28T13:11:15.083690-07:00'
+            '2026-10-28 13:11:16,600 INFO HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 200 OK"'
+            '2026-10-28 13:11:17,000 INFO connecting postgresql://collector:secretpw@localhost/web_options password=hunter2'
+            '2026-10-28 13:11:18,113 ERROR Quote stream timed out with missing prices'
+            '2026-10-28 13:11:18,200 INFO run=417676 kind=settle {"status": "partial", "expected": 346, "price": 344, "delta": 346, "iv": 346}'
+        ) | Set-Content (Join-Path $logs 'collector-tick.log')
+        $tasks[0].Name = 'SolutionDeploy-web-options-collector'
+        $tasks[0].Result = 1
+        $tasks[0].LastRun = [datetimeoffset]'2026-10-28T13:11:15-07:00'
+        $details = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)
+        Add-CollectorIssueLog -Details $details -AppsRoot $TestDrive
+        $details[0].summary | Should Be 'Option quote collection failed: Quote stream timed out with missing prices; settle run partial, 344 of 346 prices'
+        $details[0].log.Count | Should Be 3
+        $details[0].log -join "`n" | Should Not Match 'secretpw|hunter2|local time|HTTP Request|kind=settle \{"status": "complete"'
+        $details[0].logPath | Should Match 'collector-tick\.log$'
+    }
+    It 'prefers the watchdog unhealthy reason over notification errors' {
+        $log = Join-Path $TestDrive 'watchdog.log'
+        @(
+            '2026-10-28 13:12:15,000 INFO local time 2026-10-28T13:12:15-07:00'
+            '2026-10-28 13:12:15,100 WARNING unhealthy: heartbeat overdue, last 13:05:00 (7 min ago)'
+            '2026-10-28 13:12:15,200 ERROR notification failed: URLError'
+        ) | Set-Content $log
+        (Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-28T13:12:15')).Cause |
+            Should Be 'heartbeat overdue, last 13:05:00 (7 min ago)'
+    }
+    It 'keeps the last lines of an untimestamped audit log and names failed sections' {
+        $log = Join-Path $TestDrive 'audit.log'
+        @('Options audit 2026-10-27: FAIL', 'vader: pass matched=1/1', 'portfolio: fail matched=6/19') | Set-Content $log
+        $read = Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-28T00:00:00')
+        $read.Lines.Count | Should Be 3
+        $read.Cause | Should Be 'audit section portfolio failed'
     }
     It 'does not treat running status as a failed exit' {
         $tasks[0].State = 'Running'; $tasks[0].Result = 267009
@@ -232,5 +272,6 @@ Describe 'Monitor runner read-only evaluation' {
         $rows.Count | Should Be 1
         $rows[0].kind | Should Be 'alert'
         $rows[0].issues -join ';' | Should Match 'fixture scheduler unavailable'
+        $rows[0].details[0].meaning | Should Match 'collector health is unknown'
     }
 }

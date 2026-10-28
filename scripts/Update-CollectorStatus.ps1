@@ -133,7 +133,7 @@ $snapshot = [ordered]@{
 $folder = Split-Path -Parent $OutputPath
 New-Item -ItemType Directory -Force -Path $folder | Out-Null
 $temp = Join-Path $folder ".collector-status.$PID.tmp"
-$snapshot | ConvertTo-Json -Depth 6 -Compress | Set-Content -LiteralPath $temp -Encoding utf8NoBOM
+$snapshot | ConvertTo-Json -Depth 8 -Compress | Set-Content -LiteralPath $temp -Encoding utf8NoBOM
 Move-Item -LiteralPath $temp -Destination $OutputPath -Force
 if ($errors.Count) { Write-Warning ($errors -join '; ') }
 "collector-status: $($snapshot.runs.Count) runs, $($snapshot.audits.Count) audit rows, $($errors.Count) errors"

@@ -236,6 +236,84 @@ test('expected options skips show market closed while missing audits remain warn
     assert.match(source, /result\.append\(badge\(auditStatus\(row\)\)\)/);
 });
 
+test('alert issues open a dialog with cause, meaning and log lines', () => {
+    const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('\nconst issueDialog = '), source.indexOf('\nfunction groupByDay('));
+    const nodes = {};
+    const node = (tag, text, className) => ({
+        tag,
+        text,
+        className,
+        children: [],
+        listeners: {},
+        attributes: {},
+        setAttribute(name, value) {
+            this.attributes[name] = value;
+        },
+        addEventListener(type, listener) {
+            this.listeners[type] = listener;
+        },
+        append(...children) {
+            this.children.push(...children);
+        },
+        replaceChildren(...children) {
+            this.children = children;
+        },
+        querySelector: () => node('button'),
+        showModal() {
+            this.opened = true;
+        },
+    });
+    for (const id of ['issue-dialog', 'issue-dialog-title', 'issue-dialog-body']) nodes[id] = node('div');
+    const { issueLinks } = runInNewContext(`${code}\n({ issueLinks })`, {
+        element: node,
+        stamp: (value) => `stamp:${value}`,
+        document: { getElementById: (id) => nodes[id] },
+    });
+    assert.equal(issueLinks({ issues: [] }), 'All checks healthy.');
+    const row = {
+        kind: 'alert',
+        sentAt: '2026-10-28T13:11:29-07:00',
+        issues: ['Option quote collection failed: Quote stream timed out with missing prices'],
+        details: [
+            {
+                label: 'Option quote collection',
+                summary: 'Option quote collection failed: Quote stream timed out with missing prices',
+                cause: 'Quote stream timed out with missing prices',
+                meaning: 'data for that slot may be incomplete',
+                task: 'SolutionDeploy-web-options-collector',
+                exitCode: 1,
+                lastRun: '2026-10-28T13:10:15-07:00',
+                logPath: 'C:\\logs\\collector-tick.log',
+                log: ['13:11:18 ERROR Quote stream timed out with missing prices'],
+            },
+        ],
+    };
+    const link = issueLinks(row).children[0].children[0];
+    assert.equal(link.tag, 'button');
+    assert.equal(link.attributes['aria-haspopup'], 'dialog');
+    link.listeners.click();
+    assert.equal(nodes['issue-dialog'].opened, true);
+    assert.equal(nodes['issue-dialog-title'].textContent, 'Option quote collection failed');
+    const texts = nodes['issue-dialog-body'].children.flatMap((child) => [
+        child.text,
+        ...child.children.map((c) => c.text),
+    ]);
+    for (const expected of [
+        'Cause',
+        'What this means',
+        'Log lines from this run',
+        'SolutionDeploy-web-options-collector',
+        '1',
+    ])
+        assert(texts.includes(expected), expected);
+    assert(texts.includes('13:11:18 ERROR Quote stream timed out with missing prices'));
+    const old = issueLinks({ kind: 'alert', sentAt: 'x', issues: ['Old text'] }).children[0].children[0];
+    old.listeners.click();
+    assert.equal(nodes['issue-dialog-title'].textContent, 'Monitor alert');
+    assert(nodes['issue-dialog-body'].children.some((child) => /before detailed alert history/.test(child.text)));
+});
+
 test('audit info uses report counts, distinguishes unavailable data and renders errors as text', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
     const code = source.slice(source.indexOf('let auditInfoId'), source.indexOf('\nfunction table('));

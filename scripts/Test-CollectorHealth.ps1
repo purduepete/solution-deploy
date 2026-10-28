@@ -25,6 +25,8 @@ $names = @(
     'SolutionDeploy-web-portfolio-daily-audit'
 )
 $issues = @()
+$summaries = @()
+$details = @()
 try {
     $registered = @(Get-ScheduledTask -TaskPath '\JimlerTech\' -ErrorAction Stop)
     $tasks = @(
@@ -55,14 +57,24 @@ try {
             $optionsAuditReport = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -ErrorAction Stop
         }
     }
-    $issues = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -SnapshotError $snapshotError `
-            -OptionsAuditReport $optionsAuditReport)
+    $details = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -SnapshotError $snapshotError `
+            -OptionsAuditReport $optionsAuditReport -Detail)
+    # Log reading only adds explanation; it must never hide the issue itself.
+    try { Add-CollectorIssueLog -Details $details -AppsRoot $AppsRoot }
+    catch { Write-Warning "Collector logs could not be read: $($_.Exception.Message)" }
 }
 catch {
-    $issues = @("Collector monitor check failed: $($_.Exception.Message)")
+    $details = @([pscustomobject]@{
+            text = "Collector monitor check failed: $($_.Exception.Message)"
+            summary = "Collector monitor check failed: $($_.Exception.Message)"
+            meaning = 'The monitor itself could not finish its checks, so collector health is unknown until it succeeds.'
+        })
 }
+# The fingerprint uses the stable text; summaries carry the cause, which can change minute to minute.
+$issues = @($details | ForEach-Object text)
+$summaries = @($details | ForEach-Object summary)
 if ($EvaluateOnly) {
-    [pscustomobject]@{ checkedLocal = (Get-Date).ToString('o'); issues = $issues } | ConvertTo-Json -Depth 4
+    [pscustomobject]@{ checkedLocal = (Get-Date).ToString('o'); issues = $issues; details = $details } | ConvertTo-Json -Depth 5
     return
 }
 $previous = $null
@@ -77,7 +89,10 @@ if (Test-Path -LiteralPath $StatePath) {
     }
     catch {
         $previous = $null
-        $issues += 'Collector monitor notification state is unreadable; it will be replaced after successful alert delivery.'
+        $stateIssue = 'Collector monitor notification state is unreadable; it will be replaced after successful alert delivery.'
+        $issues += $stateIssue
+        $summaries += $stateIssue
+        $details += [pscustomobject]@{ text = $stateIssue; summary = $stateIssue; meaning = "State file: $StatePath" }
         Write-Warning "Notification state could not be read: $($_.Exception.Message)"
     }
 }
@@ -89,7 +104,7 @@ $remind = $issues.Count -and (-not $lastNotification -or
 if (($issues.Count -and ($changed -or $remind)) -or
     (-not $issues.Count -and $previous -and $previous.fingerprint)) {
     $title = if ($issues.Count) { 'Market collectors need attention' } else { 'Market collectors recovered' }
-    $message = if ($issues.Count) { $issues -join "`n" } else { 'Task schedules, snapshot, heartbeats and latest audit sections are healthy.' }
+    $message = if ($issues.Count) { $summaries -join "`n" } else { 'Task schedules, snapshot, heartbeats and latest audit sections are healthy.' }
     $global:LASTEXITCODE = 0
     & $AlertScript -Title $title -Message $message
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Collector alert delivery failed.' }
@@ -107,10 +122,11 @@ if (($issues.Count -and ($changed -or $remind)) -or
             sentAt = $lastNotification
             kind = if ($issues.Count) { 'alert' } else { 'recovered' }
             title = $title
-            issues = @($issues)
+            issues = @($summaries)
+            details = @($details)
         }
         $historyTemp = "$AlertLogPath.$PID.tmp"
-        ConvertTo-Json -InputObject @($history) -Depth 4 | Set-Content -LiteralPath $historyTemp -Encoding utf8NoBOM
+        ConvertTo-Json -InputObject @($history) -Depth 6 | Set-Content -LiteralPath $historyTemp -Encoding utf8NoBOM
         Move-Item -LiteralPath $historyTemp -Destination $AlertLogPath -Force
     }
     catch { Write-Warning "Alert history could not be written: $($_.Exception.Message)" }
