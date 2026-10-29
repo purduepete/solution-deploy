@@ -255,7 +255,7 @@ function Get-CollectorMonitorIssue {
             if (-not $rows.Count) { & $add "$job has no audit report." 'No audit report file was found in the last 30 days.'; continue }
             $latest = @($rows | Sort-Object writtenAt -Descending)[0]
             if ($Now - [datetimeoffset]$latest.writtenAt -gt [timespan]::FromHours(26)) {
-                & $add "$job report is overdue." "The latest audit report was written $($latest.writtenAt); a new one is expected every night at 23:30."
+                & $add "$job report is overdue." "The latest audit report was written $($latest.writtenAt); a new one is expected daily (stock 17:30, options 13:30)."
             }
             foreach ($row in @($rows | Where-Object date -EQ $latest.date)) {
                 $expectedSkip = $job -eq 'options-audit' -and $row.status -eq 'not_run' -and
