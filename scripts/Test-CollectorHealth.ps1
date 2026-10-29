@@ -7,6 +7,7 @@ param(
     [string]$AlertScript = 'C:\ProgramData\JimlerTech\PostgreSQL\Send-BackupAlert.ps1',
     # Shown on the Collectors page; the LOCAL SERVICE snapshot builder can read this folder, not the monitor's.
     [string]$AlertLogPath = 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\collector-alerts.json',
+    [string]$MonitorPath = 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\collector-monitor.json',
     [int]$AlertLogDays = 30,
     [switch]$EvaluateOnly
 )
@@ -16,13 +17,11 @@ $names = @(
     'SolutionDeploy-collector-status',
     'SolutionDeploy-web-options-collector',
     'SolutionDeploy-web-options-collector-watchdog',
-    'SolutionDeploy-web-options-daily-audit',
     'SolutionDeploy-web-portfolio-stock-collector',
     'SolutionDeploy-web-portfolio-stock-watchdog',
     'SolutionDeploy-web-portfolio-reference-earnings',
     'SolutionDeploy-web-portfolio-reference-indices',
-    'SolutionDeploy-web-portfolio-reference-splits',
-    'SolutionDeploy-web-portfolio-daily-audit'
+    'SolutionDeploy-web-portfolio-reference-splits'
 )
 $issues = @()
 $summaries = @()
@@ -40,7 +39,6 @@ try {
             [pscustomobject]@{
                 Name = $name; Exists = $true; State = [string]$task[0].State
                 Result = $info.LastTaskResult; LastRun = $info.LastRunTime
-                Daily = $name.EndsWith('-daily-audit')
             }
         }
     )
@@ -48,17 +46,7 @@ try {
     $snapshotError = ''
     try { $snapshot = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json -ErrorAction Stop }
     catch { $snapshotError = $_.Exception.Message }
-    $optionsAuditReport = $null
-    $optionsTask = @($tasks | Where-Object Name -EQ 'SolutionDeploy-web-options-daily-audit')[0]
-    if ($optionsTask.Exists -and $optionsTask.Result -notin @(0, 267009, 267011, 2147946720)) {
-        $date = ([datetimeoffset]$optionsTask.LastRun).ToString('yyyy-MM-dd')
-        $reportPath = Join-Path $AppsRoot "web-options\shared\logs\audit\options-$date.json"
-        if (Test-Path -LiteralPath $reportPath) {
-            $optionsAuditReport = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json -ErrorAction Stop
-        }
-    }
-    $details = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -SnapshotError $snapshotError `
-            -OptionsAuditReport $optionsAuditReport -Detail)
+    $details = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -SnapshotError $snapshotError -Detail)
     # Log reading only adds explanation; it must never hide the issue itself.
     try { Add-CollectorIssueLog -Details $details -AppsRoot $AppsRoot }
     catch { Write-Warning "Collector logs could not be read: $($_.Exception.Message)" }
@@ -81,7 +69,7 @@ $previous = $null
 if (Test-Path -LiteralPath $StatePath) {
     try {
         $previous = Get-Content -LiteralPath $StatePath -Raw | ConvertFrom-Json -ErrorAction Stop
-        foreach ($property in @('fingerprint', 'lastNotificationLocal')) {
+        foreach ($property in @('fingerprint', 'issues', 'lastNotificationLocal')) {
             if ($null -eq $previous -or -not $previous.PSObject.Properties[$property]) {
                 throw 'Notification state is missing required properties.'
             }
@@ -98,13 +86,16 @@ if (Test-Path -LiteralPath $StatePath) {
 }
 $fingerprint = (@($issues | Sort-Object) -join "`n")
 $lastNotification = if ($previous) { $previous.lastNotificationLocal } else { $null }
-$changed = $null -eq $previous -or $previous.fingerprint -cne $fingerprint
+# Notify once when a problem opens and once when everything clears. An issue clearing while others stay
+# open does not send again; the 24-hour reminder repeats open issues.
+$previousIssues = if ($previous) { @($previous.issues) } else { @() }
+$changed = $null -eq $previous -or @($issues | Where-Object { $_ -cnotin $previousIssues }).Count -gt 0
 $remind = $issues.Count -and (-not $lastNotification -or
     [datetimeoffset]::Now - [datetimeoffset]$lastNotification -gt [timespan]::FromHours(24))
 if (($issues.Count -and ($changed -or $remind)) -or
     (-not $issues.Count -and $previous -and $previous.fingerprint)) {
     $title = if ($issues.Count) { 'Market collectors need attention' } else { 'Market collectors recovered' }
-    $message = if ($issues.Count) { $summaries -join "`n" } else { 'Task schedules, snapshot, heartbeats and latest audit sections are healthy.' }
+    $message = if ($issues.Count) { $summaries -join "`n" } else { 'Task schedules, snapshot, heartbeats and collection runs are healthy.' }
     $global:LASTEXITCODE = 0
     & $AlertScript -Title $title -Message $message
     if (-not $? -or $LASTEXITCODE -ne 0) { throw 'Collector alert delivery failed.' }
@@ -146,4 +137,12 @@ finally {
     if (Test-Path -LiteralPath $temp) { Remove-Item -LiteralPath $temp -Force }
 }
 $record | ConvertTo-Json -Depth 4
+# Current result for the Collectors page, which runs as LOCAL SERVICE and cannot read the state folder.
+try {
+    $monitorTemp = "$MonitorPath.$PID.tmp"
+    [ordered]@{ checkedAt = $record.checkedLocal; details = @($details) } | ConvertTo-Json -Depth 6 |
+        Set-Content -LiteralPath $monitorTemp -Encoding utf8NoBOM
+    Move-Item -LiteralPath $monitorTemp -Destination $MonitorPath -Force
+}
+catch { Write-Warning "Monitor result could not be written: $($_.Exception.Message)" }
 if ($issues.Count) { exit 1 }

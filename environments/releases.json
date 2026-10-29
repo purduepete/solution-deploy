@@ -134,8 +134,7 @@
             "SolutionDeploy-web-portfolio-stock-watchdog",
             "SolutionDeploy-web-portfolio-reference-earnings",
             "SolutionDeploy-web-portfolio-reference-indices",
-            "SolutionDeploy-web-portfolio-reference-splits",
-            "SolutionDeploy-web-portfolio-daily-audit"
+            "SolutionDeploy-web-portfolio-reference-splits"
           ]
         }
       },
@@ -146,7 +145,6 @@
         "SolutionDeploy-web-portfolio-reference-earnings",
         "SolutionDeploy-web-portfolio-reference-indices",
         "SolutionDeploy-web-portfolio-reference-splits",
-        "SolutionDeploy-web-portfolio-daily-audit",
         "SolutionDeploy-web-portfolio-telegram"
       ],
       "task": "SolutionDeploy-web-portfolio",
@@ -169,7 +167,7 @@
         "retirement/Fidelity files",
         "Telegram config and sign-in session"
       ],
-      "componentNote": "A web release stops the site for about 30 seconds. Web Portfolio normally allows no downtime, so release web only in an agreed window. The Telegram pull runs from current, and its config, sign-in session, venv and logs carry forward to each new release. The stock collector, watchdog, reference jobs and audit share one pinned-job release folder, released as -Component stock-collector."
+      "componentNote": "A web release stops the site for about 30 seconds. Web Portfolio normally allows no downtime, so release web only in an agreed window. The Telegram pull runs from current, and its config, sign-in session, venv and logs carry forward to each new release. The stock collector, watchdog and reference jobs share one pinned-job release folder, released as -Component stock-collector."
     },
     "web-options": {
       "procedure": "hand-placed",
@@ -184,18 +182,13 @@
           "requirements": "collector/requirements.txt",
           "runtime": "collector-f67d494-py3148",
           "runtimeCommit": "f67d4947b62db3ebdbf2a771aaa2fabd9167b1b2",
-          "tasks": [
-            "SolutionDeploy-web-options-collector",
-            "SolutionDeploy-web-options-collector-watchdog",
-            "SolutionDeploy-web-options-daily-audit"
-          ]
+          "tasks": ["SolutionDeploy-web-options-collector", "SolutionDeploy-web-options-collector-watchdog"]
         }
       },
       "tasks": [
         "SolutionDeploy-web-options",
         "SolutionDeploy-web-options-collector",
-        "SolutionDeploy-web-options-collector-watchdog",
-        "SolutionDeploy-web-options-daily-audit"
+        "SolutionDeploy-web-options-collector-watchdog"
       ],
       "task": "SolutionDeploy-web-options",
       "stop": "task",
@@ -209,7 +202,7 @@
       },
       "build": "npm ci, build:shared, build:backend, build:frontend:access; host npm ci --omit=dev",
       "preserve": ["shared secrets/configuration", "Azure SQL dashboard", "PostgreSQL web_options", "collector state"],
-      "componentNote": "Collector, watchdog and daily audit tasks share one pinned-job release folder, released as -Component collector. A web release never repoints them."
+      "componentNote": "Collector and watchdog tasks share one pinned-job release folder, released as -Component collector. A web release never repoints them."
     },
     "solution-deploy": {
       "procedure": "shared",

@@ -205,37 +205,66 @@ test('history ranges include today and exactly the selected number of calendar d
     assert.equal(includes('2026-09-24', '2026-10-24', 30), false);
     assert.equal(includes('2026-10-27', '2026-11-02', 7), true);
     const page = readFileSync(new URL('../site/collectors.html', import.meta.url), 'utf8');
-    for (const group of ['alerts', 'runs', 'audits']) assert(page.includes(`id="${group}-range"`));
-    assert.equal((page.match(/class="history-heading"/g) ?? []).length, 3);
+    for (const group of ['alerts', 'runs']) assert(page.includes(`id="${group}-range"`));
+    assert.equal((page.match(/class="history-heading"/g) ?? []).length, 2);
     assert.doesNotMatch(page, /<(select|datalist)\b/i);
     assert.match(source, /option\.setAttribute\('role', 'menuitemradio'\)/);
-    assert.match(source, /const historyDays = \{ alerts: 7, runs: 7, audits: 7 \}/);
+    assert.match(source, /const historyDays = \{ alerts: 7, runs: 7 \}/);
 });
 
-test('expected options skips show market closed while missing audits remain warnings', () => {
+test('current checks show the monitor result without any audit section', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
-    const code = source.slice(source.indexOf('function auditStatus('), source.indexOf('\nconst historyDays'));
-    const { auditStatus, auditOutcome } = runInNewContext(`${code}\n({ auditStatus, auditOutcome })`);
-    const closed = { job: 'options-audit', status: 'not_run', reportStatus: 'pass' };
-    const passed = { job: 'stock-audit', status: 'pass', reportStatus: 'pass' };
-    assert.equal(auditStatus(closed), 'market_closed');
-    assert.equal(auditOutcome([closed, closed, closed]), 'market_closed');
-    assert.equal(auditOutcome([passed, closed]), 'pass');
-    for (const row of [
-        { ...closed, reportStatus: 'fail' },
-        { ...closed, reportStatus: undefined },
-        { ...closed, job: 'stock-audit' },
-    ]) {
-        assert.equal(auditStatus(row), 'not_run');
-        assert.equal(auditOutcome([passed, row]), 'not_run');
-    }
-    assert.equal(auditOutcome([passed, { ...closed, status: 'fail' }]), 'fail');
-    assert.equal(auditOutcome([passed, { ...closed, status: 'unreadable' }]), 'fail');
-    assert.match(source, /market_closed: 'muted'/);
-    assert.match(source, /No exchange session\./);
-    assert.match(source, /result\.append\(badge\(auditStatus\(row\)\)\)/);
+    const page = readFileSync(new URL('../site/collectors.html', import.meta.url), 'utf8');
+    assert.doesNotMatch(`${source}\n${page}`, /audit/i);
+    assert(page.includes('id="current"'));
+    const code = source.slice(source.indexOf('function renderCurrent('), source.indexOf('\nconst historyDays'));
+    const node = (tag, text, className) => ({
+        tag,
+        text,
+        className,
+        children: [],
+        listeners: {},
+        attributes: {},
+        setAttribute(name, value) {
+            this.attributes[name] = value;
+        },
+        addEventListener(type, listener) {
+            this.listeners[type] = listener;
+        },
+        append(...children) {
+            this.children.push(...children);
+        },
+        prepend(...children) {
+            this.children.unshift(...children);
+        },
+        replaceChildren(...children) {
+            this.children = children;
+        },
+    });
+    const target = node('div');
+    const opened = [];
+    const renderCurrent = runInNewContext(`${code}\nrenderCurrent`, {
+        element: node,
+        badge: (status) => node('span', status, 'badge'),
+        stamp: (value) => `stamp:${value}`,
+        alertIcon: () => node('svg'),
+        openIssue: (row, detail) => opened.push([row, detail]),
+        document: { getElementById: () => target },
+    });
+    renderCurrent(undefined);
+    assert.match(target.children[0].text, /not published/);
+    renderCurrent({ checkedAt: '2026-10-28T13:20:00-07:00', details: [] });
+    assert.equal(target.children.length, 1);
+    assert.equal(target.children[0].children[0].text, 'healthy');
+    const detail = { text: 'Stock prices: the last 2 session runs are incomplete.', summary: 'Stock prices: quota' };
+    renderCurrent({ checkedAt: '2026-10-28T13:20:00-07:00', details: [detail] });
+    assert.equal(target.children[0].children[0].text, '1 open issue');
+    const button = target.children[1].children[0].children[0];
+    assert.equal(button.text, 'Stock prices: quota');
+    button.listeners.click();
+    assert.equal(opened[0][1], detail);
+    assert.equal(opened[0][0].checkedAt, '2026-10-28T13:20:00-07:00');
 });
-
 test('alert issues open a dialog with cause, meaning and log lines', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
     const code = source.slice(source.indexOf('\nconst issueDialog = '), source.indexOf('\nfunction groupByDay('));
@@ -316,38 +345,6 @@ test('alert issues open a dialog with cause, meaning and log lines', () => {
     old.listeners.click();
     assert.equal(nodes['issue-dialog-title'].textContent, 'Monitor alert');
     assert(nodes['issue-dialog-body'].children.some((child) => /before detailed alert history/.test(child.text)));
-});
-
-test('audit info uses report counts, distinguishes unavailable data and renders errors as text', () => {
-    const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
-    const code = source.slice(source.indexOf('let auditInfoId'), source.indexOf('\nfunction table('));
-    const element = (tag, text) => ({
-        tag,
-        text,
-        children: [],
-        type: '',
-        setAttribute() {},
-        addEventListener() {},
-        append(...children) {
-            this.children.push(...children);
-        },
-    });
-    const info = runInNewContext(`${code}\nauditInfo`, {
-        element,
-        crypto: {},
-        Number,
-    });
-    const first = info({ audit: 'Stock', subject: 'splits' });
-    const second = info({ audit: 'Stock', subject: 'splits' });
-    assert.notEqual(first.children[1].id, second.children[1].id);
-    const text = (row) =>
-        info({ audit: 'Stock', subject: 'splits', ...row })
-            .children[1].children.map((child) => child.text)
-            .join('\n');
-    assert.match(text({ counts: { azure: 0, local: 0, mismatched: 0 } }), /Azure: 0\nLocal: 0\nMismatched: 0/);
-    assert.match(text({ counts: { azure: 3, local: 2, missing_local: 1 } }), /Missing locally: 1/);
-    assert.match(text({}), /Comparison counts unavailable/);
-    assert.match(text({ counts: {}, error: 'azure_TimeoutError' }), /Comparison error: azure_TimeoutError/);
 });
 
 test('inventory describes every published host and its data source', () => {

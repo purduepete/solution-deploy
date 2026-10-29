@@ -10,20 +10,17 @@ data sources. [Private access](https://jimbrownhome1.tail8ad282.ts.net:8798/) us
 Tailscale. Edit `site/sites.json`; see [directory updates and deployment](docs/Directory.md).
 
 The [Collectors page](https://solution-deploy.jimlertech.com/collectors) shows each
-market data job's schedule, last slot and heartbeat, every slot from the last 7 days
-and 14 days of nightly Azure audit results. Times are Pacific. The
+market data job's schedule, last slot and heartbeat, every slot from the last 7 days,
+the monitor's current checks and its alert history. Times are Pacific. The
 `\JimlerTech\SolutionDeploy-collector-status` task runs
 `scripts\Update-CollectorStatus.ps1` as LOCAL SERVICE every 5 minutes. It reads
 `web_portfolio` and `web_options` through each collector's runtime role in read-only
-sessions, reads the audit JSON under each app's `shared\logs\audit`, and writes
+sessions, copies the monitor's latest result and alert history, and writes
 `data\collector-status.json`. The server reads that file on each request and returns
 503 when it is missing. The job catalog at the top of the script mirrors the
 collector schedules; update it when a schedule changes.
-Audit snapshot rows retain the overall `reportStatus`. The monitor accepts options
-`not_run` sections only when that report passed, as on non-session days. Missing
-reports, failed reports and unverified skips still alert.
-The page labels these expected options skips as neutral "Market closed" results.
-They do not prevent the combined day summary from passing when its required checks pass.
+Each run shows how many rows were usable. A stock run whose only gap is a stale VIX
+quote is shown as complete for monitoring.
 
 Collector release-access checks and the separate host-level failure monitor are
 described in [Collector reliability](docs/CollectorReliability.md).

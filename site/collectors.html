@@ -114,6 +114,10 @@
             </nav>
             <p id="status" role="status">Loading collector status...</p>
             <p id="error" role="alert" hidden></p>
+            <section aria-labelledby="current-title">
+                <h2 id="current-title">Current Checks</h2>
+                <div id="current"></div>
+            </section>
             <section aria-labelledby="jobs-title">
                 <h2 id="jobs-title">Jobs</h2>
                 <div id="jobs"></div>
@@ -132,16 +136,9 @@
                 </div>
                 <div id="runs" class="days"></div>
             </section>
-            <section class="collector-history" aria-labelledby="audits-title">
-                <div class="history-heading">
-                    <h2 id="audits-title">Nightly Audits</h2>
-                    <div id="audits-range" class="history-range"></div>
-                </div>
-                <div id="audits" class="days"></div>
-            </section>
             <footer>
                 <span id="updated"></span> Times are Pacific. The host rebuilds this snapshot every 5 minutes from the
-                collector databases (read-only) and the audit reports.
+                collector databases (read-only) and the monitor's latest checks.
             </footer>
         </main>
         <dialog id="issue-dialog" class="issue-dialog" aria-labelledby="issue-dialog-title">

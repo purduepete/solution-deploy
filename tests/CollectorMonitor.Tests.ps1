@@ -4,77 +4,111 @@ Describe 'Independent collector monitoring' {
     BeforeEach {
         $now = [datetimeoffset]'2026-10-23T19:30:00-07:00'
         $tasks = @([pscustomobject]@{
-            Name = 'fixture'; Exists = $true; State = 'Ready'; Result = 0
-            LastRun = $now.AddMinutes(-1); Daily = $false
+            Name = 'fixture'; Exists = $true; State = 'Ready'; Result = 0; LastRun = $now.AddMinutes(-1)
         })
         $snapshot = [pscustomobject]@{
-            schemaVersion = 1; generatedAt = $now.AddMinutes(-4).ToString('o'); errors = @()
+            schemaVersion = 1; generatedAt = $now.AddMinutes(-4).ToString('o'); errors = @(); runs = @()
             health = @('stock-prices', 'earnings', 'indices', 'splits', 'option-quotes') | ForEach-Object {
                 [pscustomobject]@{ job = $_; heartbeatAt = $now.AddMinutes(-1).ToString('o') }
             }
-
-            audits = @('stock-audit', 'options-audit') | ForEach-Object {
-                [pscustomobject]@{
-                    job = $_; date = '2026-10-22'; writtenAt = $now.AddHours(-20).ToString('o')
-                    informational = $false; status = 'pass'; subject = 'coverage'
-                }
-            }
         }
-        $optionsReport = [pscustomobject]@{
-            date = '2026-10-22'; status = 'pass'; notification_sent = $true
-            generated_at_local = $now.AddMinutes(-5).ToString('o')
-            sections = [pscustomobject]@{
-                vader = [pscustomobject]@{ status = 'pass' }
-                portfolio = [pscustomobject]@{ status = 'pass' }
-                coverage = [pscustomobject]@{ status = 'pass' }
+        # A run scheduled $Ago minutes before now whose retry window closed 5 minutes after it started.
+        $run = {
+            param([string]$Job, [string]$Kind, [string]$Status, [int]$Ago, [bool]$VixOnly = $false)
+            [pscustomobject]@{
+                job = $Job; kind = $Kind; status = $Status; expected = 10; ok = if ($Status -eq 'complete') { 10 } else { 7 }
+                scheduledAt = $now.AddMinutes(-$Ago).ToString('o'); deadline = $now.AddMinutes(5 - $Ago).ToString('o')
+                vixOnly = $VixOnly
             }
         }
     }
     It 'accepts fresh data outside market hours because minute tasks still run' {
         @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
     }
-    It 'detects the original launcher failure even with a fresh heartbeat' {
-        $tasks[0].Result = 64
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'exit code 64'
+    It 'leaves collector exit codes to the run checks' {
+        foreach ($name in @('SolutionDeploy-web-portfolio-stock-collector', 'SolutionDeploy-web-portfolio-stock-watchdog',
+                'SolutionDeploy-web-options-collector', 'SolutionDeploy-web-portfolio-reference-splits')) {
+            $tasks[0].Name = $name; $tasks[0].Result = 1
+            @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+        }
     }
-    It 'explains watchdog failures without claiming price data is wrong' {
-        $tasks[0].Name = 'SolutionDeploy-web-portfolio-stock-watchdog'
-        $tasks[0].Result = 1
-        $message = (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';'
-        $message | Should Be 'Stock collector health check failed (exit code 1).'
+    It 'reports a failed publisher run with a stable text' {
+        $tasks[0].Name = 'SolutionDeploy-collector-status'; $tasks[0].Result = 64
         $detail = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)[0]
-        $detail.meaning | Should Match 'does not by itself mean collected prices are wrong'
-        $detail.task | Should Be 'SolutionDeploy-web-portfolio-stock-watchdog'
-        $detail.exitCode | Should Be 1
+        $detail.text | Should Be 'Collector status publisher failed.'
+        $detail.meaning | Should Match 'code 64'
+        $detail.exitCode | Should Be 64
     }
-    It 'names collection failures and explains the possible impact' {
-        $tasks[0].Name = 'SolutionDeploy-web-options-collector'
-        $tasks[0].Result = 1
-        $message = (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';'
-        $message | Should Be 'Option quote collection failed (exit code 1).'
-        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)[0].meaning |
-            Should Match 'may be incomplete'
+    It 'tolerates one incomplete session slot and reports 2 in a row' {
+        $snapshot.runs = @((& $run 'stock-prices' 'session' 'complete' 30), (& $run 'stock-prices' 'session' 'partial' 20))
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+        $snapshot.runs = @((& $run 'stock-prices' 'session' 'missed' 30), (& $run 'stock-prices' 'session' 'partial' 20))
+        $detail = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)[0]
+        $detail.text | Should Be 'Stock prices: the last 2 session runs are incomplete.'
+        $detail.meaning | Should Match '7 of 10 usable'
+        $detail.task | Should Be 'SolutionDeploy-web-portfolio-stock-collector'
+        $detail.job | Should Be 'stock-prices'
     }
-    It 'reads the cause and run lines from the failed task log' {
+    It 'judges a run only after its deadline' {
+        $snapshot.runs = @((& $run 'option-quotes' 'open_session' 'failed' 30), (& $run 'option-quotes' 'open_session' 'running' 3))
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+    }
+    It 'accepts a stock run whose only shortfall is a stale VIX quote' {
+        $snapshot.runs = @((& $run 'stock-prices' 'session' 'partial' 30 $true), (& $run 'stock-prices' 'session' 'partial' 20 $true),
+            (& $run 'stock-prices' 'close' 'partial' 15 $true))
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+    }
+    It 'reports a bad close or settle run unless a later recovery run completed' {
+        $snapshot.runs = @((& $run 'option-quotes' 'close' 'partial' 60), (& $run 'option-quotes' 'settle' 'complete' 50))
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
+            Should Be 'Option quotes: the latest close run is incomplete.'
+        $snapshot.runs += & $run 'option-quotes' 'recovery' 'complete' 40
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+    }
+    It 'reports the latest reference run when it did not complete' {
+        $snapshot.runs = @((& $run 'earnings' 'earnings' 'complete' 600), (& $run 'earnings' 'earnings' 'failed' 60))
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
+            Should Be 'Earnings dates: the latest run did not complete.'
+        $snapshot.runs = @((& $run 'splits' 'splits' 'missed' 600), (& $run 'splits' 'splits' 'no_work' 60))
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+    }
+    It 'ignores runs older than the lookback and snapshots without deadlines' {
+        $snapshot.runs = @((& $run 'indices' 'indices' 'failed' 1500))
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+        $old = & $run 'indices' 'indices' 'failed' 60
+        $old.PSObject.Properties.Remove('deadline')
+        $snapshot.runs = @($old)
+        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
+    }
+    It 'attaches the collector log for the bad run' {
+        $logs = Join-Path $TestDrive 'web-portfolio\shared\logs'
+        New-Item -ItemType Directory -Path $logs -Force | Out-Null
+        $at = $now.AddMinutes(-60).LocalDateTime
+        @(
+            "$($at.ToString('yyyy-MM-dd HH:mm:ss')),000 INFO local time $($at.ToString('s'))"
+            "$($at.AddSeconds(5).ToString('yyyy-MM-dd HH:mm:ss')),000 ERROR Finnhub quota exhausted"
+        ) | Set-Content (Join-Path $logs 'stock-reference-earnings.log')
+        $snapshot.runs = @((& $run 'earnings' 'earnings' 'failed' 60))
+        $details = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)
+        Add-CollectorIssueLog -Details $details -AppsRoot $TestDrive
+        $details[0].summary | Should Be 'Earnings dates: Finnhub quota exhausted'
+        $details[0].text | Should Be 'Earnings dates: the latest run did not complete.'
+    }
+    It 'reads the cause and run lines from a task log' {
         $logs = Join-Path $TestDrive 'web-options\shared\logs'
         New-Item -ItemType Directory -Path $logs -Force | Out-Null
         @(
             '2026-10-28 13:10:35,731 INFO run=1 kind=settle {"status": "complete", "expected": 2, "price": 2}'
             '2026-10-28 13:11:15,083 INFO local time 2026-10-28T13:11:15.083690-07:00'
             '2026-10-28 13:11:16,600 INFO HTTP Request: POST https://api.tastyworks.com/oauth/token "HTTP/1.1 200 OK"'
-            '2026-10-28 13:11:17,000 INFO connecting postgresql://collector:secretpw@localhost/web_options password=hunter2'
+            '2026-10-28 13:11:17,000 INFO connecting ******localhost/web_options ******'
             '2026-10-28 13:11:18,113 ERROR Quote stream timed out with missing prices'
             '2026-10-28 13:11:18,200 INFO run=417676 kind=settle {"status": "partial", "expected": 346, "price": 344, "delta": 346, "iv": 346}'
         ) | Set-Content (Join-Path $logs 'collector-tick.log')
-        $tasks[0].Name = 'SolutionDeploy-web-options-collector'
-        $tasks[0].Result = 1
-        $tasks[0].LastRun = [datetimeoffset]'2026-10-28T13:11:15-07:00'
-        $details = @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now -Detail)
-        Add-CollectorIssueLog -Details $details -AppsRoot $TestDrive
-        $details[0].summary | Should Be 'Option quote collection failed: Quote stream timed out with missing prices; settle run partial, 344 of 346 prices'
-        $details[0].log.Count | Should Be 3
-        $details[0].log -join "`n" | Should Not Match 'secretpw|hunter2|local time|HTTP Request|kind=settle \{"status": "complete"'
-        $details[0].logPath | Should Match 'collector-tick\.log$'
+        $read = Read-CollectorTaskLog -Path (Join-Path $logs 'collector-tick.log') -Since ([datetime]'2026-10-28T13:11:15')
+        $read.Cause | Should Be 'Quote stream timed out with missing prices; settle run partial, 344 of 346 prices'
+        $read.Lines.Count | Should Be 3
+        $read.Lines -join "`n" | Should Not Match 'local time|HTTP Request|kind=settle \{"status": "complete"'
     }
     It 'prefers the watchdog unhealthy reason over notification errors' {
         $log = Join-Path $TestDrive 'watchdog.log'
@@ -111,13 +145,6 @@ Describe 'Independent collector monitoring' {
         $read = Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-28T13:10:15')
         $read.Lines.Count | Should Be 0
         $read.Cause | Should Be ''
-    }
-    It 'keeps the last lines of an untimestamped audit log and names failed sections' {
-        $log = Join-Path $TestDrive 'audit.log'
-        @('Options audit 2026-10-27: FAIL', 'vader: pass matched=1/1', 'portfolio: fail matched=6/19') | Set-Content $log
-        $read = Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-28T00:00:00')
-        $read.Lines.Count | Should Be 3
-        $read.Cause | Should Be 'audit section portfolio failed'
     }
     It 'does not treat running status as a failed exit' {
         $tasks[0].State = 'Running'; $tasks[0].Result = 267009
@@ -158,146 +185,54 @@ Describe 'Independent collector monitoring' {
         $issues | Should Match 'publisher reports errors'
         $issues | Should Not Match 'private connection'
     }
-    It 'detects missing audit reports and future heartbeat timestamps' {
-        $snapshot.audits = @()
+    It 'detects future heartbeat timestamps' {
         $snapshot.health[0].heartbeatAt = $now.AddMinutes(3).ToString('o')
-        $issues = (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';'
-        $issues | Should Match 'no audit report'
-        $issues | Should Match 'future'
-    }
-    It 'reports data audit failures despite task exit success' {
-        $snapshot.audits[0].status = 'fail'
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'stock-audit section coverage reports fail'
-    }
-    It 'accepts a verified successful rerun after the failed options task' {
-        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
-        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
-        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport).Count | Should Be 0
-    }
-    It 'still reports a failing snapshot section after a successful rerun' {
-        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
-        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
-        $snapshot.audits[1].status = 'fail'
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'options-audit section coverage reports fail'
-    }
-    It 'retains a task failure when the report predates the failed execution' {
-        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
-        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
-        $optionsReport.generated_at_local = $now.AddHours(-21).ToString('o')
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
-    }
-    It 'requires the failed execution date and a successful notification' {
-        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
-        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
-        $optionsReport.date = '2026-10-23'
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
-        $optionsReport.date = '2026-10-22'; $optionsReport.notification_sent = $false
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
-    }
-    It 'does not accept missing or failing audit sections as recovery' {
-        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
-        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
-        $optionsReport.sections.coverage.status = 'fail'
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
-        $optionsReport.sections.PSObject.Properties.Remove('coverage')
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
-    }
-    It 'rejects future-dated recovery and still detects a stale snapshot' {
-        $tasks[0].Name = 'SolutionDeploy-web-options-daily-audit'
-        $tasks[0].Result = 1; $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
-        $optionsReport.generated_at_local = $now.AddMinutes(3).ToString('o')
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'exit code 1'
-        $optionsReport.generated_at_local = $now.AddMinutes(-5).ToString('o')
-        $snapshot.generatedAt = $now.AddMinutes(-13).ToString('o')
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now `
-                -OptionsAuditReport $optionsReport) -join ';' | Should Match 'snapshot timestamp'
-    }
-    It 'ignores informational audit differences' {
-        $snapshot.audits[0].status = 'fail'; $snapshot.audits[0].informational = $true
-        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
-    }
-    It 'accepts options non-session skips only when the overall audit passed' {
-        $row = $snapshot.audits[1]
-        $row.status = 'not_run'
-        $row | Add-Member -NotePropertyName reportStatus -NotePropertyValue 'pass'
-        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
-        $row.reportStatus = 'fail'
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
-            Should Match 'options-audit section coverage reports not_run'
-    }
-    It 'still reports unverified skips and missing stock earnings runs' {
-        $snapshot.audits[1].status = 'not_run'
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
-            Should Match 'options-audit section coverage reports not_run'
-        $snapshot.audits[0].status = 'not_run'
-        $snapshot.audits[0] | Add-Member -NotePropertyName reportStatus -NotePropertyValue 'pass'
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' |
-            Should Match 'stock-audit section coverage reports not_run'
-    }
-    It 'allows nightly schedules until the next report is due' {
-        $tasks[0].Daily = $true; $tasks[0].LastRun = $now.AddHours(-20)
-        @(Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now).Count | Should Be 0
-        $tasks[0].LastRun = $now.AddHours(-27)
-        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'daily run is overdue'
+        (Get-CollectorMonitorIssue -Tasks $tasks -Snapshot $snapshot -Now $now) -join ';' | Should Match 'future'
     }
 }
 
-Describe 'Monitor runner read-only evaluation' {
-    It 'reads the failed task date report for rerun verification' {
-        $lastRun = (Get-Date).AddHours(-20)
-        $scheduledTask = New-CimInstance -ClassName MSFT_ScheduledTask -ClientOnly -Property @{
-            TaskName = 'SolutionDeploy-web-options-daily-audit'; State = 'Ready'
+Describe 'Monitor runner' {
+    BeforeEach {
+        $alert = Join-Path $TestDrive 'alert.ps1'
+        $sent = Join-Path $TestDrive 'sent.txt'
+        Remove-Item -LiteralPath $sent -ErrorAction SilentlyContinue
+        Set-Content -LiteralPath $alert -Value "param(`$Title, `$Message) Add-Content -LiteralPath '$sent' -Value `$Title; `$global:LASTEXITCODE = 0"
+        $runner = Join-Path $PSScriptRoot '..\scripts\Test-CollectorHealth.ps1'
+        $common = @{
+            StatePath = Join-Path $TestDrive 'state.json'; AlertScript = $alert
+            AlertLogPath = Join-Path $TestDrive 'collector-alerts.json'; MonitorPath = Join-Path $TestDrive 'collector-monitor.json'
         }
-        Mock Get-ScheduledTask { $scheduledTask }
-        Mock Get-ScheduledTaskInfo { [pscustomobject]@{ LastTaskResult = 1; LastRunTime = $lastRun } }
-        $folder = Join-Path $TestDrive 'web-options\shared\logs\audit'
-        New-Item -ItemType Directory -Path $folder -Force | Out-Null
-        $report = [ordered]@{
-            date = $lastRun.ToString('yyyy-MM-dd'); status = 'pass'; notification_sent = $true
-            generated_at_local = (Get-Date).AddMinutes(-1).ToString('o')
-            sections = @{ vader = @{status='pass'}; portfolio = @{status='pass'}; coverage = @{status='pass'} }
-        }
-        $report | ConvertTo-Json -Depth 4 | Set-Content (Join-Path $folder "options-$($report.date).json")
-        $snapshotPath = Join-Path $TestDrive 'snapshot.json'
-        @{schemaVersion=1; generatedAt=(Get-Date).ToString('o'); errors=@(); health=@(); audits=@()} |
-            ConvertTo-Json | Set-Content $snapshotPath
-        $result = & (Join-Path $PSScriptRoot '..\scripts\Test-CollectorHealth.ps1') `
-            -EvaluateOnly -AppsRoot $TestDrive -SnapshotPath $snapshotPath
-        $record = $result | ConvertFrom-Json
-        $record.issues -join ';' | Should Not Match 'Options nightly audit failed'
-        $record.issues -join ';' | Should Not Match 'monitor check failed'
+        Remove-Item -LiteralPath $common.StatePath, $common.AlertLogPath, $common.MonitorPath -ErrorAction SilentlyContinue
     }
     It 'surfaces task-query failures without writing state or attempting notifications' {
         Mock Get-ScheduledTask { throw 'fixture scheduler unavailable' }
-        $state = Join-Path $TestDrive 'not-created.json'
-        $result = & (Join-Path $PSScriptRoot '..\scripts\Test-CollectorHealth.ps1') `
-            -EvaluateOnly -StatePath $state -AlertScript (Join-Path $TestDrive 'missing-alert.ps1')
+        $result = & $runner -EvaluateOnly -StatePath $common.StatePath -AlertScript (Join-Path $TestDrive 'missing-alert.ps1')
         $record = $result | ConvertFrom-Json
         $record.issues -join ';' | Should Match 'fixture scheduler unavailable'
-        Test-Path -LiteralPath $state | Should Be $false
+        Test-Path -LiteralPath $common.StatePath | Should Be $false
     }
-
-    It 'records each sent notification in a pruned alert history' {
+    It 'records each sent notification in a pruned alert history and writes the current result' {
         Mock Get-ScheduledTask { throw 'fixture scheduler unavailable' }
-        $alert = Join-Path $TestDrive 'alert.ps1'
-        Set-Content -LiteralPath $alert -Value 'param($Title, $Message) $global:LASTEXITCODE = 0'
-        $history = Join-Path $TestDrive 'collector-alerts.json'
         ConvertTo-Json -InputObject @([ordered]@{ sentAt = (Get-Date).AddDays(-40).ToString('o'); kind = 'alert'
-                title = 'old'; issues = @('old') }) | Set-Content -LiteralPath $history
-        & (Join-Path $PSScriptRoot '..\scripts\Test-CollectorHealth.ps1') -StatePath (Join-Path $TestDrive 'state.json') `
-            -AlertScript $alert -AlertLogPath $history | Out-Null
-        $rows = @(Get-Content -LiteralPath $history -Raw | ConvertFrom-Json)
+                title = 'old'; issues = @('old') }) | Set-Content -LiteralPath $common.AlertLogPath
+        & $runner @common | Out-Null
+        $rows = @(Get-Content -LiteralPath $common.AlertLogPath -Raw | ConvertFrom-Json)
         $rows.Count | Should Be 1
         $rows[0].kind | Should Be 'alert'
         $rows[0].issues -join ';' | Should Match 'fixture scheduler unavailable'
         $rows[0].details[0].meaning | Should Match 'collector health is unknown'
+        $current = Get-Content -LiteralPath $common.MonitorPath -Raw | ConvertFrom-Json
+        $current.details[0].text | Should Match 'fixture scheduler unavailable'
+    }
+    It 'notifies only when an issue opens, not when one of several clears' {
+        $open = 'Collector monitor check failed: fixture A'
+        [ordered]@{ fingerprint = "other`n$open"; issues = @($open, 'other'); lastNotificationLocal = (Get-Date).ToString('o') } |
+            ConvertTo-Json | Set-Content -LiteralPath $common.StatePath
+        Mock Get-ScheduledTask { throw 'fixture A' }
+        & $runner @common | Out-Null
+        Test-Path -LiteralPath $sent | Should Be $false
+        Mock Get-ScheduledTask { throw 'fixture B' }
+        & $runner @common | Out-Null
+        @(Get-Content -LiteralPath $sent) -join ';' | Should Be 'Market collectors need attention'
     }
 }

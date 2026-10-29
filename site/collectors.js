@@ -18,19 +18,16 @@ const showDate = (iso) => iso.replace(/^(\d{4})-(\d{2})-(\d{2})$/, '$2/$3/$1');
 const stamp = (value) => (value ? `${showDate(day(value))} ${clock(value)}` : 'Never');
 const tone = {
     complete: 'good',
-    pass: 'good',
+    no_work: 'muted',
     partial: 'warn',
     running: 'warn',
     pending: 'warn',
-    not_run: 'warn',
-    market_closed: 'muted',
     stale: 'warn',
     failed: 'bad',
-    fail: 'bad',
     missed: 'bad',
-    unreadable: 'bad',
     alert: 'bad',
     recovered: 'good',
+    healthy: 'good',
 };
 const staleHeartbeatMs = 10 * 60 * 1000;
 // One reader-facing name per kind of slot, whichever collector stored it.
@@ -53,63 +50,6 @@ const element = (tag, text, className) => {
     return node;
 };
 const badge = (status) => element('span', status.replace('_', ' '), `badge ${tone[status] ?? 'muted'}`);
-
-let auditInfoId = 0;
-
-function auditInfo(row) {
-    const wrapper = element('span');
-    const trigger = element('button', 'info', 'badge muted audit-info');
-    trigger.type = 'button';
-    trigger.setAttribute('aria-label', `${row.audit} ${row.subject}: advisory comparison details`);
-    const popup = element('div', undefined, 'audit-tooltip');
-    popup.id = `audit-info-${++auditInfoId}`;
-    popup.setAttribute('popover', 'auto');
-    popup.setAttribute('role', 'tooltip');
-    trigger.setAttribute('aria-describedby', popup.id);
-    popup.append(element('p', 'Advisory comparison. Differences do not fail this audit.'));
-    const labels = {
-        expected: 'Expected',
-        azure: 'Azure',
-        local: 'Local',
-        matched: 'Matched',
-        missing_local: 'Missing locally',
-        missing_azure: 'Missing in Azure',
-        mismatched: 'Mismatched',
-    };
-    const counts = Object.entries(labels).filter(([key]) => Number.isFinite(row.counts?.[key]));
-    popup.append(
-        element(
-            'p',
-            counts.length
-                ? counts.map(([key, label]) => `${label}: ${row.counts[key]}`).join('\n')
-                : 'Comparison counts unavailable.'
-        )
-    );
-    if (row.error) popup.append(element('p', `Comparison error: ${row.error}`));
-    const show = () => {
-        popup.showPopover();
-        const rect = trigger.getBoundingClientRect();
-        popup.style.left = `${Math.max(8, Math.min(rect.left, innerWidth - popup.offsetWidth - 8))}px`;
-        const top =
-            rect.bottom + popup.offsetHeight + 14 <= innerHeight ? rect.bottom + 6 : rect.top - popup.offsetHeight - 6;
-        popup.style.top = `${Math.max(8, top)}px`;
-    };
-    trigger.addEventListener('pointerenter', show);
-    trigger.addEventListener('focus', show);
-    trigger.addEventListener('click', show);
-    trigger.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape') {
-            popup.hidePopover();
-            event.stopPropagation();
-        }
-    });
-    wrapper.addEventListener('pointerleave', () => {
-        if (document.activeElement !== trigger) popup.hidePopover();
-    });
-    trigger.addEventListener('blur', () => popup.hidePopover());
-    wrapper.append(trigger, popup);
-    return wrapper;
-}
 
 function table(target, headers, rows, empty) {
     const head = element('thead');
@@ -156,7 +96,8 @@ function openIssue(row, detail) {
         if (value === undefined || value === null || value === '') return;
         facts.append(element('dt', label), element('dd', String(value)));
     };
-    fact('Alert sent', stamp(row.sentAt));
+    fact('Alert sent', row.sentAt ? stamp(row.sentAt) : '');
+    fact('Checked', row.checkedAt ? stamp(row.checkedAt) : '');
     fact('Run started', detail.lastRun ? stamp(detail.lastRun) : '');
     fact('Task', detail.task);
     fact('Exit code', detail.exitCode);
@@ -266,21 +207,41 @@ function days(id, groups, empty) {
     );
 }
 
-function auditStatus(row) {
-    return row.job === 'options-audit' && row.status === 'not_run' && row.reportStatus === 'pass'
-        ? 'market_closed'
-        : row.status;
+// The monitor's latest result: what is wrong right now, separate from the notification history.
+function renderCurrent(monitor) {
+    const target = document.getElementById('current');
+    if (!monitor?.checkedAt) {
+        target.replaceChildren(element('p', 'The monitor has not published a result yet.', 'empty'));
+        return;
+    }
+    const details = monitor.details ?? [];
+    const head = element('p', undefined, 'current-head');
+    head.append(
+        details.length
+            ? element('span', details.length === 1 ? '1 open issue' : `${details.length} open issues`, 'badge bad')
+            : badge('healthy'),
+        ` Checked ${stamp(monitor.checkedAt)}`
+    );
+    if (!details.length) {
+        target.replaceChildren(head);
+        return;
+    }
+    const row = { checkedAt: monitor.checkedAt, kind: 'alert' };
+    const list = element('ul', undefined, 'current-list');
+    for (const detail of details) {
+        const button = element('button', detail.summary ?? detail.text, 'current-issue');
+        button.type = 'button';
+        button.setAttribute('aria-haspopup', 'dialog');
+        button.prepend(alertIcon());
+        button.addEventListener('click', () => openIssue(row, detail));
+        const item = element('li');
+        item.append(button);
+        list.append(item);
+    }
+    target.replaceChildren(head, list);
 }
 
-function auditOutcome(rows) {
-    const required = rows.filter((row) => !row.informational);
-    if (required.some((row) => ['fail', 'unreadable'].includes(row.status))) return 'fail';
-    if (required.some((row) => !['pass', 'market_closed'].includes(auditStatus(row)))) return 'not_run';
-    if (required.length && required.every((row) => auditStatus(row) === 'market_closed')) return 'market_closed';
-    return 'pass';
-}
-
-const historyDays = { alerts: 7, runs: 7, audits: 7 };
+const historyDays = { alerts: 7, runs: 7 };
 let currentSnapshot;
 
 function historyDropdown(controls, group) {
@@ -377,40 +338,26 @@ function render(snapshot) {
         const card = element('article');
         card.append(element('h4', job.name), element('p', job.schedule, 'schedule'));
         const facts = element('dl', undefined, 'facts');
-        const audits = snapshot.audits.filter((row) => row.job === job.id);
-        if (audits.length) {
-            const latest = audits.reduce((a, b) => (a.date > b.date ? a : b)).date;
-            const rows = audits.filter((row) => row.date === latest);
-            lastAt.set(job.id, new Date(rows[0].writtenAt).getTime());
-            const last = element('dd');
-            const outcome = auditOutcome(rows);
-            last.append(badge(outcome), ` ${showDate(latest)} (written ${clock(rows[0].writtenAt)})`);
-            if (outcome === 'market_closed') last.append(element('span', ' No exchange session.', 'note'));
-            facts.append(element('dt', 'Last audit'), last);
-        } else if (job.id.endsWith('-audit')) {
-            facts.append(element('dt', 'Last audit'), element('dd', 'No report yet'));
-        } else {
-            const lastRun = runs.find((run) => run.job === job.id);
-            const last = element('dd');
-            if (lastRun) {
-                lastAt.set(job.id, new Date(lastRun.scheduledAt).getTime());
-                const counts = lastRun.expected ? ` ${lastRun.ok}/${lastRun.expected}` : '';
-                last.append(
-                    badge(lastRun.status),
-                    ` ${stamp(lastRun.scheduledAt)} ${slotLabel(lastRun.kind)}${counts}`
-                );
-            } else last.textContent = 'No runs in the available history';
-            facts.append(element('dt', 'Last slot'), last);
-            const health = snapshot.health.find((row) => row.job === job.id);
-            const beat = element('dd');
-            if (health) {
-                const stale = now - new Date(health.heartbeatAt) > staleHeartbeatMs;
-                if (stale) beat.append(badge('stale'), ' ');
-                beat.append(stamp(health.heartbeatAt));
-                if (health.lastError) beat.append(element('span', ` ${health.lastError}`, 'note'));
-            } else beat.textContent = 'None';
-            facts.append(element('dt', 'Heartbeat'), beat);
-        }
+        const lastRun = runs.find((run) => run.job === job.id);
+        const last = element('dd');
+        if (lastRun) {
+            lastAt.set(job.id, new Date(lastRun.scheduledAt).getTime());
+            const counts = lastRun.expected ? ` ${lastRun.ok}/${lastRun.expected} usable` : '';
+            last.append(badge(lastRun.status), ` ${stamp(lastRun.scheduledAt)} ${slotLabel(lastRun.kind)}${counts}`);
+            if (lastRun.vixOnly) last.append(element('span', ' Only VIX stale, accepted.', 'note'));
+        } else last.textContent = 'No runs in the available history';
+        facts.append(element('dt', 'Last slot'), last);
+        const health = snapshot.health.find((row) => row.job === job.id);
+        const beat = element('dd');
+        if (health) {
+            const stale = now - new Date(health.heartbeatAt) > staleHeartbeatMs;
+            if (stale) beat.append(badge('stale'), ' ');
+            beat.append(stamp(health.heartbeatAt));
+            if (health.lastError) beat.append(element('span', ` ${health.lastError}`, 'note'));
+        } else beat.textContent = 'None';
+        facts.append(element('dt', 'Heartbeat'), beat);
+        if (health?.lastSuccessAt)
+            facts.append(element('dt', 'Last success'), element('dd', stamp(health.lastSuccessAt)));
         card.append(facts);
         return { job, card };
     });
@@ -436,8 +383,8 @@ function render(snapshot) {
         names[run.job] ?? run.job,
         slotLabel(run.kind),
         badge(run.status),
-        run.expected ? `${run.ok}/${run.expected}` : '',
-        run.detail ?? '',
+        run.expected ? `${run.ok}/${run.expected} usable` : '',
+        [run.detail, run.vixOnly ? 'only VIX stale, accepted' : ''].filter(Boolean).join('; '),
     ];
     const visibleRuns = runs.filter((run) => inHistoryRange(day(run.scheduledAt), today, historyDays.runs));
     const runDays = groupByDay(visibleRuns, (run) => day(run.scheduledAt));
@@ -486,43 +433,14 @@ function render(snapshot) {
         `No monitor notifications in the last ${historyDays.alerts} days.`
     );
 
-    const audits = [...snapshot.audits].sort(
-        (a, b) => a.audit.localeCompare(b.audit) || a.subject.localeCompare(b.subject)
-    );
-    days(
-        'audits',
-        groupByDay(
-            audits.filter((row) => inHistoryRange(row.date, today, historyDays.audits)),
-            (row) => row.date
-        ).map(([date, rows]) => {
-            const failed = rows.filter(
-                (row) => !row.informational && ['fail', 'unreadable'].includes(row.status)
-            ).length;
-            return {
-                date,
-                label: showDate(date),
-                summary: [
-                    `${rows.length} checks`,
-                    failed ? element('span', `${failed} failed`, 'badge bad') : badge(auditOutcome(rows)),
-                ],
-                headers: [['Audit'], ['Subject'], ['Result']],
-                rows: rows.map((row) => {
-                    const result = element('span');
-                    result.append(badge(auditStatus(row)));
-                    if (row.informational) result.append(' ', auditInfo(row));
-                    return [row.audit, row.subject, result];
-                }),
-            };
-        }),
-        `No audit reports in the last ${historyDays.audits} days.`
-    );
+    renderCurrent(snapshot.monitor);
     const age = now - new Date(snapshot.generatedAt);
     document.getElementById('updated').textContent = `Snapshot built ${stamp(snapshot.generatedAt)}.`;
     const status = document.getElementById('status');
     status.textContent =
         age > 15 * 60 * 1000
             ? `Snapshot is ${Math.round(age / 60000)} minutes old. Check the SolutionDeploy-collector-status task.`
-            : `${visibleRuns.length} slots in ${historyDays.runs} days, ${audits.filter((row) => inHistoryRange(row.date, today, historyDays.audits)).length} audit results in ${historyDays.audits} days.`;
+            : `${visibleRuns.length} slots in ${historyDays.runs} days.`;
     status.className = age > 15 * 60 * 1000 ? 'stale' : '';
     const error = document.getElementById('error');
     error.textContent = snapshot.errors.length ? `Snapshot errors: ${snapshot.errors.join('; ')}` : '';

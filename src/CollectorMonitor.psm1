@@ -1,40 +1,23 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-function Test-OptionsAuditTaskRecovery {
-    param($Report, $Task, [datetimeoffset]$Now)
-    if ($null -eq $Report) { return $false }
-    foreach ($property in @('date', 'status', 'notification_sent', 'generated_at_local', 'sections')) {
-        if (-not $Report.PSObject.Properties[$property]) { return $false }
-    }
-    if ($Report.status -ne 'pass' -or $Report.notification_sent -isnot [bool] -or
-        -not $Report.notification_sent -or $null -eq $Report.sections) { return $false }
-    $lastRun = [datetimeoffset]$Task.LastRun
-    if ([string]$Report.date -ne $lastRun.ToString('yyyy-MM-dd')) { return $false }
-    $generated = [datetimeoffset]::MinValue
-    if (-not [datetimeoffset]::TryParse([string]$Report.generated_at_local, [ref]$generated) -or
-        $generated -le $lastRun -or $generated -gt $Now.AddMinutes(2) -or
-        $Now - $generated -gt [timespan]::FromHours(26)) { return $false }
-    foreach ($name in @('vader', 'portfolio', 'coverage')) {
-        if (-not $Report.sections.PSObject.Properties[$name]) { return $false }
-    }
-    foreach ($section in $Report.sections.PSObject.Properties) {
-        if ($null -eq $section.Value -or -not $section.Value.PSObject.Properties['status'] -or
-            $section.Value.status -notin @('pass', 'not_run')) { return $false }
-    }
-    return $true
-}
-
 $script:TaskLogs = @{
     'SolutionDeploy-web-options-collector'            = 'web-options\shared\logs\collector-tick.log'
     'SolutionDeploy-web-options-collector-watchdog'   = 'web-options\shared\logs\collector-watchdog.log'
-    'SolutionDeploy-web-options-daily-audit'          = 'web-options\shared\logs\collector-audit.log'
     'SolutionDeploy-web-portfolio-stock-collector'    = 'web-portfolio\shared\logs\stock-collector-tick.log'
     'SolutionDeploy-web-portfolio-stock-watchdog'     = 'web-portfolio\shared\logs\stock-collector-watchdog.log'
     'SolutionDeploy-web-portfolio-reference-earnings' = 'web-portfolio\shared\logs\stock-reference-earnings.log'
     'SolutionDeploy-web-portfolio-reference-indices'  = 'web-portfolio\shared\logs\stock-reference-indices.log'
     'SolutionDeploy-web-portfolio-reference-splits'   = 'web-portfolio\shared\logs\stock-reference-splits.log'
-    'SolutionDeploy-web-portfolio-daily-audit'        = 'web-portfolio\shared\logs\stock-collector-audit.log'
+}
+
+# Data checks name the job; this maps each job to the task whose log explains a bad run.
+$script:Jobs = [ordered]@{
+    'stock-prices'  = @{ Name = 'Stock prices'; Task = 'SolutionDeploy-web-portfolio-stock-collector' }
+    'option-quotes' = @{ Name = 'Option quotes'; Task = 'SolutionDeploy-web-options-collector' }
+    'earnings'      = @{ Name = 'Earnings dates'; Task = 'SolutionDeploy-web-portfolio-reference-earnings' }
+    'indices'       = @{ Name = 'Index closes'; Task = 'SolutionDeploy-web-portfolio-reference-indices' }
+    'splits'        = @{ Name = 'Stock splits'; Task = 'SolutionDeploy-web-portfolio-reference-splits' }
 }
 
 function Protect-CollectorLogLine([string]$Line) {
@@ -49,7 +32,7 @@ function Read-CollectorTaskLog {
     <#
     .SYNOPSIS
     Returns the log lines written by a task's last run and a one-line plain cause.
-    Python collectors stamp each line; untimestamped logs (the audits) return their last lines.
+    Python collectors stamp each line; an untimestamped log returns its last lines.
     #>
     [CmdletBinding()]
     param(
@@ -104,10 +87,6 @@ function Read-CollectorTaskLog {
     if (-not $reason) { $reason = & $message '^\S+ \S+ (ERROR|CRITICAL) (?<m>.*)$' }
     if (-not $reason) { $reason = & $message '^\S+ \S+ WARNING (?<m>.*)$' }
     if (-not $reason) { $reason = & $message '^(?<m>([\w.]+\.)?\w*(Error|Exception)\b.*)$' }
-    if (-not $reason) {
-        $sections = @($kept | Where-Object { $_ -match '^\w+: (fail|error)\b' } | ForEach-Object { ($_ -split ':')[0] })
-        if ($sections.Count) { $reason = "audit section $($sections -join ', ') failed" }
-    }
     $outcome = ''
     for ($i = $kept.Count - 1; $i -ge 0; $i--) {
         if ($kept[$i] -match 'run=\d+ kind=(?<kind>\w+) (?<json>\{.*\})') {
@@ -139,89 +118,64 @@ function Add-CollectorIssueLog {
         [Parameter(Mandatory)][string]$AppsRoot
     )
     foreach ($detail in $Details) {
-        if (-not $detail.task -or -not $detail.exitCode -or -not $script:TaskLogs.ContainsKey($detail.task)) { continue }
+        if (-not $detail.task -or -not $detail.lastRun -or -not ($detail.exitCode -or $detail.job) -or
+            -not $script:TaskLogs.ContainsKey($detail.task)) { continue }
         $path = Join-Path $AppsRoot $script:TaskLogs[$detail.task]
         try {
-            $since = if ($detail.lastRun) { [Nullable[datetime]]([datetimeoffset]$detail.lastRun).LocalDateTime } else { $null }
+            $since = [Nullable[datetime]]([datetimeoffset]$detail.lastRun).LocalDateTime
             $log = Read-CollectorTaskLog -Path $path -Since $since
             $detail.logPath = $path
             $detail.log = @($log.Lines)
             $detail.cause = $log.Cause
         }
         catch { $detail.cause = "Log could not be read: $($_.Exception.Message)" }
-        $detail.summary = if ($detail.cause) { "$($detail.label) failed: $($detail.cause)" } else { $detail.text }
+        if ($detail.cause) { $detail.summary = "$($detail.label): $($detail.cause)" }
     }
 }
 
 function Get-CollectorMonitorIssue {
     <#
     .SYNOPSIS
-    Returns issue text lines, or with -Detail one object per issue (text, summary, meaning, task, exit code, log fields).
+    Returns issue text lines, or with -Detail one object per issue (text, summary, meaning, job, task, log fields).
+    The text of each issue must stay the same while the problem lasts, because the notifier compares texts.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][object[]]$Tasks,
         [AllowNull()]$Snapshot,
-        [AllowNull()]$OptionsAuditReport,
         [datetimeoffset]$Now = [datetimeoffset]::Now,
         [string]$SnapshotError,
         [int]$SnapshotMaxAgeMinutes = 12,
         [int]$HeartbeatMaxAgeMinutes = 10,
+        [int]$RunLookbackHours = 24,
         [switch]$Detail
     )
     $issues = [Collections.Generic.List[object]]::new()
     $add = {
-        param([string]$Text, [string]$Meaning, $Task, $Label, $ExitCode)
+        param([string]$Text, [string]$Meaning, [hashtable]$Extra = @{})
         $issues.Add([pscustomobject][ordered]@{
-                text = $Text; summary = $Text; label = $Label; meaning = $Meaning
-                task = if ($Task) { [string]$Task.Name } else { $null }
-                exitCode = $ExitCode
-                lastRun = if ($Task -and $Task.PSObject.Properties['LastRun'] -and $Task.LastRun) { ([datetimeoffset]$Task.LastRun).ToString('o') } else { $null }
+                text = $Text; summary = $Text; label = $Extra['label']; meaning = $Meaning
+                job = $Extra['job']; task = $Extra['task']; exitCode = $Extra['exitCode']; lastRun = $Extra['lastRun']
                 cause = ''; logPath = $null; log = @()
             })
     }
     foreach ($task in $Tasks) {
         $name = [string]$task.Name
-        if (-not $task.Exists) { & $add "$name is missing." 'The scheduled task is not registered, so this job does not run at all. Reinstall the component that owns it.' $task; continue }
-        if ($task.State -eq 'Disabled') { & $add "$name is disabled." 'The scheduled task is registered but disabled, so this job does not run. Enable it in Task Scheduler if that was not intended.' $task; continue }
+        if (-not $task.Exists) { & $add "$name is missing." 'The scheduled task is not registered, so this job does not run at all. Reinstall the component that owns it.' @{ task = $name }; continue }
+        if ($task.State -eq 'Disabled') { & $add "$name is disabled." 'The scheduled task is registered but disabled, so this job does not run. Enable it in Task Scheduler if that was not intended.' @{ task = $name }; continue }
         $result = [long]$task.Result
-        # 267011: registered but not yet run, as after a reinstall. Heartbeat and audit-age checks cover a task that never starts.
+        # 267011: registered but not yet run, as after a reinstall. The heartbeat checks cover a task that never starts.
         if ($result -eq 267011) { continue }
-        # 2147946720 (0x800710E0): a trigger skipped because the previous run was still going (IgnoreNew).
-        # A run that stays stuck is caught by the overdue and heartbeat checks.
-        $recoveredAudit = $name -eq 'SolutionDeploy-web-options-daily-audit' -and
-            $task.State -eq 'Ready' -and (Test-OptionsAuditTaskRecovery $OptionsAuditReport $task $Now)
-        if ($result -notin @(0, 267009, 2147946720) -and -not $recoveredAudit) {
-            $label = switch ($name) {
-                'SolutionDeploy-web-portfolio-stock-watchdog' { 'Stock collector health check' }
-                'SolutionDeploy-web-options-collector-watchdog' { 'Options collector health check' }
-                'SolutionDeploy-web-portfolio-stock-collector' { 'Stock price collection' }
-                'SolutionDeploy-web-options-collector' { 'Option quote collection' }
-                'SolutionDeploy-web-portfolio-reference-earnings' { 'Earnings date collection' }
-                'SolutionDeploy-web-portfolio-reference-indices' { 'Index price collection' }
-                'SolutionDeploy-web-portfolio-reference-splits' { 'Stock split collection' }
-                'SolutionDeploy-web-portfolio-daily-audit' { 'Stock nightly audit' }
-                'SolutionDeploy-web-options-daily-audit' { 'Options nightly audit' }
-                default { $name }
-            }
-            $guidance = if ($name -like '*watchdog') {
-                'The health check found a problem with the collector, or could not finish. This does not by itself mean collected prices are wrong; the cause and log lines show which.'
-            }
-            elseif ($name -like '*daily-audit') {
-                'The nightly audit did not pass or could not finish. Collected data is unchanged; the audit compares it with the source and reports differences.'
-            }
-            else {
-                'The scheduled run did not finish cleanly, so data for that slot may be incomplete. The collector retries missing items on its next run while the slot is still open.'
-            }
-            & $add "$label failed (exit code $result)." $guidance $task $label $result
-        }
-        if ($task.Daily) {
-            if ($Now - [datetimeoffset]$task.LastRun -gt [timespan]::FromHours(26)) {
-                & $add "$name daily run is overdue." 'The task has not run in over 26 hours. Check that it is enabled and that the host was up at its scheduled time.' $task
+        # Collector ticks exit nonzero for a bad slot, which the run checks below report once with the data.
+        # Only the publisher's exit code is checked. 2147946720 (0x800710E0) is a trigger skipped by IgnoreNew.
+        if ($name -eq 'SolutionDeploy-collector-status' -and $result -notin @(0, 267009, 2147946720)) {
+            & $add 'Collector status publisher failed.' "The last run exited with code $result, so the Collectors page and the run checks may be using old data." @{
+                task = $name; label = 'Collector status publisher'; exitCode = $result
+                lastRun = ([datetimeoffset]$task.LastRun).ToString('o')
             }
         }
-        elseif ($Now - [datetimeoffset]$task.LastRun -gt [timespan]::FromMinutes(10)) {
-            & $add "$name minute schedule is overdue." 'The task normally runs every minute and has not run in over 10 minutes. A run may be stuck, or Task Scheduler stopped triggering it.' $task
+        if ($Now - [datetimeoffset]$task.LastRun -gt [timespan]::FromMinutes(10)) {
+            & $add "$name schedule is overdue." 'The task normally runs every few minutes and has not run in over 10 minutes. A run may be stuck, or Task Scheduler stopped triggering it.' @{ task = $name }
         }
     }
     if ($SnapshotError) {
@@ -239,7 +193,7 @@ function Get-CollectorMonitorIssue {
         if (@($Snapshot.errors).Count) {
             & $add 'Collector snapshot publisher reports errors; inspect the protected snapshot on the host.' "Snapshot errors: $(@($Snapshot.errors) -join '; ')"
         }
-        foreach ($job in @('stock-prices', 'earnings', 'indices', 'splits', 'option-quotes')) {
+        foreach ($job in $script:Jobs.Keys) {
             $health = @($Snapshot.health | Where-Object job -EQ $job)
             if ($health.Count -ne 1 -or -not $health[0].heartbeatAt) {
                 & $add "$job heartbeat is missing." 'The collector has no heartbeat row in its database, so it has not completed a run that records health.'
@@ -250,21 +204,53 @@ function Get-CollectorMonitorIssue {
                 & $add "$job heartbeat is stale or in the future." "The collector's last heartbeat was $($health[0].heartbeatAt). Each run updates it, so runs are failing before they finish or have stopped."
             }
         }
-        foreach ($job in @('stock-audit', 'options-audit')) {
-            $rows = @($Snapshot.audits | Where-Object job -EQ $job)
-            if (-not $rows.Count) { & $add "$job has no audit report." 'No audit report file was found in the last 30 days.'; continue }
-            $latest = @($rows | Sort-Object writtenAt -Descending)[0]
-            if ($Now - [datetimeoffset]$latest.writtenAt -gt [timespan]::FromHours(26)) {
-                & $add "$job report is overdue." "The latest audit report was written $($latest.writtenAt); a new one is expected daily (stock 17:30, options 13:30)."
+
+        # A run is judged only after its deadline, when the collector has stopped retrying it.
+        # Snapshots written before runs carried a deadline skip these checks.
+        $runs = @($Snapshot.runs | Where-Object { $_.PSObject.Properties['deadline'] -and $_.deadline })
+        $settled = @($runs | Where-Object {
+                $deadline = [datetimeoffset]$_.deadline
+                $deadline -le $Now.AddMinutes(-2) -and $deadline -gt $Now.AddHours(-$RunLookbackHours)
+            } | Sort-Object { [datetimeoffset]$_.scheduledAt } -Descending)
+        $isBad = { param($run) $run.status -notin @('complete', 'no_work') -and -not ($run.PSObject.Properties['vixOnly'] -and $run.vixOnly) }
+        $describe = {
+            param($run)
+            $count = if ($run.expected) { ", $($run.ok) of $($run.expected) usable" } else { '' }
+            "$(([datetimeoffset]$run.scheduledAt).ToLocalTime().ToString('MM/dd HH:mm')) $($run.status)$count"
+        }
+        $runIssue = {
+            param([string]$Job, [string]$Text, [string]$Meaning, $Run)
+            & $add $Text $Meaning @{
+                job = $Job; label = $script:Jobs[$Job].Name; task = $script:Jobs[$Job].Task
+                lastRun = ([datetimeoffset]$Run.scheduledAt).ToString('o')
             }
-            foreach ($row in @($rows | Where-Object date -EQ $latest.date)) {
-                $expectedSkip = $job -eq 'options-audit' -and $row.status -eq 'not_run' -and
-                    $row.PSObject.Properties['reportStatus'] -and $row.reportStatus -eq 'pass'
-                if ($expectedSkip) { continue }
-                if (-not $row.informational -and $row.status -ne 'pass') {
-                    $why = if ($row.PSObject.Properties['error'] -and $row.error) { " Error: $($row.error)" } else { '' }
-                    & $add "$job section $($row.subject) reports $($row.status)." "The $($latest.date) audit compared the $($row.subject) data with its source and it did not pass.$why"
-                }
+        }
+        foreach ($job in @('stock-prices', 'option-quotes')) {
+            $name = $script:Jobs[$job].Name
+            $jobRuns = @($settled | Where-Object job -EQ $job)
+            # The next session slot retries missing items, so one bad slot is normal; 2 in a row is not.
+            $sessions = @($jobRuns | Where-Object kind -In @('session', 'open_session') | Select-Object -First 2)
+            if ($sessions.Count -eq 2 -and @($sessions | Where-Object { & $isBad $_ }).Count -eq 2) {
+                & $runIssue $job "${name}: the last 2 session runs are incomplete." `
+                    "Runs $((@($sessions | ForEach-Object { & $describe $_ })) -join '; '). Two incomplete slots in a row means collection is failing, not just a slow quote." $sessions[0]
+            }
+            foreach ($kind in @('close', 'settle')) {
+                $last = @($jobRuns | Where-Object kind -EQ $kind | Select-Object -First 1)
+                if (-not $last.Count -or -not (& $isBad $last[0])) { continue }
+                $recovered = @($runs | Where-Object {
+                        $_.job -eq $job -and $_.kind -eq 'recovery' -and $_.status -eq 'complete' -and
+                        [datetimeoffset]$_.scheduledAt -gt [datetimeoffset]$last[0].scheduledAt
+                    }).Count
+                if ($recovered) { continue }
+                & $runIssue $job "${name}: the latest $kind run is incomplete." `
+                    "Run $(& $describe $last[0]), and no later recovery run completed. The day's $kind prices are missing for some symbols." $last[0]
+            }
+        }
+        foreach ($job in @('earnings', 'indices', 'splits')) {
+            $last = @($settled | Where-Object job -EQ $job | Select-Object -First 1)
+            if ($last.Count -and (& $isBad $last[0])) {
+                & $runIssue $job "$($script:Jobs[$job].Name): the latest run did not complete." `
+                    "Run $(& $describe $last[0]). This reference data is refreshed by the next scheduled run; until then the app shows the previous values." $last[0]
             }
         }
     }

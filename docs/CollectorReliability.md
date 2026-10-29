@@ -15,7 +15,7 @@ the Options collector and its release-local watchdog before either could run.
 - Run the installer access preflight before updating task definitions. It must
   use the actual task identity, rather than the installing administrator.
   Preserve the existing healthy tasks if the candidate fails.
-- Check collector, watchdog, reference and audit task definitions together.
+- Check collector, watchdog and reference task definitions together.
   Different compatible releases are allowed; a leftover task must be deliberate.
 - Preserve disabled tasks and existing activation approvals. Do not rerun a full
   activation installer merely to repair ACLs or trigger database isolation probes.
@@ -55,26 +55,30 @@ existing SYSTEM-encrypted PostgreSQL backup notification credentials through
 `C:\ProgramData\JimlerTech\PostgreSQL\Send-BackupAlert.ps1`. It has no database
 connection or additional database grants.
 
-The monitor checks expected enabled tasks, failed exit codes, overdue minute or
-daily schedules, snapshot generation time/errors, collector heartbeats and the
-latest non-informational audit section results. `267009` means running, not a
-failed exit. Minute tasks and heartbeats continue outside market hours, so their
-freshness is checked continuously. Daily audit tasks/reports have a 26-hour
-allowance. The five-minute snapshot has a 12-minute freshness allowance;
-heartbeats and minute tasks have 10 minutes.
+The monitor checks local data only; it makes no Azure comparison. It checks:
 
-A successful Options audit rerun can supersede an older failed Options audit
-task result. The monitor reads the saved report for that task's local run date
-and requires overall pass, all three sections present and passing (or
-`not_run`), successful notification, and a fresh generation time after the
-failed execution. An older, incomplete, future-dated or different-date report
-does not clear the task failure. Snapshot, section and schedule checks still
-apply. Historical alert entries remain; recovery adds a new event.
+- Tasks: every expected task exists, is enabled and is not more than 10 minutes
+  past its next run time.
+- Publisher: a nonzero exit from `SolutionDeploy-collector-status`. Collector
+  exit codes are ignored because a partial day keeps returning 1; the data
+  checks below report the same problem once.
+- Snapshot: generated within 12 minutes and without errors.
+- Heartbeats: each collector heartbeat within 10 minutes.
+- Runs from the last 24 hours whose deadline passed at least 2 minutes ago:
+    - Session captures alert when the last 2 runs are both incomplete.
+    - Close and settle captures alert when the latest run is incomplete and no
+      later recovery run completed.
+    - Earnings, indices and splits alert when the latest run did not complete.
+    - `complete` and `no_work` count as complete. A stock run whose only gap is
+      a stale VIX quote also counts as complete.
 
-Identical findings send one alert, then a daily reminder. A changed finding or
-full recovery sends another notification. A failed delivery does not mark the
+Identical findings send one alert, then a daily reminder. A new finding or full
+recovery sends another notification; a finding that was already open does not
+send again when other findings change. A failed delivery does not mark the
 notification as sent. State is in `monitor\state.json`; a nonzero monitor result
-can mean it successfully reported an unhealthy collector or audit.
+can mean it successfully reported an unhealthy collector.
+Each check also writes `apps\solution-deploy\data\collector-monitor.json`; the
+Collectors page shows it under "Current Checks".
 
 Each sent notification is also appended to
 `apps\solution-deploy\data\collector-alerts.json` (30 days kept). The status
@@ -84,15 +88,10 @@ Task failures use readable job names, explain the possible impact and direct
 the reader to the relevant log. Task names and exit codes remain as technical
 details. A watchdog failure alone does not establish that captured prices are wrong.
 
-The snapshot includes up to 30 days of runs, audits and alerts. Each history
+The snapshot includes up to 30 days of runs and alerts. Each history
 group defaults to 7 calendar days including today, with independent 14 and 30-day
 dropdowns at the right of each section heading. Range choices survive snapshot
 refreshes and reset on page reload.
-
-Audit INFO badges show report counts and comparison errors on hover, focus or
-tap. Counts come from the saved audit report; absent counts display as unavailable.
-Tooltip IDs use a page-local counter so plain HTTP LAN access works without
-secure-context browser APIs.
 
 The earnings reference job waits each morning (about 05:00 to 05:02) for Azure's
 earnings rows. That scheduled wait used to exit 1 and caused 2 false alerts on

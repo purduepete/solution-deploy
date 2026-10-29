@@ -50,7 +50,7 @@ The manual distributions listed below remain explicit exceptions.
 | Fit Track web (frontend, backend and in-process Strava sync)                 | Full exact-commit release using the existing staged-release builder, graceful stop, junction activation and watchdog task                                                       |
 | Fit Track upload watcher                                                     | Copy changed watcher scripts in place, restart the Google Drive logon task and verify 1 live watcher. A changed task-registration script stops the release                      |
 | Web Bookmarks, Plex, Work Log, Web Inventory, Web Options, Web Portfolio web | Release folder swap: build the pushed commit, stage a new release folder, stop, switch `current`, restart the existing task. Blocks on any SQL change not verified as applied   |
-| Web Options collector and audit, Web Portfolio stock collector and audit     | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                |
+| Web Options collector, Web Portfolio stock collector                         | Pinned-job release: build a new release folder, then repoint only the existing tasks' action path. Same SQL gate                                                                |
 | Solution Directory and collector status publisher                            | Directory release: fast-forward the host clone to the pushed commit, run `Install-Directory.ps1`, compare installed files, check both access paths                              |
 | Collector monitor, LAN proxy, PostgreSQL backup, shared finance launcher     | File-set release: copy changed files from the pushed commit in place, then confirm with the monitor's next run, a LAN proxy restart, or a Web Portfolio and Web Options restart |
 | Ride and Lift, pgweb                                                         | Inventory-only OneDrive/binary distributions. Git commit releases rejected; remain private-only                                                                                 |
@@ -209,7 +209,7 @@ Plex's first release moves the old plain `current` directory to
 release. The client then waits for Tailscale readiness and the Cloudflare
 Access redirect. Previous releases are kept. A release of the commit already
 recorded in `state\common-release.json` returns `NoChanges` after an access
-check. The web release never repoints the Web Options collector and audit
+check. The web release never repoints the Web Options collector
 tasks; they have their own pinned-job release below.
 
 Web Portfolio web builds the shared types, the backend and the frontend with
@@ -272,7 +272,7 @@ the source paths and the pinned Python runtime. The release:
    Principal, triggers, settings and enabled state stay as they are. A run in
    progress finishes on the old code.
 6. Writes `state\job-<component>.json` and waits for each repeating task to
-   finish a run with result 0. Daily audits report their next run time.
+   finish a run with result 0. Daily tasks report their next run time.
 
 If repointing or its check fails partway, the release points the moved tasks
 back at the previous folder, which is kept. Once every task is repointed there

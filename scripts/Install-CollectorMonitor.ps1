@@ -57,7 +57,7 @@ $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -Execution
 $name = 'SolutionDeploy-collector-monitor'
 Register-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $name -Action $action -Trigger $triggers `
     -Principal $principal -Settings $settings -Description (
-        'Host-level collector launch, schedule, snapshot and audit failure alerts. Independent of collector releases and Python; ' +
+        'Host-level collector schedule, snapshot, heartbeat and run completion alerts. Independent of collector releases and Python; ' +
         'SYSTEM uses the existing machine-protected backup alert credentials. No database access.') -Force | Out-Null
 Start-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $name
 [pscustomobject]@{ task = $name; root = $Root; started = $true }

@@ -118,7 +118,8 @@ Describe 'Common release inventory and routing' {
             foreach($job in $inventory.apps[$app].jobs.Values){
                 $job.runtimeCommit|Should Match '^[a-f0-9]{40}$'
                 $job.runtime|Should BeLike ($job.prefix+'*')
-                @($job.tasks).Count|Should BeGreaterThan 2
+                @($job.tasks).Count|Should BeGreaterThan 1
+                @($job.tasks|Where-Object {$_ -like '*-daily-audit'}).Count|Should Be 0
                 foreach($task in $job.tasks){$task|Should BeLike "SolutionDeploy-$app-*"}
             }
         }
