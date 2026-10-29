@@ -50,7 +50,15 @@ function Get-RoutineReleaseContext {
         $request=Read-DeploymentJson $requestPath
         if($request.plan.planHash -ne $active.planHash -or $request.action -notin @('Deploy','Cutover')){continue}
         $result=Read-DeploymentJson $resultPath
-        if($result.status -eq 'Succeeded' -and $result.planHash -eq $active.planHash -and $result.operationId -eq $request.operationId){$request}
+        if($result.status -eq 'Succeeded' -and $result.planHash -eq $active.planHash -and $result.operationId -eq $request.operationId){$request;continue}
+        # A failed Deploy counts only after a separately reviewed operator reconciliation verified this exact release.
+        $receiptPath=Join-Path $directory.FullName 'operator-reconciliation.json'
+        if($result.status -eq 'Failed' -and $request.action -eq 'Deploy' -and $result.planHash -eq $active.planHash -and
+            (Test-Path -LiteralPath $receiptPath)){
+            $receipt=Read-DeploymentJson $receiptPath
+            if($receipt.planHash -eq $active.planHash -and $receipt.operationId -eq $request.operationId -and
+                $receipt.verification.releaseId -eq $active.releaseId -and $receipt.verification.status -eq 'RuntimeVerified'){$request}
+        }
     })
     if($matches.Count -ne 1){throw 'A unique successful prior activation approval is required.'}
     $prior=$matches[0]

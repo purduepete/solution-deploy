@@ -297,4 +297,25 @@ Describe 'Routine Release prior approval context' {
         Mock Get-ReleaseToolHash -ModuleName Release {('c'*64)}
         Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
     }
+    It 'accepts a failed deploy only with a matching operator reconciliation receipt' {
+        $global:ReleaseContextReceipt=@{planHash='prior';operationId='prior-deploy';verification=@{releaseId='old';status='RuntimeVerified'}}
+        Mock Read-DeploymentJson -ModuleName Release {
+            switch -Wildcard ($Path){
+                '*installation.json' {@{identity='identity';root='C:\fixed';files=@(@{path='src\RoutineRelease.psm1';sha256=('b'*64)})}}
+                '*active.json' {@{planHash='prior';releaseId='old'}}
+                '*release.json' {@{planHash='prior';releaseId='old';sourceCommit=('a'*40);runtimePath='C:\fixed\node.exe';runtimeSHA256=('b'*64)}}
+                '*verification.json' {@{planHash='prior';releaseId='old';status='RuntimeVerified';readiness=@{ready=$true};database=@{schemaFingerprint=('b'*64)}}}
+                '*request.json' {$global:ReleaseContextPrior}
+                '*result.json' {@{planHash='prior';status='Failed';operationId='prior-deploy'}}
+                '*operator-reconciliation.json' {$global:ReleaseContextReceipt}
+                default {throw 'Unexpected synthetic read'}
+            }
+        }
+        (Get-RoutineReleaseContext $global:ReleaseContextPlan).runtimePath|Should Be 'C:\fixed\node.exe'
+        $global:ReleaseContextReceipt.verification.releaseId='other'
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
+        $global:ReleaseContextReceipt.verification.releaseId='old'
+        Mock Test-Path -ModuleName Release {$LiteralPath -notlike '*operator-reconciliation.json'}
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
+    }
 }
