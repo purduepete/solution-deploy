@@ -57,8 +57,8 @@ connection or additional database grants.
 
 The monitor checks local data only; it makes no Azure comparison. It checks:
 
-- Tasks: every expected task exists, is enabled and is not more than 10 minutes
-  past its next run time.
+- Tasks: every expected task exists, is enabled and has run within the last
+  10 minutes. Newly registered tasks that have not run yet rely on heartbeat checks.
 - Publisher: a nonzero exit from `SolutionDeploy-collector-status`. Collector
   exit codes are ignored because a partial day keeps returning 1; the data
   checks below report the same problem once.
@@ -79,6 +79,12 @@ notification as sent. State is in `monitor\state.json`; a nonzero monitor result
 can mean it successfully reported an unhealthy collector.
 Each check also writes `apps\solution-deploy\data\collector-monitor.json`; the
 Collectors page shows it under "Current Checks".
+
+The Info button beside "Current Checks" opens "Monitoring and alerts". It explains
+the current thresholds, the 2-minute deadline grace period and 24-hour run window,
+Pushover delivery rules, page refresh timing and monitoring limits. The modal uses
+the existing Light/Midnight dialog styling and supports Close, Escape and backdrop
+dismissal, returning focus to the Info button. It does not change monitor behavior.
 
 Each sent notification is also appended to
 `apps\solution-deploy\data\collector-alerts.json` (30 days kept). The status

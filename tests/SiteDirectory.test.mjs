@@ -347,6 +347,120 @@ test('alert issues open a dialog with cause, meaning and log lines', () => {
     assert(nodes['issue-dialog-body'].children.some((child) => /before detailed alert history/.test(child.text)));
 });
 
+test('monitoring information explains current checks and notification rules in a separate dialog', () => {
+    const page = readFileSync(new URL('../site/collectors.html', import.meta.url), 'utf8');
+    const content = page.slice(
+        page.indexOf('<dialog id="monitoring-dialog"'),
+        page.indexOf('<dialog id="issue-dialog"')
+    );
+    assert.match(page, /id="monitoring-info"[\s\S]*?aria-label="About collector monitoring and alerts"/);
+    assert.match(page, /aria-controls="monitoring-dialog"/);
+    assert.match(content, /aria-labelledby="monitoring-dialog-title"/);
+    assert.match(content, /aria-label="Close monitoring information" autofocus/);
+    assert.match(content, /class="issue-dialog-body monitoring-info-body" tabindex="0"/);
+    const textContent = content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+    for (const text of [
+        'stock prices, option quotes, earnings dates, index closes and stock splits',
+        'checks every minute',
+        'snapshot every 5 minutes',
+        'more than 10',
+        'older than 12 minutes',
+        'more than 2 minutes in the future',
+        'latest 2 recorded session runs',
+        'no later recovery run',
+        'deadlines from the last 24 hours',
+        '2 minutes after the deadline',
+        'only gap is a stale',
+        'When Pushover notifications are sent',
+        'more than 24 hours after the last notification',
+        'when all findings clear',
+        'Clearing only some findings',
+        'Failed delivery is not marked as sent',
+        '30 days of history',
+        'independently verify quote values',
+        'may prevent notifications',
+    ])
+        assert(textContent.includes(text), text);
+    assert.doesNotMatch(content, /<(select|datalist)\b|\btitle=/i);
+});
+
+test('monitoring information opens, dismisses and restores trigger focus without changing alert details', () => {
+    const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('const monitoringDialog = '), source.indexOf('const issueDialog = '));
+    const listeners = {};
+    const trigger = {
+        attributes: {},
+        addEventListener(type, handler) {
+            listeners[`trigger:${type}`] = handler;
+        },
+        setAttribute(name, value) {
+            this.attributes[name] = value;
+        },
+        focus() {
+            this.focused = true;
+        },
+    };
+    const body = { scrollTop: 100 };
+    const closeButton = {
+        addEventListener(type, handler) {
+            listeners[`close:${type}`] = handler;
+        },
+    };
+    const dialog = {
+        open: false,
+        showModal() {
+            this.open = true;
+        },
+        close() {
+            this.open = false;
+            listeners['dialog:close']();
+        },
+        querySelector(selector) {
+            return selector === '.issue-dialog-close' ? closeButton : body;
+        },
+        addEventListener(type, handler) {
+            listeners[`dialog:${type}`] = handler;
+        },
+    };
+    runInNewContext(code, {
+        document: { getElementById: (id) => (id === 'monitoring-dialog' ? dialog : trigger) },
+    });
+    const open = () => {
+        listeners['trigger:click']();
+        assert.equal(dialog.open, true);
+        assert.equal(trigger.attributes['aria-expanded'], 'true');
+        assert.equal(body.scrollTop, 0);
+    };
+    const closed = () => {
+        assert.equal(dialog.open, false);
+        assert.equal(trigger.attributes['aria-expanded'], 'false');
+        assert.equal(trigger.focused, true);
+    };
+    open();
+    listeners['dialog:click']({ target: body });
+    assert.equal(dialog.open, true);
+    listeners['close:click']();
+    closed();
+    open();
+    listeners['dialog:click']({ target: dialog });
+    closed();
+    open();
+    listeners['dialog:keydown']({ key: 'Tab' });
+    assert.equal(dialog.open, true);
+    let prevented = false;
+    listeners['dialog:keydown']({
+        key: 'Escape',
+        preventDefault() {
+            prevented = true;
+        },
+    });
+    assert.equal(prevented, true);
+    closed();
+    open();
+    dialog.close();
+    closed();
+});
+
 test('inventory describes every published host and its data source', () => {
     const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
     assert.equal(inventory.host, 'jimbrownhome1');

@@ -76,6 +76,28 @@ function table(target, headers, rows, empty) {
     target.replaceChildren(head, body);
 }
 
+const monitoringDialog = document.getElementById('monitoring-dialog');
+const monitoringInfo = document.getElementById('monitoring-info');
+monitoringInfo.addEventListener('click', () => {
+    monitoringDialog.showModal();
+    monitoringInfo.setAttribute('aria-expanded', 'true');
+    monitoringDialog.querySelector('.issue-dialog-body').scrollTop = 0;
+});
+monitoringDialog.querySelector('.issue-dialog-close').addEventListener('click', () => monitoringDialog.close());
+monitoringDialog.addEventListener('click', (event) => {
+    if (event.target === monitoringDialog) monitoringDialog.close();
+});
+monitoringDialog.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        monitoringDialog.close();
+    }
+});
+monitoringDialog.addEventListener('close', () => {
+    monitoringInfo.setAttribute('aria-expanded', 'false');
+    monitoringInfo.focus();
+});
+
 const issueDialog = document.getElementById('issue-dialog');
 issueDialog.querySelector('.issue-dialog-close').addEventListener('click', () => issueDialog.close());
 // A click on the backdrop lands on the dialog element itself.

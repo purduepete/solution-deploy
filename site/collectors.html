@@ -115,7 +115,33 @@
             <p id="status" role="status">Loading collector status...</p>
             <p id="error" role="alert" hidden></p>
             <section aria-labelledby="current-title">
-                <h2 id="current-title">Current Checks</h2>
+                <div class="collector-heading">
+                    <h2 id="current-title">Current Checks</h2>
+                    <button
+                        id="monitoring-info"
+                        class="monitoring-info"
+                        type="button"
+                        aria-label="About collector monitoring and alerts"
+                        aria-haspopup="dialog"
+                        aria-expanded="false"
+                        aria-controls="monitoring-dialog"
+                    >
+                        <svg
+                            aria-hidden="true"
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                        >
+                            <circle cx="12" cy="12" r="10" />
+                            <path d="M12 16v-4m0-4h.01" />
+                        </svg>
+                    </button>
+                </div>
                 <div id="current"></div>
             </section>
             <section aria-labelledby="jobs-title">
@@ -141,6 +167,79 @@
                 collector databases (read-only) and the monitor's latest checks.
             </footer>
         </main>
+        <dialog id="monitoring-dialog" class="issue-dialog" aria-labelledby="monitoring-dialog-title">
+            <div class="issue-dialog-head">
+                <h2 id="monitoring-dialog-title">Monitoring and alerts</h2>
+                <button type="button" class="issue-dialog-close" aria-label="Close monitoring information" autofocus>
+                    <svg
+                        aria-hidden="true"
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                    >
+                        <path d="M6 6l12 12M18 6 6 18" />
+                    </svg>
+                </button>
+            </div>
+            <div class="issue-dialog-body monitoring-info-body" tabindex="0">
+                <p>
+                    The monitor watches stock prices, option quotes, earnings dates, index closes and stock splits. It
+                    checks every minute; this page refreshes its snapshot every 5 minutes, so changes may take a few
+                    minutes to appear.
+                </p>
+                <h3>What can raise an alert</h3>
+                <ul>
+                    <li>
+                        Tasks: an expected task is missing, disabled or has not run for more than 10 minutes. A failed
+                        status publisher also raises an alert. Collector and watchdog exit codes alone do not; the
+                        checks below determine collection health.
+                    </li>
+                    <li>
+                        Snapshot: unreadable or missing data, an unsupported format, publisher errors, or a snapshot
+                        older than 12 minutes.
+                    </li>
+                    <li>
+                        Heartbeats: a missing collector heartbeat or one older than 10 minutes. Snapshots and heartbeats
+                        more than 2 minutes in the future also raise an alert.
+                    </li>
+                    <li>
+                        Session captures: the latest 2 recorded session runs are both incomplete. One incomplete session
+                        alone does not raise an alert.
+                    </li>
+                    <li>
+                        Close and settle captures: the latest run is incomplete and no later recovery run completed.
+                    </li>
+                    <li>Reference jobs: the latest earnings, index or split run did not complete.</li>
+                </ul>
+                <p>
+                    Run checks cover deadlines from the last 24 hours and wait until 2 minutes after the deadline before
+                    judging a run. Complete and no-work runs count as successful. A stock run whose only gap is a stale
+                    VIX quote is also accepted. Monitor-check and notification-state errors can raise alerts too.
+                </p>
+                <h3>When Pushover notifications are sent</h3>
+                <ul>
+                    <li>A new finding sends an alert. Identical findings do not send a message on every check.</li>
+                    <li>Open findings send a reminder more than 24 hours after the last notification.</li>
+                    <li>A recovery notification is sent when all findings clear.</li>
+                    <li>Clearing only some findings does not send another message while others remain open.</li>
+                    <li>Failed delivery is not marked as sent, so a later check can retry.</li>
+                </ul>
+                <h3>Reading the page</h3>
+                <p>
+                    Current Checks shows the latest monitor result. Monitor Alerts lists sent notifications, including
+                    recoveries, with 30 days of history. Runs By Day shows recorded collection outcomes.
+                </p>
+                <h3>Limits</h3>
+                <p>
+                    These checks use recorded run statuses and local health data. They do not compare Azure with
+                    PostgreSQL or independently verify quote values. A stopped host or a monitor that cannot run may
+                    prevent notifications.
+                </p>
+            </div>
+        </dialog>
         <dialog id="issue-dialog" class="issue-dialog" aria-labelledby="issue-dialog-title">
             <div class="issue-dialog-head">
                 <h2 id="issue-dialog-title">Alert details</h2>
