@@ -78,7 +78,10 @@ send again when other findings change. A failed delivery does not mark the
 notification as sent. State is in `monitor\state.json`; a nonzero monitor result
 can mean it successfully reported an unhealthy collector.
 Each check also writes `apps\solution-deploy\data\collector-monitor.json`; the
-Collectors page shows it under "Current Checks".
+Collectors page shows it under "Current Checks". Each finding's summary quotes
+the cause from the task log. For a run finding, the monitor reads every tick up
+to the run's deadline, so the summary gives the run's final count, not the
+count from its first attempt.
 
 The Info button beside "Current Checks" opens "Monitoring and alerts". It explains
 the current thresholds, the 2-minute deadline grace period and 24-hour run window,

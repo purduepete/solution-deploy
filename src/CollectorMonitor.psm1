@@ -33,11 +33,13 @@ function Read-CollectorTaskLog {
     .SYNOPSIS
     Returns the log lines written by a task's last run and a one-line plain cause.
     Python collectors stamp each line; an untimestamped log returns its last lines.
+    With -Until, later ticks up to that time are kept, so a run retried until its deadline reports its final outcome.
     #>
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Path,
         [AllowNull()][Nullable[datetime]]$Since,
+        [AllowNull()][Nullable[datetime]]$Until,
         [int]$MaxLines = 25,
         [int]$TailBytes = 262144
     )
@@ -64,13 +66,13 @@ function Read-CollectorTaskLog {
             if ($line -match $stampPattern) {
                 $message = $Matches[3]
                 $isRunStart = $message -like 'local time *'
+                $stamp = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
                 if (-not $inRun) {
-                    $stamp = [datetime]::ParseExact($Matches[1], 'yyyy-MM-dd HH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
                     if ($stamp -lt $from) { continue }
                     if ($stamp -gt $latestStart) { break }
                     $inRun = $true
                 }
-                elseif ($isRunStart) { break }
+                elseif ($isRunStart -and ($null -eq $Until -or $stamp -gt $Until)) { break }
                 if ($isRunStart -or $message -like 'HTTP Request:*') { continue }
             }
             if ($inRun -and $line.Trim()) { $kept.Add((Protect-CollectorLogLine $line)) }
@@ -88,8 +90,10 @@ function Read-CollectorTaskLog {
     if (-not $reason) { $reason = & $message '^\S+ \S+ WARNING (?<m>.*)$' }
     if (-not $reason) { $reason = & $message '^(?<m>([\w.]+\.)?\w*(Error|Exception)\b.*)$' }
     $outcome = ''
+    # The final outcome is the last summary of the first run read; later ticks in the window may start other runs.
+    $runId = foreach ($line in $kept) { if ($line -match 'run=(?<id>\d+) kind=\w+ \{') { $Matches['id']; break } }
     for ($i = $kept.Count - 1; $i -ge 0; $i--) {
-        if ($kept[$i] -match 'run=\d+ kind=(?<kind>\w+) (?<json>\{.*\})') {
+        if ($kept[$i] -match 'run=(?<id>\d+) kind=(?<kind>\w+) (?<json>\{.*\})' -and $Matches['id'] -eq $runId) {
             try {
                 $run = $Matches['json'] | ConvertFrom-Json -ErrorAction Stop
                 if ($run.status -ne 'complete') {
@@ -123,7 +127,8 @@ function Add-CollectorIssueLog {
         $path = Join-Path $AppsRoot $script:TaskLogs[$detail.task]
         try {
             $since = [Nullable[datetime]]([datetimeoffset]$detail.lastRun).LocalDateTime
-            $log = Read-CollectorTaskLog -Path $path -Since $since
+            $until = if ($detail.deadline) { [Nullable[datetime]]([datetimeoffset]$detail.deadline).LocalDateTime } else { $null }
+            $log = Read-CollectorTaskLog -Path $path -Since $since -Until $until
             $detail.logPath = $path
             $detail.log = @($log.Lines)
             $detail.cause = $log.Cause
@@ -156,7 +161,7 @@ function Get-CollectorMonitorIssue {
         $issues.Add([pscustomobject][ordered]@{
                 text = $Text; summary = $Text; label = $Extra['label']; meaning = $Meaning
                 job = $Extra['job']; task = $Extra['task']; exitCode = $Extra['exitCode']; lastRun = $Extra['lastRun']
-                cause = ''; logPath = $null; log = @()
+                deadline = $Extra['deadline']; cause = ''; logPath = $null; log = @()
             })
     }
     foreach ($task in $Tasks) {
@@ -223,6 +228,7 @@ function Get-CollectorMonitorIssue {
             & $add $Text $Meaning @{
                 job = $Job; label = $script:Jobs[$Job].Name; task = $script:Jobs[$Job].Task
                 lastRun = ([datetimeoffset]$Run.scheduledAt).ToString('o')
+                deadline = ([datetimeoffset]$Run.deadline).ToString('o')
             }
         }
         foreach ($job in @('stock-prices', 'option-quotes')) {

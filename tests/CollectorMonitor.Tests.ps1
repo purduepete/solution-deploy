@@ -136,6 +136,24 @@ Describe 'Independent collector monitoring' {
         $read.Lines -join "`n" | Should Not Match '13:12|14:48|complete'
         $read.Cause | Should Be 'Quote stream timed out with missing prices; settle run partial, 344 of 346 prices'
     }
+    It 'reports the final count of a run retried until its deadline' {
+        $log = Join-Path $TestDrive 'tick-retried.log'
+        @(
+            '2026-10-29 13:10:15,900 INFO local time 2026-10-29T13:10:15.900538-07:00'
+            '2026-10-29 13:11:11,266 ERROR Quote stream timed out with missing prices'
+            '2026-10-29 13:11:11,291 INFO run=510516 kind=settle {"status": "partial", "expected": 362, "price": 355}'
+            '2026-10-29 13:14:16,612 INFO local time 2026-10-29T13:14:16.612368-07:00'
+            '2026-10-29 13:15:00,008 ERROR provider capture failed: TimeoutError'
+            '2026-10-29 13:15:00,020 INFO run=510516 kind=settle {"status": "partial", "expected": 362, "price": 358}'
+            '2026-10-29 13:15:15,834 INFO local time 2026-10-29T13:15:15.834381-07:00'
+            '2026-10-29 13:15:17,426 INFO run=510600 kind=recovery {"status": "partial", "expected": 362, "price": 1}'
+        ) | Set-Content $log
+        $read = Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-29T13:10:00') -Until ([datetime]'2026-10-29T13:15:00')
+        $read.Cause | Should Be 'provider capture failed: TimeoutError; settle run partial, 358 of 362 prices'
+        $read.Lines -join "`n" | Should Not Match '13:15:17'
+        (Read-CollectorTaskLog -Path $log -Since ([datetime]'2026-10-29T13:10:00')).Cause |
+            Should Be 'Quote stream timed out with missing prices; settle run partial, 355 of 362 prices'
+    }
     It 'returns no lines when the failed run is no longer in the log' {
         $log = Join-Path $TestDrive 'tick-rotated.log'
         @(
