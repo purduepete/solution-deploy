@@ -212,6 +212,41 @@ test('history ranges include today and exactly the selected number of calendar d
     assert.match(source, /const historyDays = \{ alerts: 7, runs: 7 \}/);
 });
 
+test('collapsed job groups roll up card status', () => {
+    const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('// A card has a problem'), source.indexOf('\nconst openGroupsKey'));
+    const { jobProblem, jobGroupStatus } = runInNewContext(
+        `const staleHeartbeatMs = 600000;\n${code}\n({ jobProblem, jobGroupStatus })`
+    );
+    const now = Date.parse('2026-10-29T16:40:00-07:00');
+    const fresh = { heartbeatAt: '2026-10-29T16:39:00-07:00', lastError: 'capture_partial' };
+    assert.equal(jobProblem({ status: 'complete' }, fresh, now), null);
+    assert.equal(jobProblem({ status: 'running' }, fresh, now), null);
+    assert.equal(jobProblem({ status: 'partial', vixOnly: true }, fresh, now), null);
+    assert.equal(jobProblem({ status: 'partial' }, fresh, now), 'partial');
+    assert.equal(jobProblem(undefined, undefined, now), 'no heartbeat');
+    assert.equal(
+        jobProblem({ status: 'complete' }, { heartbeatAt: '2026-10-29T16:20:00-07:00' }, now),
+        'stale heartbeat'
+    );
+    assert.deepEqual(
+        { ...jobGroupStatus([{ name: 'Option quotes', problem: null }]) },
+        { count: '1 job', label: 'all complete', tone: 'good', names: '' }
+    );
+    assert.deepEqual(
+        {
+            ...jobGroupStatus([
+                { name: 'Stock prices', problem: 'failed' },
+                { name: 'Stock splits', problem: null },
+                { name: 'Index closes', problem: 'stale heartbeat' },
+            ]),
+        },
+        { count: '3 jobs', label: '2 issues', tone: 'bad', names: 'Stock prices failed, Index closes stale heartbeat' }
+    );
+    assert.match(source, /element\('details', undefined, 'day app-group'\)/);
+    assert.match(source, /'solution-deploy-open-job-groups'/);
+});
+
 test('current checks show the monitor result without any audit section', () => {
     const source = readFileSync(new URL('../site/collectors.js', import.meta.url), 'utf8');
     const page = readFileSync(new URL('../site/collectors.html', import.meta.url), 'utf8');

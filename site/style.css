@@ -465,12 +465,10 @@ footer {
     gap: 20px;
 }
 .app-group + .app-group {
-    margin-top: 24px;
+    margin-top: 12px;
 }
-.app-title {
-    font-size: 16px;
-    color: var(--text);
-    margin: 0 0 12px;
+.app-group .jobs {
+    padding: 14px;
 }
 .jobs h4 {
     font-size: 16px;

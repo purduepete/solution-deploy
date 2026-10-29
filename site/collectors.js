@@ -334,6 +334,38 @@ function historyDropdown(controls, group) {
     controls.append(trigger, menu);
 }
 
+// A card has a problem when its last slot ended badly or its heartbeat is missing or stale.
+function jobProblem(lastRun, health, now) {
+    if (lastRun && !['complete', 'no_work', 'running', 'pending'].includes(lastRun.status) && !lastRun.vixOnly)
+        return lastRun.status;
+    if (!health) return 'no heartbeat';
+    if (now - new Date(health.heartbeatAt) > staleHeartbeatMs) return 'stale heartbeat';
+    return null;
+}
+
+// The line shown on a collapsed app group: job count, one rollup badge and the jobs that need a look.
+function jobGroupStatus(entries) {
+    const count = entries.length === 1 ? '1 job' : `${entries.length} jobs`;
+    const problems = entries.filter((entry) => entry.problem);
+    if (!problems.length) return { count, label: 'all complete', tone: 'good', names: '' };
+    return {
+        count,
+        label: problems.length === 1 ? '1 issue' : `${problems.length} issues`,
+        tone: 'bad',
+        names: problems.map((entry) => `${entry.name} ${entry.problem}`).join(', '),
+    };
+}
+
+const openGroupsKey = 'solution-deploy-open-job-groups';
+function openJobGroups() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(openGroupsKey) ?? '[]');
+        return new Set(Array.isArray(saved) ? saved : []);
+    } catch {
+        return new Set();
+    }
+}
+
 function inHistoryRange(date, today, count) {
     const start = new Date(`${today}T00:00:00Z`);
     start.setUTCDate(start.getUTCDate() - count + 1);
@@ -381,21 +413,38 @@ function render(snapshot) {
         if (health?.lastSuccessAt)
             facts.append(element('dt', 'Last success'), element('dd', stamp(health.lastSuccessAt)));
         card.append(facts);
-        return { job, card };
+        return { job, card, problem: jobProblem(lastRun, health, now) };
     });
-    // One group per app in catalog order; cards inside run newest activity first, never-run jobs last.
+    // One collapsible group per app in catalog order; cards inside run newest activity first, never-run jobs last.
+    // Groups start collapsed; the ones the reader opened stay open across refreshes and reloads.
     const apps = [...new Set(snapshot.jobs.map((job) => job.app))];
+    const openGroups = openJobGroups();
     document.getElementById('jobs').replaceChildren(
         ...apps.map((app) => {
-            const group = element('div', undefined, 'app-group');
-            const grid = element('div', undefined, 'jobs');
-            grid.append(
-                ...cards
-                    .filter(({ job }) => job.app === app)
-                    .sort((a, b) => (lastAt.get(b.job.id) ?? -Infinity) - (lastAt.get(a.job.id) ?? -Infinity))
-                    .map(({ card }) => card)
+            const entries = cards
+                .filter(({ job }) => job.app === app)
+                .sort((a, b) => (lastAt.get(b.job.id) ?? -Infinity) - (lastAt.get(a.job.id) ?? -Infinity));
+            const group = element('details', undefined, 'day app-group');
+            group.open = openGroups.has(app);
+            group.addEventListener('toggle', () => {
+                const current = openJobGroups();
+                if (group.open) current.add(app);
+                else current.delete(app);
+                localStorage.setItem(openGroupsKey, JSON.stringify([...current]));
+            });
+            const status = jobGroupStatus(entries.map(({ job, problem }) => ({ name: job.name, problem })));
+            const summary = element('summary');
+            summary.append(
+                element('span', app, 'day-date'),
+                ' ',
+                status.count,
+                ' ',
+                element('span', status.label, `badge ${status.tone}`)
             );
-            group.append(element('h3', app, 'app-title'), grid);
+            if (status.names) summary.append(' ', element('span', status.names, 'note'));
+            const grid = element('div', undefined, 'jobs');
+            grid.append(...entries.map(({ card }) => card));
+            group.append(summary, grid);
             return group;
         })
     );
