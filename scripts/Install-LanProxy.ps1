@@ -50,8 +50,9 @@ if(Test-Path -LiteralPath $pidFile){
     }
     Remove-Item -LiteralPath $pidFile -Force
 }
-$collision=Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue|Where-Object {
-    $_.LocalPort -in $ports -and $_.LocalAddress -in @($address,'0.0.0.0','::')
+# Rows without a remote port are listeners; jimbrownhome1 has reported them with an undefined State 0.
+$collision=Get-NetTCPConnection -ErrorAction SilentlyContinue|Where-Object {
+    $_.RemotePort -eq 0 -and $_.LocalPort -in $ports -and $_.LocalAddress -in @($address,'0.0.0.0','::')
 }
 if($collision){throw 'A requested LAN listener port is already occupied. No unrelated listener was stopped.'}
 New-Item -ItemType Directory -Path $root,"$root\site","$root\logs" -Force|Out-Null
@@ -90,7 +91,7 @@ try{
             $candidate=Get-CimInstance Win32_Process -Filter "ProcessId=$serverId"
             $expected='(?i)(?:^|\s)"?'+[regex]::Escape($entry)+'"?(?:\s|$)'
             if($candidate -and $candidate.ExecutablePath -eq $NodePath -and $candidate.CommandLine -match $expected){
-                $bound=@(Get-NetTCPConnection -State Listen -OwningProcess $serverId -ErrorAction SilentlyContinue|Where-Object LocalAddress -eq $address)
+                $bound=@(Get-NetTCPConnection -OwningProcess $serverId -ErrorAction SilentlyContinue|Where-Object {$_.LocalAddress -eq $address -and $_.RemotePort -eq 0})
                 if(@($bound|Where-Object LocalPort -in $ports).Count -eq $ports.Count){$process=$candidate;break}
             }
         }
