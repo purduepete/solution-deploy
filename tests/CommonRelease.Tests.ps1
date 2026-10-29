@@ -15,7 +15,7 @@ Describe 'Common release inventory and routing' {
     It 'covers every site exactly once without changing placement authority' {
         $inventory=Read-DeploymentJson (Join-Path $root 'environments\releases.json')
         $sites=Read-DeploymentJson (Join-Path $root 'site\sites.json')
-        $inventory.apps.Count|Should Be 14
+        $inventory.apps.Count|Should Be 15
         (@($inventory.apps.Keys|Sort-Object) -join ',')|Should Be (@($sites.sites.id|Sort-Object) -join ',')
         foreach($entry in $inventory.apps.Values){
             @($entry.components).Count|Should BeGreaterThan 0
@@ -26,8 +26,8 @@ Describe 'Common release inventory and routing' {
             }
         }
     }
-    It 'keeps all four registered controller apps on the existing routine route' {
-        foreach($app in @('ferry-tracker','home-automation','site-dock','team-scoreboard')){
+    It 'keeps all five registered controller apps on the existing routine route' {
+        foreach($app in @('ferry-tracker','home-automation','site-dock','team-scoreboard','idea-notes')){
             (Get-CommonReleaseRoute -App $app -Target jimbrownhome1).procedure|Should Be controller
             Assert-CommonThrows {Get-CommonReleaseRoute -App $app -Target jimbrownhome1 -Component web} '*omit -Component*'
         }

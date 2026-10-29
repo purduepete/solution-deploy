@@ -1,8 +1,8 @@
 $script:hostnamesScript=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Set-CloudflareHostnames.ps1'
 Describe 'Google sign-in on allowlisted applications' {
     BeforeEach {
-        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options','solution-deploy','team-scoreboard')
-        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798,8801)
+        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options',        'solution-deploy','team-scoreboard','idea-notes')
+                $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798,8801,8802)
         $global:cfTest_owner=@{
             id='owner';name='Owner';decision='allow';precedence=1
             include=@(@{email=@{email='owner@example.com'}})
@@ -74,7 +74,7 @@ Describe 'Google sign-in on allowlisted applications' {
         foreach($app in $global:cfTest_fakeApps|Where-Object id -ne 'catch'){$app.policies+=,$google}
         $before=$global:cfTest_fakeApps|ConvertTo-Json -Depth 30 -Compress
         $preview=& $script:hostnamesScript -AddGoogleEmail 'guest@gmail.com'|ConvertFrom-Json
-        $preview.applications.Count|Should Be 12
+        $preview.applications.Count|Should Be 13
         $global:cfTest_writes|Should Be 0
         $result=& $script:hostnamesScript -AddGoogleEmail 'guest@gmail.com' -Apply|ConvertFrom-Json
         $result.added|Should Be $true
@@ -91,9 +91,9 @@ Describe 'Google sign-in on allowlisted applications' {
         $rejected|Should Be $true
         $global:cfTest_writes|Should Be 0
     }
-    It 'previews all twelve applications without writing' {
+    It 'previews all thirteen applications without writing' {
         $report=& $script:hostnamesScript -EnableGoogleSignIn|ConvertFrom-Json
-        $report.googleSignIn.Count|Should Be 12
+        $report.googleSignIn.Count|Should Be 13
         $global:cfTest_writes|Should Be 0
     }
     It 'previews WorkLog publication without writing' {

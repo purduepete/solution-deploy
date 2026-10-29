@@ -2,7 +2,7 @@
 param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
     [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory, [switch]$PublishTeamScoreboard,
     [switch]$RemoveRetiredFerryHeaderRule, [switch]$PublishFitTrackOAuthPages, [switch]$PublishTeamScoreboardCalendar,
-    [string]$AddGoogleEmail)
+    [switch]$PublishIdeaNotes, [string]$AddGoogleEmail)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
@@ -32,9 +32,10 @@ $allowed=[ordered]@{
     'web-options.jimlertech.com'=18797
     'solution-deploy.jimlertech.com'=18798
     'team-scoreboard.jimlertech.com'=8801
+    'idea-notes.jimlertech.com'=8802
 }
-if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory,$PublishTeamScoreboard)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
-$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}elseif($PublishTeamScoreboard){'team-scoreboard.jimlertech.com'}else{''}
+if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory,$PublishTeamScoreboard,$PublishIdeaNotes)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
+$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}elseif($PublishTeamScoreboard){'team-scoreboard.jimlertech.com'}elseif($PublishIdeaNotes){'idea-notes.jimlertech.com'}else{''}
 $catchHosts=@('ferry-tracker.jimlertech.com/api/catch','fit-track.jimlertech.com/oauth/*','team-scoreboard.jimlertech.com/calendar/*')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
 $zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'

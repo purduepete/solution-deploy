@@ -581,8 +581,10 @@ function Get-PortListenerProcessId {
     param([Parameter(Mandatory)][int]$Port)
     $ids = @()
     try {
-        $ids = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction Stop |
-                Where-Object { $_.LocalAddress -in @('127.0.0.1', '0.0.0.0', '::1', '::', '::ffff:127.0.0.1') } |
+        # Listener-shaped rows (no remote port) count regardless of State: jimbrownhome1 has reported real
+        # listeners with an undefined State 0, which a -State Listen query silently drops.
+        $ids = @(Get-NetTCPConnection -LocalPort $Port -ErrorAction Stop |
+                Where-Object { $_.RemotePort -eq 0 -and $_.LocalAddress -in @('127.0.0.1', '0.0.0.0', '::1', '::', '::ffff:127.0.0.1') } |
                 Select-Object -ExpandProperty OwningProcess -Unique)
     }
     catch {

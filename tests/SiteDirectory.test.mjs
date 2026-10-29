@@ -13,7 +13,7 @@ test('deployment information covers every solution and exposes only public field
     releases.apps.pgweb.connectionString = 'PRIVATE_SENTINEL';
     releases.apps.pgweb.taskAction = 'PRIVATE_SENTINEL';
     const result = publicDeployments(releases, inventory);
-    assert.equal(result.solutions.length, 14);
+    assert.equal(result.solutions.length, 15);
     assert.deepEqual(result.solutions.map((entry) => entry.id).sort(), inventory.sites.map((entry) => entry.id).sort());
     assert.match(result.scope, /not a live deployment check/);
     assert(!JSON.stringify(result).includes('PRIVATE_SENTINEL'));
@@ -464,7 +464,7 @@ test('monitoring information opens, dismisses and restores trigger focus without
 test('inventory describes every published host and its data source', () => {
     const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
     assert.equal(inventory.host, 'jimbrownhome1');
-    assert.equal(inventory.sites.length, 14);
+    assert.equal(inventory.sites.length, 15);
     const page = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
     assert.match(page, /192\.168\.2\.0\/24/);
     assert(!page.includes('Local URLs use loopback'));

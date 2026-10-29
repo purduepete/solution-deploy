@@ -94,6 +94,7 @@ test('production mapping is explicit, immutable and never wildcard', () => {
             [8797, 18797, 8797],
             [8798, 18798, 8798],
             [8801, 8801, 8801],
+            [8802, 8802, 8802],
         ]
     );
     assert.ok(Object.isFrozen(productionConfig.listeners[0]));

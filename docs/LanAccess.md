@@ -28,6 +28,7 @@ passkey, service worker, or browser permission flow.
 | 8797     | 127.0.0.1:18797             | 8797                       |
 | 8798     | 127.0.0.1:18798 (directory) | 8798                       |
 | 8801     | 127.0.0.1:8801              | 8801                       |
+| 8802     | 127.0.0.1:8802              | 8802                       |
 
 The trusted upstream origin is
 `https://jimbrownhome1.tail8ad282.ts.net:<private-port>`. The proxy sets Origin

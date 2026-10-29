@@ -37,6 +37,14 @@
       "tasks": ["SolutionDeploy-team-scoreboard"],
       "preserve": ["shared", "PostgreSQL team_scoreboard"]
     },
+    "idea-notes": {
+      "procedure": "controller",
+      "source": "..\\idea-notes",
+      "components": ["web"],
+      "versionEvidence": "Protected state\\active.json and release.json",
+      "tasks": ["SolutionDeploy-idea-notes"],
+      "preserve": ["shared", "PostgreSQL idea_notes"]
+    },
     "fit-track": {
       "procedure": "fit-track",
       "source": "..\\fit-track",
