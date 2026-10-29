@@ -36,6 +36,7 @@
     "databases": {
       "ferry-tracker": "ferry_tracker",
       "home-automation": "home_automation",
+      "idea-notes": "idea_notes",
       "site-dock": "site_dock",
       "team-scoreboard": "team_scoreboard"
     },
@@ -65,6 +66,12 @@
       "newInstallation": true,
       "account": "sd-scoreboard",
       "port": 8801
+    },
+    "idea-notes": {
+      "manifest": "..\\idea-notes\\deploy\\application.json",
+      "newInstallation": true,
+      "account": "sd-ideas",
+      "port": 8802
     }
   }
 }
