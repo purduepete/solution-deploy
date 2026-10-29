@@ -14,9 +14,16 @@
 
 The job discovers every connectable, non-template database, including the
 maintenance database `postgres`. The current application databases are
-`ferry_tracker`, `fit_track`, `home_automation`, `site_dock`, `web_bookmarks`,
-`web_inventory`, and `work_log`. An unexpected `sd_validate_*` database stops
+`ferry_tracker`, `fit_track`, `home_automation`, `idea_notes`, `site_dock`,
+`team_scoreboard`, `web_bookmarks`, `web_inventory`, `web_options`,
+`web_portfolio`, and `work_log`. An unexpected `sd_validate_*` database stops
 the job for inspection rather than being backed up or overwritten.
+
+A superuser session (for example pgweb browsing as `postgres`) can still open a
+validation database despite `REVOKE CONNECT`, and its `DROP DATABASE` then fails
+with "being accessed by other users". On 10/29/2026 pgweb did this to
+`sd_validate_backup_ferry_tracker`; after review the exact database was dropped
+`WITH (FORCE)` and the rerun succeeded.
 
 Each set contains:
 
