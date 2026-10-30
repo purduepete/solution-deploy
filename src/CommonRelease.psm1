@@ -170,6 +170,7 @@ function Invoke-CommonWebRelease {
     }
     if($Route.procedure -ne 'fit-track'){throw 'No implemented release procedure for this inventory entry.'}
     Import-Module (Join-Path $PSScriptRoot 'FitTrackRelease.psm1') -DisableNameChecking
+    $Arguments.Entry=$Route.entry
     Invoke-FitTrackRelease @Arguments
 }
 

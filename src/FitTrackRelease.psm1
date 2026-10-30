@@ -12,7 +12,7 @@ function Get-FitTrackSourceDigest {
 }
 
 function Assert-FitTrackDatabaseInputs {
-    param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Installed)
+    param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Installed,[hashtable]$Applied=@{})
     $paths=@('deploy\application.json')
     foreach($root in @($Source,$Installed)){
         $paths+=@(Get-ChildItem -LiteralPath (Join-Path $root 'deploy\postgresql') -File -Recurse |
@@ -21,6 +21,10 @@ function Assert-FitTrackDatabaseInputs {
     foreach($path in @($paths|Sort-Object -Unique)){
         $next=Join-Path $Source $path
         $old=Join-Path $Installed $path
+        # An input already verified live passes only at exactly its recorded digest.
+        $key=$path.Replace('\','/')
+        if($Applied.ContainsKey($key) -and (Test-Path -LiteralPath $next -PathType Leaf) -and
+            (Get-FitTrackSourceDigest $next) -eq $Applied[$key]){continue}
         if(-not (Test-Path -LiteralPath $next -PathType Leaf) -or
             -not (Test-Path -LiteralPath $old -PathType Leaf) -or
             (Get-FitTrackSourceDigest $next) -ne (Get-FitTrackSourceDigest $old)){
@@ -158,7 +162,7 @@ function Invoke-FitTrackRelease {
         [switch]$ApproveRelease,[string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
         [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(30)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
-        [int]$TimeoutSeconds=300)
+        [int]$TimeoutSeconds=300,[hashtable]$Entry=@{})
     $startedLocal=(Get-Date).ToString('o')
     if($App -ne 'fit-track' -or $Environment -ne 'production' -or $Target -ine 'jimbrownhome1' -or
         -not $ApproveRelease -or -not $DatabaseChangesReviewed -or [string]::IsNullOrWhiteSpace($ApprovalReason)){
@@ -212,7 +216,9 @@ function Invoke-FitTrackRelease {
             if($baseline.releaseId -ne $active.releaseId -or $baseline.sourceCommit -ne $record.sourceCommit){throw 'Fit Track component baseline differs from the active release.'}
             $webSelected=Get-CommonReleaseChanges $Repository $baseline.sourceCommit $commitId @('frontend','backend/app','backend/requirements.txt','deploy')
         }
-        Assert-FitTrackDatabaseInputs $source $current
+        $applied=@{}
+        if($Entry['appliedDatabaseInputs']){foreach($item in $Entry['appliedDatabaseInputs'].GetEnumerator()){$applied[$item.Key]=[string]$item.Value}}
+        Assert-FitTrackDatabaseInputs $source $current $applied
         $manifest=Read-DeploymentJson (Join-Path $source 'deploy\application.json')
         $accessPlan=@{target=@{host=$Target};manifest=$manifest}
         if(-not $TailscaleUrl){$TailscaleUrl='https://jimbrownhome1.tail8ad282.ts.net:8791/'}

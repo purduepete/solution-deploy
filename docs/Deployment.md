@@ -151,7 +151,11 @@ Before downtime, it checks host identity, the current junction and active
 metadata, installed application files, interpreter, boot task, watcher source
 and watcher task configuration. The manifest and database inputs must match the
 current installation. It executes no importer, schema migration or data-fix
-script. The existing app's normal background writes resume when its watchdog
+script. The one exception is a manifest or migration file listed in the Fit Track
+`appliedDatabaseInputs` in `environments\releases.json`, at exactly its recorded
+LF-normalized digest; add an entry only after a read-only check shows the
+migration is live (Fit Track 002 was applied and checked that way on 10/29/2026).
+The existing app's normal background writes resume when its watchdog
 starts it.
 
 Activation reuses `Stop-ManagedApp`, `Set-ActiveRelease` and the existing

@@ -245,6 +245,20 @@ Describe 'Fit Track routine database and source boundaries' {
         [IO.File]::WriteAllText((Join-Path $script:next 'deploy\application.json'),'{"id":"different"}')
         Assert-CommonThrows {Assert-FitTrackDatabaseInputs $script:next $script:old} '*manifest/database input changed*'
     }
+    It 'passes inputs verified live only at their recorded digest' {
+        [IO.File]::WriteAllText((Join-Path $script:next 'deploy\postgresql\002.sql'),"alter table t add c int;`r`n")
+        [IO.File]::WriteAllText((Join-Path $script:next 'deploy\application.json'),'{"id":"fit-track","v":2}')
+        $applied=@{
+            'deploy/postgresql/002.sql'=(Get-FitTrackSourceDigest (Join-Path $script:next 'deploy\postgresql\002.sql'))
+            'deploy/application.json'=(Get-FitTrackSourceDigest (Join-Path $script:next 'deploy\application.json'))
+        }
+        Assert-FitTrackDatabaseInputs $script:next $script:old $applied
+        [IO.File]::WriteAllText((Join-Path $script:next 'deploy\postgresql\002.sql'),'alter table t add d int;')
+        Assert-CommonThrows {Assert-FitTrackDatabaseInputs $script:next $script:old $applied} '*input changed: deploy\postgresql\002.sql*'
+        [IO.File]::Delete((Join-Path $script:next 'deploy\postgresql\002.sql'))
+        [IO.File]::WriteAllText((Join-Path $script:next 'deploy\postgresql\001.sql'),'select 3;')
+        Assert-CommonThrows {Assert-FitTrackDatabaseInputs $script:next $script:old $applied} '*input changed: deploy\postgresql\001.sql*'
+    }
 }
 
 Describe 'Fit Track host result and runtime verification' {

@@ -68,6 +68,10 @@
         "upload-watcher\\backend\\logs",
         "PostgreSQL fit_track"
       ],
+      "appliedDatabaseInputs": {
+        "deploy/postgresql/002_elevation.sql": "df96a6b4188944564b5f5f531c39dd5493a1f27d2a8ff1cef6729eb58eb696b0",
+        "deploy/application.json": "f3f1578039ccd862737c1f905053e4b593131259dbba26f95c9be0c3cab5de5a"
+      },
       "componentNote": "The upload watcher is a logon task because it reads the per-user Google Drive G: drive. A release copies changed watcher scripts in place and restarts it; a changed Register-UploadWatcherTask.ps1 stops the release for a manual task re-registration.",
       "readiness": "/api/ready"
     },
