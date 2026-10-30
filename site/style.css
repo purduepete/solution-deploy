@@ -901,6 +901,13 @@ footer {
     justify-content: center;
     background: var(--bg);
 }
+/* Caret browsing would otherwise draw a text caret beside the ring. */
+.page-loading,
+[role='status'] {
+    caret-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+}
 .spinner-wrap {
     display: inline-flex;
     animation: fade-in 0.6s ease-out both;
