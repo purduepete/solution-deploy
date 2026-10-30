@@ -18,6 +18,7 @@
         />
         <script src="/theme.js"></script>
         <link rel="stylesheet" href="/style.css" />
+        <script src="/loading.js" defer></script>
         <script src="/app.js" defer></script>
     </head>
     <body>
@@ -106,6 +107,7 @@
                 </div>
             </div>
         </header>
+        <div id="page-loading" class="page-loading"></div>
         <main>
             <section class="guide" aria-label="Access guide">
                 <p>
@@ -130,7 +132,7 @@
                     <input id="search" type="search" placeholder="Name, deployment, database or URL" autocomplete="off"
                 /></label>
                 <div class="toolbar-actions">
-                    <p id="summary" role="status">Loading inventory...</p>
+                    <p id="summary" role="status"></p>
                     <div class="sort-setting" role="group" aria-label="Sort sites">
                         <button
                             id="sort-alpha"

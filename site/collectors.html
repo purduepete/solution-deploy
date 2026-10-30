@@ -18,6 +18,7 @@
         />
         <script src="/theme.js"></script>
         <link rel="stylesheet" href="/style.css" />
+        <script src="/loading.js" defer></script>
         <script src="/collectors.js" defer></script>
     </head>
     <body>
@@ -106,13 +107,14 @@
                 </div>
             </div>
         </header>
+        <div id="page-loading" class="page-loading"></div>
         <main>
             <nav class="crumbs" aria-label="Pages">
                 <a href="/">Solution Directory</a>
                 <span aria-hidden="true">/</span>
                 <span>Collectors</span>
             </nav>
-            <p id="status" role="status">Loading collector status...</p>
+            <p id="status" role="status"></p>
             <p id="error" role="alert" hidden></p>
             <section aria-labelledby="current-title">
                 <div class="collector-heading">

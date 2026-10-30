@@ -730,6 +730,7 @@ test('server exposes only fixed read-only assets with protective headers', async
             '/',
             '/style.css',
             '/theme.js',
+            '/loading.js',
             '/app.js',
             '/collectors',
             '/collectors.js',

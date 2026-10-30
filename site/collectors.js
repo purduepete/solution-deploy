@@ -582,13 +582,16 @@ async function load() {
     render(snapshot);
 }
 
+const finishLoading = startPageLoading('Loading collector status');
 const refresh = () =>
-    load().catch((error) => {
-        console.error('Cannot load collector status:', error);
-        document.getElementById('status').textContent = 'Collector status unavailable';
-        const message = document.getElementById('error');
-        message.textContent = `${error.message} The page retries every minute.`;
-        message.hidden = false;
-    });
+    load()
+        .catch((error) => {
+            console.error('Cannot load collector status:', error);
+            document.getElementById('status').textContent = 'Collector status unavailable';
+            const message = document.getElementById('error');
+            message.textContent = `${error.message} The page retries every minute.`;
+            message.hidden = false;
+        })
+        .finally(finishLoading);
 refresh();
 setInterval(refresh, 60 * 1000);

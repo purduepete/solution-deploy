@@ -197,11 +197,14 @@ async function load() {
     filter();
 }
 
-load().catch((error) => {
-    console.error('Cannot load solution directory:', error);
-    document.getElementById('sites').replaceChildren();
-    document.getElementById('summary').textContent = 'Inventory unavailable';
-    const message = document.getElementById('error');
-    message.textContent = `${error.message} Reload the page or check the host service log.`;
-    message.hidden = false;
-});
+const finishLoading = startPageLoading('Loading solutions');
+load()
+    .catch((error) => {
+        console.error('Cannot load solution directory:', error);
+        document.getElementById('sites').replaceChildren();
+        document.getElementById('summary').textContent = 'Inventory unavailable';
+        const message = document.getElementById('error');
+        message.textContent = `${error.message} Reload the page or check the host service log.`;
+        message.hidden = false;
+    })
+    .finally(finishLoading);
