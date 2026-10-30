@@ -301,6 +301,18 @@ async function checkApp(context, site, cfg) {
         const native = await page.locator('select, datalist').count();
         add('No native dropdowns on page', native === 0, native ? `${native} found` : '');
 
+        // Native title tooltips are unthemed; iframe titles are accessible names, not tooltips.
+        const titled = await page.evaluate(() =>
+            [...document.querySelectorAll('body [title]:not(iframe)')]
+                .filter((el) => el.getAttribute('title').trim())
+                .map((el) => `${el.tagName.toLowerCase()} "${el.getAttribute('title').slice(0, 30)}"`)
+        );
+        add(
+            'No native title tooltips',
+            titled.length === 0,
+            titled.length ? `${titled.length} found: ${titled.slice(0, 3).join(', ')}` : ''
+        );
+
         // One theme control in the top bar, aligned with the controls next to it.
         const bar = await page.evaluate(() => {
             const vis = [...document.querySelectorAll('button,[role=combobox],[aria-haspopup]')]

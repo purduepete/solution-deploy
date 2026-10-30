@@ -76,6 +76,62 @@ function table(target, headers, rows, empty) {
     target.replaceChildren(head, body);
 }
 
+// Custom tooltip for any element with data-tip; native title tooltips are not themed.
+const tooltip = element('div', undefined, 'tooltip');
+tooltip.id = 'tooltip';
+tooltip.setAttribute('role', 'tooltip');
+tooltip.hidden = true;
+document.body.append(tooltip);
+let tipTarget = null;
+let hideTimer;
+
+function showTip(target) {
+    clearTimeout(hideTimer);
+    if (tipTarget && tipTarget !== target) tipTarget.removeAttribute('aria-describedby');
+    tipTarget = target;
+    tooltip.textContent = target.dataset.tip;
+    tooltip.hidden = false;
+    target.setAttribute('aria-describedby', tooltip.id);
+    const box = target.getBoundingClientRect();
+    const tip = tooltip.getBoundingClientRect();
+    const left = Math.min(Math.max(8, box.left + box.width / 2 - tip.width / 2), innerWidth - tip.width - 8);
+    const below = box.bottom + 6 + tip.height <= innerHeight - 8;
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${below ? box.bottom + 6 : box.top - tip.height - 6}px`;
+}
+
+function hideTip() {
+    clearTimeout(hideTimer);
+    if (!tipTarget) return;
+    tipTarget.removeAttribute('aria-describedby');
+    tipTarget = null;
+    tooltip.hidden = true;
+}
+
+document.addEventListener('pointerover', (event) => {
+    if (event.pointerType === 'touch') return;
+    const target = event.target.closest?.('[data-tip]');
+    if (target) showTip(target);
+    else if (tooltip.contains(event.target)) clearTimeout(hideTimer);
+});
+document.addEventListener('pointerout', (event) => {
+    if (!tipTarget) return;
+    const next = event.relatedTarget;
+    if (next && (tipTarget.contains(next) || tooltip.contains(next))) return;
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hideTip, 150);
+});
+document.addEventListener('focusin', (event) => {
+    const target = event.target.closest?.('[data-tip]');
+    if (target?.matches(':focus-visible')) showTip(target);
+});
+document.addEventListener('focusout', hideTip);
+document.addEventListener('click', hideTip, true);
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') hideTip();
+});
+addEventListener('scroll', hideTip, true);
+
 const monitoringDialog = document.getElementById('monitoring-dialog');
 const monitoringInfo = document.getElementById('monitoring-info');
 monitoringInfo.addEventListener('click', () => {
@@ -181,7 +237,7 @@ function issueLinks(row) {
         const detail = row.details?.[index] ?? { text, summary: text };
         const link = element('button', undefined, 'issue-link');
         link.type = 'button';
-        link.title = issueLabel(detail);
+        link.dataset.tip = issueLabel(detail);
         link.setAttribute('aria-label', `${issueLabel(detail)}. Open details`);
         link.setAttribute('aria-haspopup', 'dialog');
         link.append(alertIcon());

@@ -324,6 +324,7 @@ test('alert issues open a dialog with cause, meaning and log lines', () => {
             this.children = children;
         },
         querySelector: () => node('button'),
+        dataset: {},
         showModal() {
             this.opened = true;
         },
@@ -358,7 +359,7 @@ test('alert issues open a dialog with cause, meaning and log lines', () => {
     assert.equal(link.attributes['aria-haspopup'], 'dialog');
     assert.equal(link.text, undefined);
     assert.equal(link.children[0].tag, 'svg');
-    assert.equal(link.title, 'Option quote collection failed');
+    assert.equal(link.dataset.tip, 'Option quote collection failed');
     assert.equal(link.attributes['aria-label'], 'Option quote collection failed. Open details');
     link.listeners.click();
     assert.equal(nodes['issue-dialog'].opened, true);
