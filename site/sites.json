@@ -1,6 +1,6 @@
 {
   "host": "jimbrownhome1",
-  "updated": "2026-10-22",
+  "updated": "2026-10-30",
   "sites": [
     {
       "id": "ferry-tracker",
@@ -55,7 +55,7 @@
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8792/",
       "database": "PostgreSQL on jimbrownhome1:5432 / web_bookmarks / public",
       "sourceDatabase": "Migrated from Azure SQL webportfolio on sqlgkhw25ijhyzzy.database.windows.net.",
-      "notes": "The Tampermonkey capture script uses the private Tailscale API."
+      "notes": "The Tampermonkey script uses the public API through the browser's Cloudflare Access session. Its Gist releases are tracked separately from the hosted web app."
     },
     {
       "id": "plex",

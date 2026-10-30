@@ -92,6 +92,16 @@ record or stale record is an incomplete verification outcome even when the app
 is healthy. Investigate and report it explicitly; do not silently resubmit or
 invent a replacement date. A genuine `NoChanges` retains its existing record/date.
 
+Web Bookmarks also lists `tampermonkey`, published independently to its Gist.
+Its generic Release command defaults to `web`; selecting `tampermonkey` there
+stops with the userscript publisher's command. From the Web Bookmarks repository,
+run `.\tampermonkey\Publish.ps1 -Commit <pushed-commit>` to publish, compare the
+raw Gist with that exact committed bundle, and record its actual publication
+time. `-VerifyOnly -GistRevision <full-revision>` records an already published
+current revision without uploading. This keeps the hosted web app's record and
+process unchanged. A publication or record verification failure is an incomplete
+release and must be reported.
+
 For Fit Track's first release, select the whole web component explicitly:
 
 ```powershell

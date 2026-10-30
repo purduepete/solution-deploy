@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, publicDeployments } from '../site/server.mjs';
+import { createServer, publicDeployments, withReleaseRecords } from '../site/server.mjs';
 import { runInNewContext } from 'node:vm';
 
 test('deployment information covers every solution and exposes only public fields', () => {
@@ -68,6 +68,7 @@ test('deployment sections use accessible disclosures and render recorded evidenc
             this.children.push(...children);
         },
     });
+
     const render = runInNewContext(`${code}\ndeploymentSection`, { element });
     const section = render({
         support: 'Procedure Unverified',
@@ -98,6 +99,41 @@ test('deployment sections use accessible disclosures and render recorded evidenc
     assert(nodes.some((node) => node.text?.includes('Private-only')));
     assert.match(source, /card\.textContent/);
     assert.doesNotMatch(source, /innerHTML/);
+});
+
+test('Web Bookmarks tracks userscript publication separately without changing the web release', () => {
+    const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
+    const releases = JSON.parse(readFileSync(new URL('../environments/releases.json', import.meta.url)));
+    const result = withReleaseRecords(publicDeployments(releases, inventory), [
+        {
+            app: 'web-bookmarks',
+            component: 'web',
+            sourceCommit: '8c89a14'.padEnd(40, '0'),
+            completedLocal: '2026-10-29T18:35:27-07:00',
+        },
+        {
+            app: 'web-bookmarks',
+            component: 'tampermonkey',
+            sourceCommit: '66fb61d'.padEnd(40, '0'),
+            completedLocal: '2026-10-30T12:20:53-07:00',
+        },
+    ]).solutions.find((entry) => entry.id === 'web-bookmarks');
+    assert.deepEqual(result.components, ['web', 'tampermonkey']);
+    assert.deepEqual(result.lastRelease, {
+        component: 'tampermonkey',
+        commit: '66fb61d',
+        completed: '2026-10-30T19:20:53.000Z',
+    });
+    assert.deepEqual(
+        result.releases.find((entry) => entry.component === 'web'),
+        {
+            component: 'web',
+            commit: '8c89a14',
+            completed: '2026-10-30T01:35:27.000Z',
+        }
+    );
+    assert.match(result.componentNote, /Gist.*Publish\.ps1/);
+    assert.match(inventory.sites.find((entry) => entry.id === 'web-bookmarks').notes, /Cloudflare Access/);
 });
 
 test('site sorting supports alphabetical and newest deployment order', () => {

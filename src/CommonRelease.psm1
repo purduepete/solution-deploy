@@ -55,7 +55,13 @@ function Get-CommonReleaseRoute {
     }
     # Pinned jobs run from their own release folder, independent of the app's web procedure.
     $jobs=if($entry.ContainsKey('jobs')){$entry.jobs}else{@{}}
-    $selected=if($Component){@($Component)}else{@($entry.components)}
+    $selected=if($Component){@($Component)}elseif($entry.ContainsKey('defaultComponents')){@($entry.defaultComponents)}else{@($entry.components)}
+    foreach($name in $selected){
+        if($name -notin $entry.components){throw "Unknown default component '$name' for '$App'."}
+        if($entry.ContainsKey('externalComponents') -and $entry.externalComponents.ContainsKey($name)){
+            throw "$App $name has a separate release procedure: $($entry.externalComponents[$name])"
+        }
+    }
     $jobNames=@($selected|Where-Object {$jobs.ContainsKey($_)})
     $webNames=@($selected|Where-Object {-not $jobs.ContainsKey($_)})
     $procedure=$entry.procedure
@@ -133,7 +139,7 @@ function Invoke-CommonRelease {
     $arguments.Repository=$route.repository
     $results=@()
     if($route.procedure -ne 'none'){
-        $arguments.Component=if($Component){@($route.webComponents)}else{$null}
+        $arguments.Component=if($Component -or $route.entry.ContainsKey('defaultComponents')){@($route.webComponents)}else{$null}
         $results+=@(Invoke-CommonWebRelease $route $arguments)
     }
     if($route.jobs.Count){

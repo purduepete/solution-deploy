@@ -79,8 +79,13 @@
     "web-bookmarks": {
       "procedure": "hand-placed",
       "source": "..\\web-bookmarks",
-      "components": ["web"],
-      "versionEvidence": "state\\common-release.json: current -> releases\\3f3c01173ec9-440a191e (source 3f3c01173ec9), verified 10/24/2026. Previous: web-bookmarks-5f9be3e.",
+      "components": ["web", "tampermonkey"],
+      "defaultComponents": ["web"],
+      "externalComponents": {
+        "tampermonkey": "Use web-bookmarks\\tampermonkey\\Publish.ps1 to publish and verify the Gist and record its actual publication time."
+      },
+      "componentNote": "Web uses a release folder swap. Tampermonkey is published separately to its Gist with tampermonkey\\Publish.ps1; it never restarts the hosted app.",
+      "versionEvidence": "Hosted web: state\\common-release.json. Tampermonkey: verified Gist revision, userscript version and source commit in data\\releases\\web-bookmarks--tampermonkey.json.",
       "tasks": ["SolutionDeploy-web-bookmarks"],
       "task": "SolutionDeploy-web-bookmarks",
       "stop": "managed",

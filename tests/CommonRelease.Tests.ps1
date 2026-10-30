@@ -48,6 +48,14 @@ Describe 'Common release inventory and routing' {
     It 'requires explicit shared-host selection' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1} '*explicit -Component*'
     }
+    It 'keeps Web Bookmarks web-only by default and directs userscript releases to their publisher' {
+        $default=Get-CommonReleaseRoute -App web-bookmarks -Target jimbrownhome1
+        (@($default.webComponents) -join ',')|Should Be web
+        $default.procedure|Should Be hand-placed
+        (@((Get-CommonReleaseRoute -App web-bookmarks -Target jimbrownhome1 -Component web).webComponents) -join ',')|Should Be web
+        Assert-CommonThrows {Get-CommonReleaseRoute -App web-bookmarks -Target jimbrownhome1 -Component tampermonkey} '*Publish.ps1*'
+        Assert-CommonThrows {Get-CommonReleaseRoute -App web-bookmarks -Target jimbrownhome1 -Component web,tampermonkey} '*Publish.ps1*'
+    }
     It 'releases the directory and its status publisher together and routes the other shared components to file sets' {
         foreach($name in 'directory','collector-status'){
             (Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component $name).procedure|Should Be directory
@@ -176,6 +184,14 @@ Describe 'Common release inventory and routing' {
         $result=Invoke-CommonRelease -App web-options -Target jimbrownhome1 -Commit ('d'*40) -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed
         $result.status|Should Be Succeeded
         Assert-MockCalled Write-CommonReleaseRecords -ModuleName CommonRelease -Times 1 -Exactly -Scope It -ParameterFilter {$App -eq 'web-options' -and @($Result).Count -eq 2}
+    }
+    It 'passes only web to the Web Bookmarks adapter when no component was requested' {
+        Mock Write-CommonReleaseRecords -ModuleName CommonRelease {}
+        Mock Invoke-CommonWebRelease -ModuleName CommonRelease {@{status='NoChanges';component='web'}}
+        Invoke-CommonRelease -App web-bookmarks -Target jimbrownhome1 -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed|Out-Null
+        Assert-MockCalled Invoke-CommonWebRelease -ModuleName CommonRelease -Times 1 -Exactly -Scope It -ParameterFilter {
+            @($Arguments.Component).Count -eq 1 -and @($Arguments.Component)[0] -eq 'web'
+        }
     }
 }
 
