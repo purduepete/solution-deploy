@@ -67,7 +67,7 @@
                 } catch {}
                 apply();
                 sync();
-                close(true);
+                option.focus();
             });
             option.addEventListener('keydown', (event) => {
                 let next;

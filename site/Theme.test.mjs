@@ -161,7 +161,7 @@ test('storage denial leaves system tracking functional', () => {
     assert.equal(app.meta.content, '#0f172a');
 });
 
-test('popover opens at the saved preference and selection updates pressed state and restores focus', () => {
+test('popover opens at the saved preference and selection updates pressed state while staying open', () => {
     const app = launch('system');
     app.control.listeners.click();
     assert.equal(app.menu.hidden, false);
@@ -180,6 +180,10 @@ test('popover opens at the saved preference and selection updates pressed state 
     );
     assert.equal(app.control.attributes['aria-label'], 'Theme: Light');
     assert.equal(app.storage.get('solution-deploy-theme'), 'light');
+    assert.equal(app.menu.hidden, false);
+    assert.equal(app.control.attributes['aria-expanded'], 'true');
+    assert.equal(app.focused, app.options[0]);
+    app.control.listeners.click();
     assert.equal(app.menu.hidden, true);
     assert.equal(app.control.attributes['aria-expanded'], 'false');
     assert.equal(app.focused, app.control);
