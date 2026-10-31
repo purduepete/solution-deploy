@@ -251,8 +251,10 @@ textarea {
     width: 38px;
     background: var(--accent);
     transform: translateX(0);
-    transition: transform 0.25s ease-out;
     pointer-events: none;
+}
+.sort-setting[data-sort-interactive='true']::before {
+    transition: transform 0.25s ease-out;
 }
 .sort-setting[data-sort-mode='deployment-date']::before {
     transform: translateX(40px);
@@ -970,7 +972,7 @@ body:has(#page-loading) header .intro {
 }
 @media (prefers-reduced-motion: reduce) {
     body,
-    .sort-setting::before {
+    .sort-setting[data-sort-interactive='true']::before {
         transition: none;
     }
     .spinner-wrap,

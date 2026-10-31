@@ -9,6 +9,8 @@ sites, their purpose, local/Cloudflare/Tailscale URLs, current storage and origi
 data sources. [Private access](https://jimbrownhome1.tail8ad282.ts.net:8798/) uses
 Tailscale. Edit `site/sites.json`; see [directory updates and deployment](docs/Directory.md).
 
+The saved site sort is restored before loading the inventory; its selection fill moves only when you change the sort.
+
 The [Collectors page](https://solution-deploy.jimlertech.com/collectors) shows each
 market data job's schedule, last slot and heartbeat, every slot from the last 7 days,
 the monitor's current checks and its alert history. Times are Pacific. The

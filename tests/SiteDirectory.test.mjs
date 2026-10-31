@@ -203,12 +203,46 @@ test('sort selection uses square corners and a reduced-motion-aware sliding fill
     for (const selector of ['sort-setting', 'sort-option']) {
         assert.match(css, new RegExp(`\\.${selector} \\{[^}]*border-radius: 0;`));
     }
-    assert.match(css, /\.sort-setting::before \{[^}]*transition: transform 0\.25s ease-out;/);
+    assert.doesNotMatch(css, /\.sort-setting::before \{[^}]*transition:/);
+    assert.match(
+        css,
+        /\.sort-setting\[data-sort-interactive='true'\]::before \{[^}]*transition: transform 0\.25s ease-out;/
+    );
     assert.match(css, /\.sort-setting\[data-sort-mode='deployment-date'\]::before \{[^}]*translateX\(40px\)/);
     assert.match(
         css,
-        /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.sort-setting::before \{[^}]*transition: none;/
+        /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*\.sort-setting\[data-sort-interactive='true'\]::before \{[^}]*transition: none;/
     );
+});
+
+test('saved calendar selection is applied before inventory requests without enabling animation', async () => {
+    const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
+    const code = source.slice(source.indexOf('async function load()'), source.indexOf('\nconst finishLoading'));
+    const control = { dataset: {} };
+    const options = ['alphabetical', 'deployment-date'].map((mode) => ({
+        dataset: { sortMode: mode },
+        setAttribute(name, value) {
+            this[name] = value;
+        },
+    }));
+    const context = {
+        document: {
+            querySelector: () => control,
+            querySelectorAll: () => options,
+        },
+        readSortMode: () => 'deployment-date',
+        fetch() {
+            assert.equal(control.dataset.sortMode, 'deployment-date');
+            assert.equal(options[0]['aria-pressed'], 'false');
+            assert.equal(options[1]['aria-pressed'], 'true');
+            assert.equal(control.dataset.sortInteractive, undefined);
+            throw new Error('Stop after initial selection');
+        },
+        loadDeployments: () => Promise.resolve(new Map()),
+    };
+    const load = runInNewContext(`${code}\nload`, context);
+    await assert.rejects(load(), /Stop after initial selection/);
+    assert.match(source, /sortControl\.dataset\.sortInteractive = 'true';\s*setSortMode\(mode\)/);
 });
 
 test('deployment fetch failures are visible and preserve site-link loading', async () => {

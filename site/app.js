@@ -106,6 +106,13 @@ async function loadDeployments() {
 }
 
 async function load() {
+    const sortOptions = [...document.querySelectorAll('.sort-option')];
+    const sortControl = document.querySelector('.sort-setting');
+    let sortMode = readSortMode();
+    sortControl.dataset.sortMode = sortMode;
+    sortOptions.forEach((option) => {
+        option.setAttribute('aria-pressed', String(option.dataset.sortMode === sortMode));
+    });
     const [response, deployments] = await Promise.all([fetch('/sites.json', { cache: 'no-store' }), loadDeployments()]);
     if (!response.ok) throw new Error(`Inventory request failed (HTTP ${response.status}).`);
     const inventory = await response.json();
@@ -151,9 +158,6 @@ async function load() {
             text: `${Object.values(site).join(' ')} ${card.textContent}`.toLowerCase(),
         };
     });
-    const sortOptions = [...document.querySelectorAll('.sort-option')];
-    const sortControl = document.querySelector('.sort-setting');
-    let sortMode = readSortMode();
     const deploymentInfo = deployments ?? new Map();
     const renderCards = () => {
         root.replaceChildren(
@@ -186,6 +190,7 @@ async function load() {
     sortOptions.forEach((option) => {
         option.addEventListener('click', () => {
             const mode = option.dataset.sortMode;
+            sortControl.dataset.sortInteractive = 'true';
             setSortMode(mode);
             try {
                 localStorage.setItem('solution-deploy-sort', mode);
