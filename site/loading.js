@@ -23,5 +23,6 @@ window.startPageLoading = (label) => {
         if (!overlay?.isConnected) return;
         overlay.remove();
         document.querySelector('main')?.classList.add('data-enter');
+        for (const text of document.querySelectorAll('header h1, header .intro')) text.classList.add('data-enter');
     };
 };

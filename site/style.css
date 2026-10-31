@@ -924,6 +924,26 @@ footer {
 .data-enter {
     animation: fade-in 0.6s ease-out both;
 }
+/* The page title and intro differ between Directory and Collectors, so they arrive with the content. */
+body:has(#page-loading) header h1,
+body:has(#page-loading) header .intro {
+    visibility: hidden;
+}
+/* Moving between the directory pages fades the old page out over 250ms instead of cutting to the new one. */
+@view-transition {
+    navigation: auto;
+}
+::view-transition-old(root) {
+    animation: fade-out 0.25s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+::view-transition-new(root) {
+    animation: none;
+}
+@keyframes fade-out {
+    to {
+        opacity: 0;
+    }
+}
 .sr-only {
     position: absolute;
     width: 1px;
@@ -956,6 +976,9 @@ footer {
     .spinner-wrap,
     .spinner,
     .data-enter {
+        animation: none;
+    }
+    ::view-transition-old(root) {
         animation: none;
     }
 }
