@@ -11,6 +11,7 @@ import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from 'n
 import { join, dirname, resolve, relative, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFile } from 'node:child_process';
+import { firstLoadTargets, installFirstLoadProbe, assessFirstLoad } from './FirstLoadProbe.mjs';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const devRoot = resolve(repo, '..');
@@ -138,21 +139,28 @@ async function pageState(page, hide) {
     }, hide ?? null);
 }
 const resolvedAs = (s, want) => (want === 'midnight' ? MIDNIGHT : LIGHT).includes(s.themeColor.toLowerCase());
+const firstLoadCheckName = 'First-load shell and content';
+const requiredFailures = (result) =>
+    result.checks.filter((check) => !check.ok && (!result.cfg.excluded || check.name === firstLoadCheckName));
 
 async function checkApp(context, site, cfg) {
     const base = publicMode ? site.cloudflareUrl : site.tailscaleUrl;
     const origin = new URL(base).origin;
     const checks = [];
     const add = (name, ok, detail = '') => checks.push({ name, ok: Boolean(ok), detail: String(detail) });
+    const firstLoadCheck = { name: firstLoadCheckName, ok: false, detail: 'First-load timing was not verified.' };
+    checks.push(firstLoadCheck);
     const errors = [];
     let writes = 0;
+    let delayInitialReads = true;
     const page = await context.newPage();
+    await page.addInitScript(installFirstLoadProbe, firstLoadTargets[site.id]);
     // A saved profile can retain an active worker even when new registrations are blocked.
     const network = await context.newCDPSession(page);
     await network.send('Storage.clearDataForOrigin', { origin, storageTypes: 'service_workers,cache_storage' });
     await network.send('Network.enable');
     await network.send('Network.setBypassServiceWorker', { bypass: true });
-    await page.route('**/*', (route) => {
+    await page.route('**/*', async (route) => {
         const r = route.request();
         if (new URL(r.url()).origin === origin && !['GET', 'HEAD', 'OPTIONS'].includes(r.method())) {
             if (cfg.stubWrites?.includes(new URL(r.url()).pathname))
@@ -160,6 +168,8 @@ async function checkApp(context, site, cfg) {
             writes++;
             return route.abort();
         }
+        if (delayInitialReads && new URL(r.url()).origin === origin && ['fetch', 'xhr'].includes(r.resourceType()))
+            await new Promise((resolve) => setTimeout(resolve, 800));
         return route.continue();
     });
     page.on('console', (m) => {
@@ -189,6 +199,20 @@ async function checkApp(context, site, cfg) {
             return { site, cfg, checks, errors, writes };
         }
         add('Page loads', true, page.url());
+        await page.waitForFunction(
+            () => {
+                const probe = window.__webStandardFirstLoad;
+                return probe && probe.shellAt !== null && probe.contentAt !== null;
+            },
+            null,
+            { timeout: 20000 }
+        );
+        const firstLoad = assessFirstLoad(
+            await page.evaluate(() => window.__webStandardFirstLoad),
+            await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)
+        );
+        Object.assign(firstLoadCheck, firstLoad);
+        delayInitialReads = false;
 
         if (cfg.frame !== false) {
             const h = (await context.request.get(base, { maxRedirects: 0 })).headers();
@@ -421,19 +445,20 @@ async function checkApp(context, site, cfg) {
 function report(results, started) {
     const esc = (s) =>
         String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-    const fails = results.filter((r) => !r.cfg.excluded).flatMap((r) => r.checks.filter((c) => !c.ok)).length;
+    const fails = results.flatMap(requiredFailures).length;
     const rows = results
         .map((r) => {
             const bad = r.checks.filter((c) => !c.ok).length;
-            const k = r.cfg.excluded ? 'na' : bad ? 'bad' : 'ok';
+            const blocking = requiredFailures(r).length;
+            const k = blocking ? 'bad' : r.cfg.excluded ? 'na' : 'ok';
             const items = r.checks
                 .map(
                     (c) =>
-                        `<li class="${c.ok ? 'ok' : r.cfg.excluded ? 'na' : 'bad'}"><span class="dot"></span>` +
+                        `<li class="${c.ok ? 'ok' : r.cfg.excluded && c.name !== firstLoadCheckName ? 'na' : 'bad'}"><span class="dot"></span>` +
                         `<b>${esc(c.name)}</b>${c.detail ? ` <code>${esc(c.detail)}</code>` : ''}</li>`
                 )
                 .join('');
-            return `<div class="card ${k}"><header><h3>${esc(r.site.name)}</h3><span class="pill">${r.cfg.excluded ? 'excluded' : bad ? `${bad} failing` : 'pass'}</span></header><ul>${items}</ul></div>`;
+            return `<div class="card ${k}"><header><h3>${esc(r.site.name)}</h3><span class="pill">${blocking ? `${blocking} failing` : r.cfg.excluded ? 'design exception' : bad ? `${bad} failing` : 'pass'}</span></header><ul>${items}</ul></div>`;
         })
         .join('');
     const when = new Date().toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
@@ -496,7 +521,7 @@ try {
         for (const p of context.pages()) if (p !== anchor) await p.close().catch(() => {});
         const bad = r.checks.filter((c) => !c.ok);
         console.log(
-            `${bad.length ? (cfg.excluded ? 'INFO' : 'FAIL') : 'PASS'} ${site.name}` +
+            `${requiredFailures(r).length ? 'FAIL' : bad.length ? 'INFO' : 'PASS'} ${site.name}` +
                 bad.map((c) => `\n     - ${c.name}${c.detail ? `: ${c.detail}` : ''}`).join('')
         );
         results.push(r);
@@ -507,7 +532,7 @@ try {
     writeFileSync(out, report(results, started));
     console.log(`Report: ${out}`);
     if (!flag('--no-open')) execFile('cmd', ['/c', 'start', '', out]);
-    process.exitCode = results.some((r) => !r.cfg.excluded && r.checks.some((c) => !c.ok)) ? 1 : 0;
+    process.exitCode = results.some((result) => requiredFailures(result).length) ? 1 : 0;
 } finally {
     await context.close();
     await browser?.close();

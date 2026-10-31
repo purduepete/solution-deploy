@@ -25,7 +25,7 @@ export default [
     },
     {
         // page.evaluate callbacks run in the browser.
-        files: ['scripts/Test-WebStandard.mjs'],
+        files: ['scripts/Test-WebStandard.mjs', 'scripts/FirstLoadProbe.mjs'],
         languageOptions: { globals: { ...globals.node, ...globals.browser } },
     },
 ];

@@ -9,7 +9,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "node --test site/Theme.test.mjs tests/SiteDirectory.test.mjs tests/LanProxy.test.mjs",
+    "test": "node --test site/Theme.test.mjs tests/SiteDirectory.test.mjs tests/LanProxy.test.mjs tests/FirstLoadProbe.test.mjs",
     "prepare": "husky"
   },
   "devDependencies": {

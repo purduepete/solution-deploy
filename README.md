@@ -15,6 +15,10 @@ On first load, the header and page content stay hidden until the initial request
 then fade in together over 600ms. Errors reveal the page immediately. Refreshes and navigation
 between Directory and Collectors keep the shared header visible; reduced motion disables the fade.
 
+The shared web-standard browser check delays initial reads and measures shell/content visibility,
+arrival timing and the 600ms entrance. This first-load check also applies to Web Bookmarks,
+whose existing visual-design exception remains.
+
 The [Collectors page](https://solution-deploy.jimlertech.com/collectors) shows each
 market data job's schedule, last slot and heartbeat, every slot from the last 7 days,
 the monitor's current checks and its alert history. Times are Pacific. The
