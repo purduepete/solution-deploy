@@ -200,6 +200,7 @@ async function load() {
         });
     });
     filter();
+    return deployments !== null;
 }
 
 const finishLoading = startPageLoading('Loading solutions');
@@ -211,5 +212,6 @@ load()
         const message = document.getElementById('error');
         message.textContent = `${error.message} Reload the page or check the host service log.`;
         message.hidden = false;
+        return false;
     })
-    .finally(finishLoading);
+    .then(finishLoading);

@@ -7,6 +7,135 @@ import { join } from 'node:path';
 import { createServer, publicDeployments, withReleaseRecords } from '../site/server.mjs';
 import { runInNewContext } from 'node:vm';
 
+function pageLoading({ destination = null, navigationType = 'navigate' } = {}) {
+    const element = () => {
+        const classes = new Set();
+        return {
+            classes,
+            classList: {
+                add: (name) => classes.add(name),
+                remove: (name) => classes.delete(name),
+                contains: (name) => classes.has(name),
+            },
+            append() {},
+            setAttribute() {},
+        };
+    };
+    const root = element();
+    root.classList.add('page-initial-loading');
+    const header = element();
+    const main = element();
+    const titles = [element(), element()];
+    const overlay = {
+        isConnected: true,
+        append() {},
+        remove() {
+            this.isConnected = false;
+        },
+    };
+    const timers = new Map();
+    const listeners = {};
+    const stored = [];
+    const context = {
+        window: {},
+        document: {
+            documentElement: root,
+            getElementById: () => overlay,
+            querySelector: () => main,
+            querySelectorAll: (selector) => (selector === 'header' ? [header] : titles),
+            createElement: element,
+        },
+        location: { origin: 'http://directory.test', pathname: '/collectors' },
+        performance: { getEntriesByType: () => [{ type: navigationType }] },
+        sessionStorage: { getItem: () => destination, removeItem() {}, setItem: (...args) => stored.push(args) },
+        addEventListener: (name, listener) => {
+            listeners[name] = listener;
+        },
+        URL,
+        console,
+        setTimeout(callback, delay) {
+            timers.set(delay, callback);
+            return delay;
+        },
+        clearTimeout: (id) => timers.delete(id),
+    };
+    runInNewContext(readFileSync(new URL('../site/loading.js', import.meta.url), 'utf8'), context);
+    return { begin: context.window.startPageLoading, root, header, main, titles, overlay, timers, listeners, stored };
+}
+
+test('first-load markup hides the whole shell before data and loads its coordinator before paint', () => {
+    for (const filename of ['index.html', 'collectors.html']) {
+        const html = readFileSync(new URL(`../site/${filename}`, import.meta.url), 'utf8');
+        assert.match(html, /<html lang="en" class="page-initial-loading">/);
+        assert.match(html, /<script src="\/loading.js"><\/script>/);
+    }
+    const css = readFileSync(new URL('../site/style.css', import.meta.url), 'utf8');
+    assert.match(css, /\.page-initial-loading:not\(\.page-navigation\) header/);
+    assert.match(css, /\.page-initial-loading main/);
+    assert.match(css, /\.data-enter\s*\{\s*animation: fade-in 0.6s ease-out both;/);
+});
+
+test('initial shell and content enter together after loading and never replay on refresh', () => {
+    const { begin, root, header, main, overlay, timers } = pageLoading();
+    const finish = begin('Loading solutions');
+    assert.ok(root.classes.has('page-initial-loading'));
+    assert.equal(header.classes.size, 0);
+    assert.equal(main.classes.size, 0);
+    assert.ok(timers.has(250));
+    finish(true);
+    assert.equal(timers.size, 0);
+    assert.equal(overlay.isConnected, false);
+    assert.ok(!root.classes.has('page-initial-loading'));
+    assert.ok(header.classes.has('data-enter'));
+    assert.ok(main.classes.has('data-enter'));
+    header.classes.clear();
+    main.classes.clear();
+    finish(true);
+    assert.equal(header.classes.size, 0);
+    assert.equal(main.classes.size, 0);
+});
+
+test('initial errors reveal the page immediately and retries fade only the content', () => {
+    const { begin, root, header, main } = pageLoading();
+    const finish = begin('Loading collector status');
+    finish(false);
+    assert.ok(!root.classes.has('page-initial-loading'));
+    assert.equal(header.classes.size, 0);
+    assert.equal(main.classes.size, 0);
+    finish(true);
+    assert.equal(header.classes.size, 0);
+    assert.ok(main.classes.has('data-enter'));
+});
+
+test('internal page navigation keeps shared shell visible while a reload replays first entry', () => {
+    const route = pageLoading({ destination: '/collectors' });
+    assert.ok(route.root.classes.has('page-navigation'));
+    route.begin('Loading collector status')(true);
+    assert.equal(route.header.classes.size, 0);
+    assert.ok(route.titles.every((title) => title.classes.has('data-enter')));
+    const reload = pageLoading({ destination: '/collectors', navigationType: 'reload' });
+    assert.ok(!reload.root.classes.has('page-navigation'));
+    assert.ok(pageLoading({ navigationType: 'back_forward' }).root.classes.has('page-navigation'));
+});
+
+test('navigation marker records only unmodified internal page changes', () => {
+    const { listeners, stored } = pageLoading();
+    const click = (href, extras = {}) =>
+        listeners.click({
+            target: { closest: () => ({ href, target: '' }) },
+            button: 0,
+            ...extras,
+        });
+    click('http://directory.test/');
+    assert.deepEqual(stored, [['solution-directory-navigation', '/']]);
+    stored.length = 0;
+    click('http://directory.test/', { ctrlKey: true });
+    click('http://directory.test/', { defaultPrevented: true });
+    click('http://directory.test/collectors');
+    click('http://outside.test/');
+    assert.equal(stored.length, 0);
+});
+
 test('deployment information covers every solution and exposes only public fields', () => {
     const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
     const releases = JSON.parse(readFileSync(new URL('../environments/releases.json', import.meta.url)));

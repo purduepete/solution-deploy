@@ -11,6 +11,10 @@ Tailscale. Edit `site/sites.json`; see [directory updates and deployment](docs/D
 
 The saved site sort is restored before loading the inventory; its selection fill moves only when you change the sort.
 
+On first load, the header and page content stay hidden until the initial requests finish,
+then fade in together over 600ms. Errors reveal the page immediately. Refreshes and navigation
+between Directory and Collectors keep the shared header visible; reduced motion disables the fade.
+
 The [Collectors page](https://solution-deploy.jimlertech.com/collectors) shows each
 market data job's schedule, last slot and heartbeat, every slot from the last 7 days,
 the monitor's current checks and its alert history. Times are Pacific. The

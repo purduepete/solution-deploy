@@ -892,8 +892,7 @@ footer {
         align-self: flex-start;
     }
 }
-/* Page loading (loading.js): the overlay covers the content below the sticky header at once,
-   the ring fades in after 250ms, and loaded content fades in once. */
+/* The shell and content keep their layout while the initial page data loads. */
 .page-loading {
     position: fixed;
     inset: 0;
@@ -926,9 +925,10 @@ footer {
 .data-enter {
     animation: fade-in 0.6s ease-out both;
 }
-/* The page title and intro differ between Directory and Collectors, so they arrive with the content. */
-body:has(#page-loading) header h1,
-body:has(#page-loading) header .intro {
+.page-initial-loading:not(.page-navigation) header,
+.page-initial-loading main,
+.page-initial-loading.page-navigation header h1,
+.page-initial-loading.page-navigation header .intro {
     visibility: hidden;
 }
 /* Moving between the directory pages fades the old page out over 250ms instead of cutting to the new one. */
