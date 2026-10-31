@@ -4,6 +4,15 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const script = readFileSync(new URL('./theme.js', import.meta.url), 'utf8');
+test('both directory pages apply the theme before the font stylesheet', () => {
+    for (const page of ['index.html', 'collectors.html']) {
+        const html = readFileSync(new URL(`./${page}`, import.meta.url), 'utf8');
+        const theme = html.indexOf('<script src="/theme.js">');
+        const font = html.indexOf('https://fonts.googleapis.com/css2');
+        assert.ok(theme >= 0 && font > theme, page);
+    }
+});
+
 function launch(stored, dark = false, blocked = false) {
     let ready, osChanged, focused;
     const listeners = {};
