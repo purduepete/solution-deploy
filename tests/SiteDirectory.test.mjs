@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { request } from 'node:http';
+import { createServer as createHttpServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, publicDeployments, withReleaseRecords } from '../site/server.mjs';
+import { createServer, publicDeployments, readFavicon, withReleaseRecords } from '../site/server.mjs';
 import { runInNewContext } from 'node:vm';
 
 function pageLoading({ destination = null, navigationType = 'navigate' } = {}) {
@@ -180,6 +180,138 @@ test('deployment information covers every solution and exposes only public field
     }
     delete releases.apps.plex;
     assert.throws(() => publicDeployments(releases, inventory), /incomplete for plex/);
+});
+
+test('solution headings show decorative favicons and fall back to initials', () => {
+    const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
+    const code = source.slice(0, source.indexOf('\nfunction deploymentSection('));
+    const createElement = (tag) => ({
+        tag,
+        children: [],
+        attributes: {},
+        listeners: {},
+        setAttribute(name, value) {
+            this.attributes[name] = value;
+        },
+        append(...children) {
+            this.children.push(...children);
+        },
+        replaceChildren(...children) {
+            this.children = children;
+        },
+        addEventListener(name, listener) {
+            this.listeners[name] = listener;
+        },
+    });
+    const warnings = [];
+    const headingFor = runInNewContext(`${code}\nsiteHeading`, {
+        document: { createElement, createTextNode: (textContent) => ({ textContent }) },
+        console: { warn: (...args) => warnings.push(args) },
+    });
+
+    const heading = headingFor({ id: 'example-site', name: 'Example Site' });
+    assert.equal(heading.tag, 'h2');
+    assert.equal(heading.className, 'site-heading');
+    assert.equal(heading.children[1].textContent, 'Example Site');
+    const icon = heading.children[0];
+    assert.equal(icon.attributes['aria-hidden'], 'true');
+    assert.equal(icon.children[0].src, '/site-favicons/example-site');
+    assert.equal(icon.children[0].alt, '');
+    icon.children[0].listeners.error();
+    assert.equal(icon.children[0].textContent, 'ES');
+    assert.match(warnings[0][0], /Cannot load favicon for Example Site/);
+
+    const withoutFavicon = headingFor({ id: 'no-icon', name: 'No Icon', faviconPath: null });
+    assert.equal(withoutFavicon.children[0].children[0].textContent, 'NI');
+    assert.equal(withoutFavicon.children[1].textContent, 'No Icon');
+});
+
+test('favicon reader accepts bounded image responses from configured LAN paths only', async () => {
+    const requests = [];
+    const upstream = createHttpServer((req, res) => {
+        requests.push({ path: req.url, host: req.headers.host, cookie: req.headers.cookie });
+        if (req.url === '/favicon.svg') {
+            res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8' }).end('<svg/>');
+        } else if (req.url === '/static/img/icon.ico') {
+            res.writeHead(200, { 'Content-Type': 'image/x-icon' }).end(Buffer.from([0, 0, 1, 0]));
+        } else if (req.url === '/html') {
+            res.writeHead(200, { 'Content-Type': 'text/html' }).end('<html/>');
+        } else if (req.url === '/redirect') {
+            res.writeHead(302, { Location: 'http://example.test/favicon.svg' }).end();
+        } else if (req.url === '/large.png') {
+            res.writeHead(200, { 'Content-Type': 'image/png' }).end(Buffer.alloc(512 * 1024 + 1));
+        } else if (req.url === '/empty.png') {
+            res.writeHead(200, { 'Content-Type': 'image/png' }).end();
+        } else {
+            res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Missing');
+        }
+    });
+    await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const port = upstream.address().port;
+    const site = { localUrl: `http://inventory.test:${port}/app` };
+    try {
+        const svg = await readFavicon(site, '127.0.0.1');
+        assert.equal(svg.type, 'image/svg+xml');
+        assert.equal(svg.body.toString(), '<svg/>');
+        const ico = await readFavicon({ ...site, faviconPath: '/static/img/icon.ico' }, '127.0.0.1');
+        assert.equal(ico.type, 'image/x-icon');
+        assert.deepEqual(ico.body, Buffer.from([0, 0, 1, 0]));
+        assert.equal(requests[0].host, `inventory.test:${port}`);
+        assert.equal(requests[0].path, '/favicon.svg');
+        assert.equal(requests[1].path, '/static/img/icon.ico');
+        assert(requests.every((entry) => entry.cookie === undefined));
+
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/html' }, '127.0.0.1'), /HTTP 200.*text\/html/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/redirect' }, '127.0.0.1'), /HTTP 302/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/large.png' }, '127.0.0.1'), /512 KiB/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/empty.png' }, '127.0.0.1'), /empty/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/../secret' }, '127.0.0.1'), /root-relative/);
+        await assert.rejects(readFavicon({ localUrl: 'https://inventory.test/' }, '127.0.0.1'), /LAN HTTP/);
+    } finally {
+        upstream.closeAllConnections();
+        await new Promise((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));
+    }
+});
+
+test('favicon endpoint uses inventory entries and reports unavailable icons', async () => {
+    const calls = [];
+    const warnings = [];
+    const server = createServer({
+        faviconLoader: async (site, hostname) => {
+            calls.push({ id: site.id, path: site.faviconPath, hostname });
+            if (site.id === 'home-automation') throw new Error('Connection refused');
+            return { body: Buffer.from('<svg/>'), type: 'image/svg+xml' };
+        },
+        logger: { warn: (...args) => warnings.push(args) },
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const root = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const icon = await fetch(`${root}/site-favicons/ferry-tracker`);
+        assert.equal(icon.status, 200);
+        assert.equal(icon.headers.get('content-type'), 'image/svg+xml');
+        assert.equal(icon.headers.get('cache-control'), 'no-store');
+        assert.equal(icon.headers.get('content-security-policy'), "default-src 'none'; sandbox");
+        assert.equal(await icon.text(), '<svg/>');
+        assert.deepEqual(calls[0], { id: 'ferry-tracker', path: undefined, hostname: 'jimbrownhome1.local' });
+
+        const head = await fetch(`${root}/site-favicons/pgweb`, { method: 'HEAD' });
+        assert.equal(head.status, 200);
+        assert.equal(head.headers.get('content-length'), '6');
+        assert.equal(await head.text(), '');
+        assert.equal(calls[1].path, '/static/img/icon.ico');
+
+        assert.equal((await fetch(`${root}/site-favicons/ride-and-lift`)).status, 404);
+        assert.equal((await fetch(`${root}/site-favicons/unknown`)).status, 404);
+        assert.equal((await fetch(`${root}/site-favicons/%2e%2e%2fserver.mjs`)).status, 404);
+        assert.equal((await fetch(`${root}/site-favicons/ferry-tracker`, { method: 'POST' })).status, 405);
+        assert.equal((await fetch(`${root}/site-favicons/home-automation`)).status, 502);
+        assert.equal(calls.length, 3);
+        assert.match(warnings[0][0], /Cannot load favicon for home-automation: Connection refused/);
+    } finally {
+        server.closeAllConnections();
+        await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    }
 });
 
 test('deployment sections use accessible disclosures and render recorded evidence as text', () => {

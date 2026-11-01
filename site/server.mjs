@@ -22,6 +22,69 @@ const defaultStatusPath = fileURLToPath(new URL('../data/collector-status.json',
 const defaultReleaseInventoryPath = fileURLToPath(new URL('../environments/releases.json', import.meta.url));
 // One file per app and component, written by CommonRelease.psm1 after each successful release.
 const defaultReleaseRecordsPath = fileURLToPath(new URL('../data/releases', import.meta.url));
+const faviconTypes = new Set([
+    'image/svg+xml',
+    'image/x-icon',
+    'image/vnd.microsoft.icon',
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+]);
+const maxFaviconBytes = 512 * 1024;
+
+export async function readFavicon(site, hostname) {
+    const source = new URL(site.localUrl);
+    const path = site.faviconPath ?? '/favicon.svg';
+    if (source.protocol !== 'http:' || source.username || source.password)
+        throw new Error('Favicon source must be a LAN HTTP URL without credentials.');
+    if (
+        typeof path !== 'string' ||
+        !/^\/(?:[a-z0-9._-]+\/)*[a-z0-9._-]+$/i.test(path) ||
+        path.split('/').includes('..')
+    )
+        throw new Error('Favicon path must be a root-relative file path.');
+
+    return new Promise((resolve, reject) => {
+        const request = http.get(
+            {
+                hostname,
+                family: 4,
+                port: source.port || 80,
+                path,
+                headers: { Host: source.host, 'Accept-Encoding': 'identity' },
+            },
+            (response) => {
+                const type = (response.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+                if (response.statusCode !== 200 || !faviconTypes.has(type)) {
+                    response.resume();
+                    reject(
+                        new Error(`Favicon returned HTTP ${response.statusCode} with content type ${type || 'none'}.`)
+                    );
+                    return;
+                }
+                const chunks = [];
+                let size = 0;
+                response.on('data', (chunk) => {
+                    size += chunk.length;
+                    if (size > maxFaviconBytes) {
+                        response.destroy(new Error('Favicon exceeds the 512 KiB limit.'));
+                        return;
+                    }
+                    chunks.push(chunk);
+                });
+                response.on('error', reject);
+                response.on('end', () => {
+                    if (!size) reject(new Error('Favicon response was empty.'));
+                    else resolve({ body: Buffer.concat(chunks), type });
+                });
+            }
+        );
+        const timer = setTimeout(() => request.destroy(new Error('Favicon request timed out.')), 5000);
+        request.on('error', reject);
+        request.on('close', () => clearTimeout(timer));
+    });
+}
 
 export async function readReleaseRecords(directory) {
     let names;
@@ -124,6 +187,8 @@ export function createServer({
     statusPath = process.env.COLLECTOR_STATUS_PATH || defaultStatusPath,
     releaseInventoryPath = defaultReleaseInventoryPath,
     releaseRecordsPath = process.env.RELEASE_RECORDS_PATH || defaultReleaseRecordsPath,
+    faviconLoader = readFavicon,
+    logger = console,
 } = {}) {
     const content = new Map(
         [...files].map(([url, [name, type]]) => [url, { body: readFileSync(new URL(name, import.meta.url)), type }])
@@ -131,6 +196,9 @@ export function createServer({
     const inventory = JSON.parse(content.get('/sites.json').body);
     if (!Array.isArray(inventory.sites) || !inventory.sites.length) throw new Error('Inventory has no sites.');
     const deployments = publicDeployments(JSON.parse(readFileSync(releaseInventoryPath, 'utf8')), inventory);
+    const faviconSites = new Map(
+        inventory.sites.filter((site) => site.faviconPath !== null).map((site) => [site.id, site])
+    );
     return http.createServer(async (req, res) => {
         res.setHeader(
             'Content-Security-Policy',
@@ -144,6 +212,24 @@ export function createServer({
             return;
         }
         const url = req.url.split('?')[0];
+        if (url.startsWith('/site-favicons/')) {
+            const id = url.slice('/site-favicons/'.length);
+            const site = faviconSites.get(id);
+            if (!site) {
+                res.writeHead(404).end('Favicon not found');
+                return;
+            }
+            try {
+                const icon = await faviconLoader(site, `${inventory.host}.local`);
+                res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+                res.writeHead(200, { 'Content-Type': icon.type, 'Content-Length': icon.body.length });
+                res.end(req.method === 'HEAD' ? undefined : icon.body);
+            } catch (error) {
+                logger.warn(`Cannot load favicon for ${id}: ${error.message}`);
+                res.writeHead(502).end('Favicon unavailable');
+            }
+            return;
+        }
         if (url === '/deployments.json') {
             const body = Buffer.from(
                 JSON.stringify(withReleaseRecords(deployments, await readReleaseRecords(releaseRecordsPath)))

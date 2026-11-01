@@ -5,6 +5,34 @@ const element = (tag, text, className) => {
     return node;
 };
 
+function siteHeading(site) {
+    const heading = element('h2', undefined, 'site-heading');
+    const icon = element('span', undefined, 'site-icon');
+    icon.setAttribute('aria-hidden', 'true');
+    const initials = site.name
+        .trim()
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((word) => Array.from(word)[0])
+        .join('')
+        .toUpperCase();
+    const fallback = element('span', initials, 'site-icon-fallback');
+    if (site.faviconPath === null) {
+        icon.append(fallback);
+    } else {
+        const image = element('img');
+        image.alt = '';
+        image.src = `/site-favicons/${encodeURIComponent(site.id)}`;
+        image.addEventListener('error', () => {
+            console.warn(`Cannot load favicon for ${site.name}.`);
+            icon.replaceChildren(fallback);
+        });
+        icon.append(image);
+    }
+    heading.append(icon, document.createTextNode(site.name));
+    return heading;
+}
+
 function deploymentSection(info) {
     const section = element('section', undefined, 'deployment');
     const heading = element('div', undefined, 'deployment-heading');
@@ -120,11 +148,7 @@ async function load() {
     const root = document.getElementById('sites');
     const sites = inventory.sites.map((site) => {
         const card = element('article');
-        card.append(
-            element('p', inventory.host, 'host'),
-            element('h2', site.name),
-            element('p', site.purpose, 'purpose')
-        );
+        card.append(element('p', inventory.host, 'host'), siteHeading(site), element('p', site.purpose, 'purpose'));
         const links = element('dl', undefined, 'links');
         for (const [label, field] of [
             ['Cloudflare', 'cloudflareUrl'],

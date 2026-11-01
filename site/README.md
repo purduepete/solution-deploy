@@ -15,6 +15,12 @@ motion is requested. The selected order is restored from `solution-deploy-sort`
 in local storage on the next visit. If browser storage is blocked, sorting still
 works for the current page and a warning is logged.
 
+Each card shows its site's favicon through the directory server. The server reads
+`/favicon.svg` from the site's LAN address by default. Set `faviconPath` in
+`sites.json` for a different root-relative icon path, or to `null` when the site
+has no icon. If an icon cannot be loaded, the card shows initials and the server
+logs the failure.
+
 The Theme group uses pressed buttons, theme icons and a sliding selection fill.
 Reduced motion disables the slide. Enter or Space opens the popover and selects
 the focused choice. Arrow keys move
