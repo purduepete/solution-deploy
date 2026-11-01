@@ -248,25 +248,27 @@ test('favicon reader accepts bounded image responses from configured LAN paths o
     });
     await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
     const port = upstream.address().port;
-    const site = { localUrl: `http://inventory.test:${port}/app` };
+    const site = { localUrl: `http://127.0.0.1:${port}/app` };
+    const host = 'directory.invalid';
     try {
-        const svg = await readFavicon(site, '127.0.0.1');
+        const svg = await readFavicon(site, host);
         assert.equal(svg.type, 'image/svg+xml');
         assert.equal(svg.body.toString(), '<svg/>');
-        const ico = await readFavicon({ ...site, faviconPath: '/static/img/icon.ico' }, '127.0.0.1');
+        const ico = await readFavicon({ ...site, faviconPath: '/static/img/icon.ico' }, host);
         assert.equal(ico.type, 'image/x-icon');
         assert.deepEqual(ico.body, Buffer.from([0, 0, 1, 0]));
-        assert.equal(requests[0].host, `inventory.test:${port}`);
+        assert.equal(requests[0].host, `127.0.0.1:${port}`);
         assert.equal(requests[0].path, '/favicon.svg');
         assert.equal(requests[1].path, '/static/img/icon.ico');
         assert(requests.every((entry) => entry.cookie === undefined));
 
-        await assert.rejects(readFavicon({ ...site, faviconPath: '/html' }, '127.0.0.1'), /HTTP 200.*text\/html/);
-        await assert.rejects(readFavicon({ ...site, faviconPath: '/redirect' }, '127.0.0.1'), /HTTP 302/);
-        await assert.rejects(readFavicon({ ...site, faviconPath: '/large.png' }, '127.0.0.1'), /512 KiB/);
-        await assert.rejects(readFavicon({ ...site, faviconPath: '/empty.png' }, '127.0.0.1'), /empty/);
-        await assert.rejects(readFavicon({ ...site, faviconPath: '/../secret' }, '127.0.0.1'), /root-relative/);
-        await assert.rejects(readFavicon({ localUrl: 'https://inventory.test/' }, '127.0.0.1'), /LAN HTTP/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/html' }, host), /HTTP 200.*text\/html/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/redirect' }, host), /HTTP 302/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/large.png' }, host), /512 KiB/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/empty.png' }, host), /empty/);
+        await assert.rejects(readFavicon({ ...site, faviconPath: '/../secret' }, host), /root-relative/);
+        await assert.rejects(readFavicon({ localUrl: 'https://127.0.0.1/' }, host), /LAN HTTP/);
+        await assert.rejects(readFavicon({ localUrl: 'http://inventory.test/' }, host), /IPv4/);
     } finally {
         upstream.closeAllConnections();
         await new Promise((resolve, reject) => upstream.close((error) => (error ? reject(error) : resolve())));

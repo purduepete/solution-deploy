@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { readFileSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
+import { isIPv4 } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
 
@@ -36,8 +37,8 @@ const maxFaviconBytes = 512 * 1024;
 export async function readFavicon(site, hostname) {
     const source = new URL(site.localUrl);
     const path = site.faviconPath ?? '/favicon.svg';
-    if (source.protocol !== 'http:' || source.username || source.password)
-        throw new Error('Favicon source must be a LAN HTTP URL without credentials.');
+    if (source.protocol !== 'http:' || !isIPv4(source.hostname) || source.username || source.password)
+        throw new Error('Favicon source must be a LAN HTTP IPv4 URL without credentials.');
     if (
         typeof path !== 'string' ||
         !/^\/(?:[a-z0-9._-]+\/)*[a-z0-9._-]+$/i.test(path) ||
@@ -52,6 +53,8 @@ export async function readFavicon(site, hostname) {
                 family: 4,
                 port: source.port || 80,
                 path,
+                // The host can resolve its own .local name to Tailscale before the LAN address.
+                lookup: (_name, _options, callback) => callback(null, source.hostname, 4),
                 headers: { Host: source.host, 'Accept-Encoding': 'identity' },
             },
             (response) => {

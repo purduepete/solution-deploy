@@ -550,4 +550,21 @@ Describe 'Directory release boundaries' {
         $receipt=@{status='Succeeded';sourceCommit=('e'*40);completedLocal='2026-10-25T08:14:59-07:00';component=$components}
         (@(Get-CommonReleaseRecords solution-deploy @($receipt)|ForEach-Object component) -join ',')|Should Be 'directory,collector-status'
     }
+    It 'writes the same completion time to the active metadata, receipt and public record' {
+        $installed=Join-Path $TestDrive 'completed-directory'
+        $receiptPath=Join-Path $TestDrive 'directory-receipt.json'
+        $receipt=@{sourceCommit=('e'*40);previousCommit=('d'*40);component=@('directory')}
+        & (Get-Module DirectoryRelease) {
+            param($receipt,$installed,$receiptPath)
+            Complete-DirectoryRelease $receipt $installed $receiptPath
+        } $receipt $installed $receiptPath
+        $saved=Read-DeploymentJson $receiptPath
+        $active=Read-DeploymentJson (Join-Path $installed 'state\directory-release.json')
+        $record=@(Get-CommonReleaseRecords solution-deploy @($saved))[0]
+        $saved.status|Should Be 'Succeeded'
+        $active.sourceCommit|Should Be $saved.sourceCommit
+        $active.previousCommit|Should Be $saved.previousCommit
+        $active.completedLocal|Should Be $saved.completedLocal
+        ([DateTimeOffset]::Parse($record.completedLocal)).ToUnixTimeMilliseconds()|Should Be ([DateTimeOffset]::Parse($saved.completedLocal)).ToUnixTimeMilliseconds()
+    }
 }

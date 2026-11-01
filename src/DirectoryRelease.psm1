@@ -37,6 +37,13 @@ function Invoke-HostGit {
     Invoke-DeploymentCommand $git (@('-c','safe.directory=*','-C',$script:HostClone)+$Arguments) $Repository -Capture:$Capture
 }
 
+function Complete-DirectoryRelease {
+    param([Parameter(Mandatory)][hashtable]$Receipt,[Parameter(Mandatory)][string]$Installed,[Parameter(Mandatory)][string]$ReceiptPath)
+    $Receipt.status='Succeeded';$Receipt.completedLocal=(Get-Date).ToString('o')
+    Write-DeploymentJson (Join-Path $Installed 'state\directory-release.json') @{sourceCommit=$Receipt.sourceCommit;previousCommit=$Receipt.previousCommit;completedLocal=$Receipt.completedLocal}
+    Write-DeploymentJson $ReceiptPath $Receipt
+}
+
 function Invoke-DirectoryRelease {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Repository,[string]$Commit='HEAD',[Parameter(Mandatory)][string]$ApprovalReason,
@@ -103,9 +110,7 @@ catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content 
         $left=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
         if($left.Count){throw "Installed files still differ from $commitId after install: $($left -join ', ')."}
         $receipt.access=Test-HandPlacedReadiness $access $readiness
-        Write-DeploymentJson (Join-Path $script:Installed 'state\directory-release.json') @{sourceCommit=$commitId;previousCommit=$receipt.previousCommit;completedLocal=(Get-Date).ToString('o')}
-        $receipt.status='Succeeded';$receipt.completedLocal=(Get-Date).ToString('o')
-        Write-DeploymentJson $receiptPath $receipt
+        Complete-DirectoryRelease $receipt $script:Installed $receiptPath
         $receipt
     }catch{
         $receipt.status='Failed';$receipt.error=$_.Exception.Message

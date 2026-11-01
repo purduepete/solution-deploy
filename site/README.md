@@ -16,7 +16,8 @@ in local storage on the next visit. If browser storage is blocked, sorting still
 works for the current page and a warning is logged.
 
 Each card shows its site's favicon through the directory server. The server reads
-`/favicon.svg` from the site's LAN address by default. Set `faviconPath` in
+`/favicon.svg` from the site's LAN address by default, using the IPv4 address
+in the inventory to avoid a Tailscale DNS result. Set `faviconPath` in
 `sites.json` for a different root-relative icon path, or to `null` when the site
 has no icon. If an icon cannot be loaded, the card shows initials and the server
 logs the failure.

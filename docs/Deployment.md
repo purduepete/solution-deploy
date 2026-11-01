@@ -315,7 +315,8 @@ clone at `C:\Files\Dev\main\solution-deploy`, fast-forwards that clone to the
 pushed commit, and returns `NoChanges` when no installed file would change.
 Otherwise it runs `scripts\Install-Directory.ps1` on the host, compares the
 installed files with the commit again, and checks Tailscale `/health` plus the
-Cloudflare Access redirect. The directory is down for about 10 seconds while
+Cloudflare Access redirect. The receipt and active metadata use the same completion
+time. The directory is down for about 10 seconds while
 the installer restarts it. A retry of the same commit is allowed after a failed
 install. Files removed from `site` stay installed; delete them by hand.
 
