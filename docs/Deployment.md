@@ -234,8 +234,10 @@ files: `backend` (dist, package files, tsconfigs), `frontend\dist`, `config`,
 pull runs from `current`, so `config\config.ini`, the `vader.session` sign-in,
 the venv and the pull logs carry forward. A missing carry-forward path stops
 the release in Prepare, before any downtime. The swap stops the site for about
-30 seconds, and Web Portfolio normally allows no downtime, so release its web
-component only in an agreed window.
+30 seconds. Release blocks every Web Options and Web Portfolio component, and
+the shared `finance-launcher`, during US market hours (Monday to Friday 9:30 to
+16:00 Eastern) unless `-AllowMarketHours` is passed. See
+[Release commands](ReleaseCommands.md).
 
 First releases on 10/24/2026 (local), each verified on Tailscale and the
 Cloudflare Access redirect:

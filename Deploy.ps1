@@ -22,7 +22,8 @@ param(
     [switch]$DatabaseChangesReviewed,
     [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),
     [string]$TailscaleUrl,
-    [string]$ApprovedManifestSHA256
+    [string]$ApprovedManifestSHA256,
+    [switch]$AllowMarketHours
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -40,10 +41,11 @@ if ($Action -eq 'Release') {
     if($ApprovedManifestSHA256){$releaseTimeout.ApprovedManifestSHA256=$ApprovedManifestSHA256}
     Invoke-CommonRelease -App $App -Component $Component -Environment $Environment -Target $Target -Commit $Commit `
         -ApproveRelease:$ApproveRelease -ApprovalReason $ApprovalReason -DatabaseChangesReviewed:$DatabaseChangesReviewed `
-        -ExpiresLocal $ExpiresLocal -TailscaleUrl $TailscaleUrl -OutputDirectory $OutputDirectory @releaseTimeout
+        -ExpiresLocal $ExpiresLocal -TailscaleUrl $TailscaleUrl -OutputDirectory $OutputDirectory -AllowMarketHours:$AllowMarketHours @releaseTimeout
     return
 }
 if($Component){throw '-Component is supported only by -Action Release.'}
+if($AllowMarketHours){throw '-AllowMarketHours is supported only by -Action Release.'}
 if($ApprovedManifestSHA256){throw '-ApprovedManifestSHA256 is supported only by -Action Release.'}
 if ($Action -eq 'Plan') {
     if (-not $App) { throw 'Plan requires -App.' }

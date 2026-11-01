@@ -40,6 +40,7 @@ proxy restricts clients to `192.168.2.0/24`; HTTP is unencrypted and every devic
 on that subnet has application access. See [LAN access](docs/LanAccess.md).
 
 For later same-host releases and new applications, see [Production deployments](docs/Deployment.md).
+For the exact release command, flags, timings and pass criteria per app, see [Release commands](docs/ReleaseCommands.md).
 
 Scheduled tasks use a private, fixed-path PowerShell runtime, independent of
 desktop PowerShell updates. See [runtime updates and rollback](docs/PowerShellRuntime.md).

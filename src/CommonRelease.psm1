@@ -7,6 +7,26 @@ Import-Module (Join-Path $PSScriptRoot 'Release.psm1') -DisableNameChecking
 # The directory serves these as each solution's last release; its LOCAL SERVICE account can read data\.
 $script:ReleaseRecords='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\solution-deploy\data\releases'
 
+# Releases that restart Web Options or Web Portfolio wait for the US market close unless overridden.
+$script:MarketHoursApps=@('web-options','web-portfolio')
+$script:MarketHoursComponents=@{'solution-deploy'=@('finance-launcher')}
+
+function Test-MarketHours {
+    param([DateTimeOffset]$Now=[DateTimeOffset]::Now)
+    $eastern=[TimeZoneInfo]::ConvertTime($Now,[TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time'))
+    if($eastern.DayOfWeek -in @([DayOfWeek]::Saturday,[DayOfWeek]::Sunday)){return $false}
+    $eastern.TimeOfDay -ge [TimeSpan]'09:30' -and $eastern.TimeOfDay -lt [TimeSpan]'16:00'
+}
+
+function Assert-CommonReleaseWindow {
+    param([Parameter(Mandatory)][string]$App,[string[]]$Component,[switch]$AllowMarketHours,[DateTimeOffset]$Now=[DateTimeOffset]::Now)
+    $guarded=$App -in $script:MarketHoursApps -or
+        ($script:MarketHoursComponents.ContainsKey($App) -and @($Component|Where-Object {$_ -in $script:MarketHoursComponents[$App]}).Count)
+    if($guarded -and -not $AllowMarketHours -and (Test-MarketHours $Now)){
+        throw "$App releases are blocked during US market hours (Mon-Fri 9:30-16:00 Eastern). Release after the close, or pass -AllowMarketHours when the user explicitly approves it."
+    }
+}
+
 function Get-CommonReleaseRecords {
     param([Parameter(Mandatory)][string]$App,[AllowNull()][object[]]$Result)
     @(foreach($item in @($Result)){
@@ -120,11 +140,13 @@ function Invoke-CommonRelease {
         [switch]$ApproveRelease,[Parameter(Mandatory)][string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
         [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
-        [ValidateRange(60,1800)][int]$TimeoutSeconds=300,[string]$ApprovedManifestSHA256)
+        [ValidateRange(60,1800)][int]$TimeoutSeconds=300,[string]$ApprovedManifestSHA256,[switch]$AllowMarketHours)
     $route=Get-CommonReleaseRoute -App $App -Component $Component -Environment $Environment -Target $Target
+    Assert-CommonReleaseWindow -App $App -Component $Component -AllowMarketHours:$AllowMarketHours
     if($ApprovedManifestSHA256 -and $route.procedure -ne 'controller'){throw '-ApprovedManifestSHA256 applies only to framework-managed apps.'}
     $arguments=@{}+$PSBoundParameters
     [void]$arguments.Remove('Component')
+    [void]$arguments.Remove('AllowMarketHours')
     if($route.procedure -eq 'controller'){
         $controller=Invoke-RoutineRelease @arguments
         Write-CommonReleaseRecords $App @($controller)
@@ -180,4 +202,4 @@ function Invoke-CommonWebRelease {
     Invoke-FitTrackRelease @Arguments
 }
 
-Export-ModuleMember -Function Get-CommonReleaseRoute,Resolve-CommonReleaseSource,Get-CommonReleaseChanges,Invoke-CommonRelease,Get-CommonReleaseRecords,Write-CommonReleaseRecords
+Export-ModuleMember -Function Test-MarketHours,Assert-CommonReleaseWindow,Get-CommonReleaseRoute,Resolve-CommonReleaseSource,Get-CommonReleaseChanges,Invoke-CommonRelease,Get-CommonReleaseRecords,Write-CommonReleaseRecords

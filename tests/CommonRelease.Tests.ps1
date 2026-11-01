@@ -181,8 +181,9 @@ Describe 'Common release inventory and routing' {
         Mock Invoke-CommonWebRelease -ModuleName CommonRelease {@{status='Succeeded';sourceCommit=('d'*40);component='web'}}
         Mock Import-Module -ModuleName CommonRelease {}
         Mock Invoke-PinnedJobRelease -ModuleName CommonRelease {@{status='NoChanges';component='collector'}}
-        $result=Invoke-CommonRelease -App web-options -Target jimbrownhome1 -Commit ('d'*40) -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed
+        $result=Invoke-CommonRelease -App web-options -Target jimbrownhome1 -Commit ('d'*40) -ApproveRelease -ApprovalReason reviewed -DatabaseChangesReviewed -AllowMarketHours
         $result.status|Should Be Succeeded
+        Assert-MockCalled Invoke-CommonWebRelease -ModuleName CommonRelease -Times 1 -Exactly -Scope It -ParameterFilter {-not $Arguments.ContainsKey('AllowMarketHours')}
         Assert-MockCalled Write-CommonReleaseRecords -ModuleName CommonRelease -Times 1 -Exactly -Scope It -ParameterFilter {$App -eq 'web-options' -and @($Result).Count -eq 2}
     }
     It 'passes only web to the Web Bookmarks adapter when no component was requested' {
@@ -192,6 +193,21 @@ Describe 'Common release inventory and routing' {
         Assert-MockCalled Invoke-CommonWebRelease -ModuleName CommonRelease -Times 1 -Exactly -Scope It -ParameterFilter {
             @($Arguments.Component).Count -eq 1 -and @($Arguments.Component)[0] -eq 'web'
         }
+    }
+    It 'blocks Web Options, Web Portfolio and the finance launcher during US market hours unless overridden' {
+        $open=[DateTimeOffset]::Parse('2026-11-02T10:00:00-05:00')
+        Test-MarketHours ([DateTimeOffset]::Parse('2026-11-02T09:29:00-05:00'))|Should Be $false
+        Test-MarketHours $open|Should Be $true
+        Test-MarketHours ([DateTimeOffset]::Parse('2026-11-02T07:00:00-08:00'))|Should Be $true
+        Test-MarketHours ([DateTimeOffset]::Parse('2026-11-02T16:00:00-05:00'))|Should Be $false
+        Test-MarketHours ([DateTimeOffset]::Parse('2026-07-06T13:00:00-07:00'))|Should Be $false
+        Test-MarketHours ([DateTimeOffset]::Parse('2026-11-01T10:00:00-05:00'))|Should Be $false
+        foreach($case in @(@('web-options',$null),@('web-portfolio','stock-collector'),@('solution-deploy','finance-launcher'))){
+            Assert-CommonThrows {Assert-CommonReleaseWindow -App $case[0] -Component $case[1] -Now $open} '*market hours*-AllowMarketHours*'
+            Assert-CommonReleaseWindow -App $case[0] -Component $case[1] -Now $open -AllowMarketHours
+        }
+        Assert-CommonReleaseWindow -App work-log -Now $open
+        Assert-CommonReleaseWindow -App solution-deploy -Component directory -Now $open
     }
 }
 

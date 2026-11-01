@@ -185,7 +185,7 @@
         "retirement/Fidelity files",
         "Telegram config and sign-in session"
       ],
-      "componentNote": "A web release stops the site for about 30 seconds. Web Portfolio normally allows no downtime, so release web only in an agreed window. The Telegram pull runs from current, and its config, sign-in session, venv and logs carry forward to each new release. The stock collector, watchdog and reference jobs share one pinned-job release folder, released as -Component stock-collector."
+      "componentNote": "A web release stops the site for about 30 seconds. Releases are blocked during US market hours unless -AllowMarketHours is passed. The Telegram pull runs from current, and its config, sign-in session, venv and logs carry forward to each new release. The stock collector, watchdog and reference jobs share one pinned-job release folder, released as -Component stock-collector."
     },
     "web-options": {
       "procedure": "hand-placed",
@@ -220,7 +220,7 @@
       },
       "build": "npm ci, build:shared, build:backend, build:frontend:access; host npm ci --omit=dev",
       "preserve": ["shared secrets/configuration", "Azure SQL dashboard", "PostgreSQL web_options", "collector state"],
-      "componentNote": "Collector and watchdog tasks share one pinned-job release folder, released as -Component collector. A web release never repoints them."
+      "componentNote": "Collector and watchdog tasks share one pinned-job release folder, released as -Component collector. A web release never repoints them. Releases are blocked during US market hours unless -AllowMarketHours is passed."
     },
     "solution-deploy": {
       "procedure": "shared",
