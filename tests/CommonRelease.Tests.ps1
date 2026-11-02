@@ -493,6 +493,14 @@ Describe 'Pinned-job release boundaries' {
             Arguments="-File `"$Release\scripts\Start-Collector.ps1`" -ReleasePath `"$Release`" -Action tick";WorkingDirectory=$Release})}
     }
     $base='C:\ProgramData\SolutionDeploy\apps\web-options\releases'
+    function New-AccessJobTask([string]$Name,[string]$Release){
+        $task=New-JobTask $Name $Release
+        $task.Actions[0].Execute='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
+        $task.Actions[0].Arguments+=' -PythonPath "C:\ProgramData\SolutionDeploy\apps\web-options\runtime\python\Scripts\python.exe"'
+        $task.Actions[0].Arguments+=' -ConfigPath "C:\ProgramData\SolutionDeploy\apps\web-options\shared\secrets\collector.json"'
+        $task|Add-Member -NotePropertyName Principal -NotePropertyValue ([pscustomobject]@{UserId='LOCAL SERVICE';LogonType='ServiceAccount'})
+        $task
+    }
 
     It 'reads one shared release folder and its commit from the task actions' {
         $tasks=@((New-JobTask tick "$base\collector-68f9512"),(New-JobTask audit "$base\collector-68f9512"))
@@ -512,6 +520,43 @@ Describe 'Pinned-job release boundaries' {
         $action.WorkingDirectory|Should Be "$base\collector-1234567"
         $action.Execute|Should Be 'pwsh.exe'
         Assert-CommonThrows {New-PinnedJobAction $task.Actions[0] "$base\collector-02db285" "$base\collector-1234567"} '*current release*'
+    }
+    It 'requires matching collector identities and access paths for the preflight' {
+        $first=New-AccessJobTask tick "$base\collector-68f9512"
+        $second=New-AccessJobTask watchdog "$base\collector-68f9512"
+        $paths=Get-PinnedJobAccessParameters @($first,$second)
+        $paths.pythonPath|Should Be 'C:\ProgramData\SolutionDeploy\apps\web-options\runtime\python\Scripts\python.exe'
+        $paths.configPath|Should Be 'C:\ProgramData\SolutionDeploy\apps\web-options\shared\secrets\collector.json'
+        $second.Principal.UserId='SYSTEM'
+        Assert-CommonThrows {Get-PinnedJobAccessParameters @($first,$second)} '*LOCAL SERVICE*'
+        $second.Principal.UserId='LOCAL SERVICE'
+        $second.Actions[0].Arguments=$second.Actions[0].Arguments.Replace('collector.json','other.json')
+        Assert-CommonThrows {Get-PinnedJobAccessParameters @($first,$second)} '*different Python or configuration*'
+    }
+    It 'does not switch any task when the LOCAL SERVICE preflight fails' {
+        Mock Invoke-PinnedJobAccessPreflight -ModuleName PinnedJobRelease {throw 'Synthetic access denied'}
+        Mock Set-PinnedJobTaskAction -ModuleName PinnedJobRelease {}
+        $task=New-AccessJobTask tick "$base\collector-68f9512"
+        $receipt=@{repointed=@()}
+        Assert-CommonThrows {
+            Set-VerifiedPinnedJobActions -Session fixture -App web-options -Tasks @($task) `
+                -Current @{path="$base\collector-68f9512"} -ReleasePath "$base\collector-1234567" `
+                -Receipt $receipt -Id ('a'*32)
+        } '*Synthetic access denied*'
+        Assert-MockCalled Set-PinnedJobTaskAction -ModuleName PinnedJobRelease -Times 0 -Exactly -Scope It
+        @($receipt.repointed).Count|Should Be 0
+    }
+    It 'records a successful preflight before switching the task actions' {
+        Mock Invoke-PinnedJobAccessPreflight -ModuleName PinnedJobRelease {@{status='Succeeded';sid='S-1-5-19'}}
+        Mock Set-PinnedJobTaskAction -ModuleName PinnedJobRelease {}
+        $tasks=@((New-AccessJobTask tick "$base\collector-68f9512"),(New-AccessJobTask watchdog "$base\collector-68f9512"))
+        $receipt=@{repointed=@()}
+        Set-VerifiedPinnedJobActions -Session fixture -App web-options -Tasks $tasks `
+            -Current @{path="$base\collector-68f9512"} -ReleasePath "$base\collector-1234567" `
+            -Receipt $receipt -Id ('b'*32)
+        $receipt.access.sid|Should Be 'S-1-5-19'
+        ($receipt.repointed -join ',')|Should Be 'tick,watchdog'
+        Assert-MockCalled Set-PinnedJobTaskAction -ModuleName PinnedJobRelease -Times 2 -Exactly -Scope It
     }
     It 'maps a subfolder to the release root and compares trees without caches or line endings' {
         $source=Join-Path $TestDrive 'repo'

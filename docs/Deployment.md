@@ -283,8 +283,10 @@ the source paths and the pinned Python runtime. The release:
    `requirements.txt` changed since the runtime was built, because the runtime
    needs a rebuild first. Applies the same SQL gate as the web release.
 4. Builds `<prefix><sha>` over the admin share, copies the old folder's
-   explicit `LOCAL SERVICE` read ACE, and verifies the tree.
-5. Changes only the action path of each task with `Set-ScheduledTask -Action`.
+   explicit `LOCAL SERVICE` read ACE, and verifies the tree. The installed
+   collector access helper then checks the candidate release, runtime, config
+   and writable paths using an actual `LOCAL SERVICE` probe.
+5. After that probe succeeds, changes only the action path of each task with `Set-ScheduledTask -Action`.
    Principal, triggers, settings and enabled state stay as they are. A run in
    progress finishes on the old code.
 6. Writes `state\job-<component>.json` and waits for each repeating task to

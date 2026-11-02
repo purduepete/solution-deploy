@@ -80,6 +80,68 @@ function Set-PinnedJobTaskAction {
     Set-ScheduledTask -CimSession $Session -TaskPath $script:TaskPath -TaskName $Name -Action $new|Out-Null
 }
 
+function Get-PinnedJobAccessParameters {
+    param([Parameter(Mandatory)][object[]]$Tasks)
+    $python=@();$config=@()
+    foreach($task in $Tasks){
+        if($task.Principal.UserId -notin @('LOCAL SERVICE','NT AUTHORITY\LOCAL SERVICE','S-1-5-19') -or
+            [string]$task.Principal.LogonType -ne 'ServiceAccount'){throw "$($task.TaskName) is not running as LOCAL SERVICE."}
+        $arguments=[string]$task.Actions[0].Arguments
+        if($arguments -notmatch '(?i)(?:^|\s)-PythonPath\s+"([^"]+)"'){throw "$($task.TaskName) has no quoted -PythonPath."}
+        $python+=$Matches[1]
+        if($arguments -notmatch '(?i)(?:^|\s)-ConfigPath\s+"([^"]+)"'){throw "$($task.TaskName) has no quoted -ConfigPath."}
+        $config+=$Matches[1]
+        if($task.Actions[0].Execute -ine 'C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'){
+            throw "$($task.TaskName) does not use the managed PowerShell runtime."
+        }
+    }
+    $python=@($python|Sort-Object -Unique);$config=@($config|Sort-Object -Unique)
+    if($python.Count -ne 1 -or $config.Count -ne 1){throw 'Collector tasks use different Python or configuration paths.'}
+    @{pythonPath=$python[0];configPath=$config[0]}
+}
+
+function Invoke-PinnedJobAccessPreflight {
+    param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][ValidateSet('web-options','web-portfolio')][string]$App,
+        [Parameter(Mandatory)][object[]]$Tasks,[Parameter(Mandatory)][string]$ReleasePath,
+        [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{32}$')][string]$Id,[int]$TimeoutSeconds=180)
+    $paths=Get-PinnedJobAccessParameters $Tasks
+    $operation=Join-Path '\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\control\collector-access' "release-$Id"
+    $remoteOperation=Join-Path 'C:\ProgramData\SolutionDeploy\control\collector-access' "release-$Id"
+    [IO.Directory]::CreateDirectory($operation)|Out-Null
+    $runner=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Invoke-PinnedJobPreflight.ps1'
+    Copy-Item -LiteralPath $runner -Destination (Join-Path $operation 'runner.ps1')
+    $request=@{app=$App;releasePath=$ReleasePath;pythonPath=$paths.pythonPath;configPath=$paths.configPath
+        runnerSHA256=(Get-FileHash -LiteralPath $runner).Hash.ToLowerInvariant()
+        helperSHA256=(Get-FileHash -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Test-CollectorAccess.ps1')).Hash.ToLowerInvariant()
+        moduleSHA256=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'CollectorAccess.psm1')).Hash.ToLowerInvariant()
+        timeoutSeconds=[Math]::Max(10,[Math]::Min(150,$TimeoutSeconds-10))}
+    $requestPath=Join-Path $operation 'request.json'
+    Write-DeploymentJson $requestPath $request -CreateNew
+    $hash=(Get-FileHash -LiteralPath $requestPath).Hash.ToLowerInvariant()
+    $success=$false
+    try{
+        $result=Invoke-ReleaseHostPhase -Session $Session -Label "$App collector access" -Operation $operation `
+            -RemoteOperation $remoteOperation -RequestSHA256 $hash -Phase Prepare -TimeoutSeconds $TimeoutSeconds
+        if($result.sid -ne 'S-1-5-19'){throw 'Collector preflight returned an unexpected identity.'}
+        $success=$true
+        return $result
+    }finally{
+        if($success){Remove-Item -LiteralPath $operation -Recurse -Force}
+    }
+}
+
+function Set-VerifiedPinnedJobActions {
+    param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][string]$App,[Parameter(Mandatory)][object[]]$Tasks,
+        [Parameter(Mandatory)]$Current,[Parameter(Mandatory)][string]$ReleasePath,[Parameter(Mandatory)]$Receipt,
+        [Parameter(Mandatory)][string]$Id,[int]$TimeoutSeconds=180)
+    $Receipt.access=Invoke-PinnedJobAccessPreflight -Session $Session -App $App -Tasks $Tasks `
+        -ReleasePath $ReleasePath -Id $Id -TimeoutSeconds $TimeoutSeconds
+    foreach($task in $Tasks){
+        Set-PinnedJobTaskAction $Session $task.TaskName (New-PinnedJobAction $task.Actions[0] $Current.path $ReleasePath)
+        $Receipt.repointed+=$task.TaskName
+    }
+}
+
 function Wait-PinnedJobRuns {
     param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][object[]]$Tasks,[Parameter(Mandatory)][datetime]$Since,[int]$TimeoutSeconds=180)
     $results=@{}
@@ -188,10 +250,8 @@ function Invoke-PinnedJobRelease {
         foreach($task in $tasks){$before[$task.TaskName]=@{enabled=$task.Settings.Enabled;user=$task.Principal.UserId;triggers=@($task.Triggers).Count}}
         $since=Get-Date
         $receipt.repointed=@()
-        foreach($task in $tasks){
-            Set-PinnedJobTaskAction $session $task.TaskName (New-PinnedJobAction $task.Actions[0] $current.path $hostPath)
-            $receipt.repointed+=$task.TaskName
-        }
+        Set-VerifiedPinnedJobActions -Session $session -App $App -Tasks $tasks -Current $current -ReleasePath $hostPath `
+            -Receipt $receipt -Id $id -TimeoutSeconds ([Math]::Min(180,$TimeoutSeconds))
         $repointed=$receipt.repointed
         $after=Get-PinnedJobTasks $session @($job.tasks)
         foreach($task in $after){
@@ -236,4 +296,4 @@ function Invoke-PinnedJobRelease {
     }
 }
 
-Export-ModuleMember -Function Get-PinnedJobTree,Compare-PinnedJobTree,Copy-PinnedJobSource,Get-PinnedJobReleasePath,New-PinnedJobAction,Wait-PinnedJobRuns,Invoke-PinnedJobRelease
+Export-ModuleMember -Function Get-PinnedJobTree,Compare-PinnedJobTree,Copy-PinnedJobSource,Get-PinnedJobReleasePath,New-PinnedJobAction,Get-PinnedJobAccessParameters,Invoke-PinnedJobAccessPreflight,Set-VerifiedPinnedJobActions,Wait-PinnedJobRuns,Invoke-PinnedJobRelease
