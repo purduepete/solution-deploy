@@ -109,11 +109,13 @@ function Invoke-PinnedJobAccessPreflight {
     $remoteOperation=Join-Path 'C:\ProgramData\SolutionDeploy\control\collector-access' "release-$Id"
     [IO.Directory]::CreateDirectory($operation)|Out-Null
     $runner=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Invoke-PinnedJobPreflight.ps1'
+    $module=Join-Path $PSScriptRoot 'CollectorAccess.psm1'
     Copy-Item -LiteralPath $runner -Destination (Join-Path $operation 'runner.ps1')
+    Copy-Item -LiteralPath $module -Destination (Join-Path $operation 'CollectorAccess.psm1')
     $request=@{app=$App;releasePath=$ReleasePath;pythonPath=$paths.pythonPath;configPath=$paths.configPath
         runnerSHA256=(Get-FileHash -LiteralPath $runner).Hash.ToLowerInvariant()
         helperSHA256=(Get-FileHash -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Test-CollectorAccess.ps1')).Hash.ToLowerInvariant()
-        moduleSHA256=(Get-FileHash -LiteralPath (Join-Path $PSScriptRoot 'CollectorAccess.psm1')).Hash.ToLowerInvariant()
+        moduleSHA256=(Get-FileHash -LiteralPath $module).Hash.ToLowerInvariant()
         timeoutSeconds=[Math]::Max(10,[Math]::Min(150,$TimeoutSeconds-10))}
     $requestPath=Join-Path $operation 'request.json'
     Write-DeploymentJson $requestPath $request -CreateNew
@@ -121,7 +123,8 @@ function Invoke-PinnedJobAccessPreflight {
     $success=$false
     try{
         $result=Invoke-ReleaseHostPhase -Session $Session -Label "$App collector access" -Operation $operation `
-            -RemoteOperation $remoteOperation -RequestSHA256 $hash -Phase Prepare -TimeoutSeconds $TimeoutSeconds
+            -RemoteOperation $remoteOperation -RequestSHA256 $hash -Phase Prepare -TimeoutSeconds $TimeoutSeconds `
+            -ProgressPath (Join-Path $operation 'progress.txt')
         if($result.sid -ne 'S-1-5-19'){throw 'Collector preflight returned an unexpected identity.'}
         $success=$true
         return $result

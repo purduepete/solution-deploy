@@ -114,7 +114,8 @@ function Assert-HandPlacedDatabaseInputs {
 function Invoke-ReleaseHostPhase {
     param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][string]$Label,[Parameter(Mandatory)][string]$Operation,
         [Parameter(Mandatory)][string]$RemoteOperation,[Parameter(Mandatory)][string]$RequestSHA256,
-        [Parameter(Mandatory)][ValidateSet('Prepare','Activate')][string]$Phase,[int]$TimeoutSeconds=300)
+        [Parameter(Mandatory)][ValidateSet('Prepare','Activate')][string]$Phase,[int]$TimeoutSeconds=300,
+        [string]$ProgressPath)
     $powerShell='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
     $command='"'+$powerShell+'" -NoProfile -NonInteractive -WindowStyle Hidden -File "'+
         (Join-Path $RemoteOperation 'runner.ps1')+'" -RequestPath "'+
@@ -130,7 +131,12 @@ function Invoke-ReleaseHostPhase {
             if($result.status -ne 'Succeeded'){throw "$Label $Phase failed: $($result.error) Inspect $path before recovery."}
             return $result
         }
-        Write-Host ("{0} {1}: elapsed {2:n0}s; host PID {3}." -f $Label,$Phase,$clock.Elapsed.TotalSeconds,$created.ProcessId)
+        $progress=''
+        if($ProgressPath -and (Test-Path -LiteralPath $ProgressPath)){
+            try{$progress='; '+(Get-Content -LiteralPath $ProgressPath -Raw).Trim()}
+            catch{$progress='; progress read failed: '+$_.Exception.Message}
+        }
+        Write-Host ("{0} {1}: elapsed {2:n0}s; host PID {3}{4}." -f $Label,$Phase,$clock.Elapsed.TotalSeconds,$created.ProcessId,$progress)
         Start-Sleep -Seconds 5
         $process=Get-CimInstance -CimSession $Session -ClassName Win32_Process -Filter "ProcessId=$($created.ProcessId)"
         if(-not $process -and -not (Test-Path -LiteralPath $path)){throw "$Label $Phase exited without a result. Outcome unknown; inspect $Operation."}

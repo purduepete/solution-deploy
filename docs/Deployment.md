@@ -284,8 +284,9 @@ the source paths and the pinned Python runtime. The release:
    needs a rebuild first. Applies the same SQL gate as the web release.
 4. Builds `<prefix><sha>` over the admin share, copies the old folder's
    explicit `LOCAL SERVICE` read ACE, and verifies the tree. The installed
-   collector access helper then checks the candidate release, runtime, config
-   and writable paths using an actual `LOCAL SERVICE` probe.
+   access entry point loads the hash-verified staged module and checks the
+   candidate release, runtime, config and writable paths using an actual
+   `LOCAL SERVICE` probe.
 5. After that probe succeeds, changes only the action path of each task with `Set-ScheduledTask -Action`.
    Principal, triggers, settings and enabled state stay as they are. A run in
    progress finishes on the old code.

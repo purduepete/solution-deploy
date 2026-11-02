@@ -532,6 +532,13 @@ Describe 'Pinned-job release boundaries' {
         $second.Principal.UserId='LOCAL SERVICE'
         $second.Actions[0].Arguments=$second.Actions[0].Arguments.Replace('collector.json','other.json')
         Assert-CommonThrows {Get-PinnedJobAccessParameters @($first,$second)} '*different Python or configuration*'
+        $second.Actions[0].Arguments=$second.Actions[0].Arguments.Replace('other.json','collector.json').Replace('\runtime\python\','\runtime\other-python\')
+        Assert-CommonThrows {Get-PinnedJobAccessParameters @($first,$second)} '*different Python or configuration*'
+        $second.Actions[0].Arguments=$second.Actions[0].Arguments.Replace('\runtime\other-python\','\runtime\python\').Replace('-PythonPath "','-PythonPath ')
+        Assert-CommonThrows {Get-PinnedJobAccessParameters @($first,$second)} '*no quoted -PythonPath*'
+        $second.Actions[0].Arguments=$first.Actions[0].Arguments
+        $second.Actions[0].Execute='pwsh.exe'
+        Assert-CommonThrows {Get-PinnedJobAccessParameters @($first,$second)} '*managed PowerShell runtime*'
     }
     It 'does not switch any task when the LOCAL SERVICE preflight fails' {
         Mock Invoke-PinnedJobAccessPreflight -ModuleName PinnedJobRelease {throw 'Synthetic access denied'}

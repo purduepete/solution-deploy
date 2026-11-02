@@ -29,17 +29,22 @@ try{
         throw 'Collector preflight paths are outside the app.'
     }
     $helper=Join-Path $framework 'scripts\Test-CollectorAccess.ps1'
-    $module=Join-Path $framework 'src\CollectorAccess.psm1'
+    $module=Join-Path $operation 'CollectorAccess.psm1'
     if((Get-FileHash -LiteralPath $helper).Hash.ToLowerInvariant() -ne $request.helperSHA256 -or
         (Get-FileHash -LiteralPath $module).Hash.ToLowerInvariant() -ne $request.moduleSHA256){
-        throw 'Installed collector access helper differs from the release tooling.'
+        throw 'Collector access helper differs from the release tooling.'
     }
     $config=Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $directories=@((Join-Path $root 'shared\logs'))
     $state=$config.PSObject.Properties['notification_state_file']
     if($state -and $state.Value){$directories+=Split-Path -Parent $state.Value}
     $access=& $helper -ReleasePath $release -PythonPath $python -ConfigPath $configPath `
-        -WritableDirectories @($directories|Sort-Object -Unique) -TimeoutSeconds $request.timeoutSeconds
+        -CollectorAccessModulePath $module -WritableDirectories @($directories|Sort-Object -Unique) `
+        -TimeoutSeconds $request.timeoutSeconds 6>&1 | ForEach-Object {
+            if($_ -is [System.Management.Automation.InformationRecord]){
+                Set-Content -LiteralPath (Join-Path $operation 'progress.txt') -Value ([string]$_.MessageData)
+            }else{$_}
+        }
     if(-not $access.Success -or $access.Sid -ne 'S-1-5-19'){throw 'Collector access preflight did not verify LOCAL SERVICE.'}
     $result.status='Succeeded';$result.sid=$access.Sid;$result.aclSnapshot=$access.AclSnapshot
 }catch{

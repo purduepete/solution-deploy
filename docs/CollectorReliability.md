@@ -16,7 +16,8 @@ the Options collector and its release-local watchdog before either could run.
   use the actual task identity, rather than the installing administrator.
   Preserve the existing healthy tasks if the candidate fails.
 - Pinned-job releases run the same access preflight before switching task actions.
-  They do not rerun the activation installer.
+  They stage and verify its access module without changing the installed framework
+  or rerunning the activation installer.
 - Check collector, watchdog and reference task definitions together.
   Different compatible releases are allowed; a leftover task must be deliberate.
 - Preserve disabled tasks and existing activation approvals. Do not rerun a full

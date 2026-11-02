@@ -93,6 +93,8 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 public static class CollectorFileAccess {
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
@@ -103,31 +105,53 @@ public static class CollectorFileAccess {
         uint[] ancestorRights = { 64, 65536, 262144, 524288 };
         uint[] fileRights = { 2, 4, 16, 256, 65536, 262144, 524288 };
         uint[] directoryRights = { 2, 4, 16, 256, 65536, 262144, 524288, 64 };
-        int count = 0;
-        try {
-            foreach (string path in allPaths) {
-                uint flags = 0x02000000;
-                uint[] rights = ancestorRights;
-                if (payload.Contains(path)) {
-                    FileAttributes attributes = File.GetAttributes(path);
-                    bool directory = (attributes & FileAttributes.Directory) != 0;
-                    if (!directory) {
-                        using (var input = new FileStream(path, FileMode.Open, FileAccess.Read,
-                            FileShare.ReadWrite | FileShare.Delete)) {}
-                    }
-                    rights = directory ? directoryRights : fileRights;
-                    if ((attributes & FileAttributes.ReparsePoint) != 0) flags |= 0x00200000;
+        return ValidatePaths(allPaths, progress, path => {
+            uint flags = 0x02000000;
+            uint[] rights = ancestorRights;
+            if (payload.Contains(path)) {
+                FileAttributes attributes = File.GetAttributes(path);
+                bool directory = (attributes & FileAttributes.Directory) != 0;
+                if (!directory) {
+                    using (var input = new FileStream(path, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete)) {}
                 }
-                foreach (uint right in rights) {
-                    using (SafeFileHandle handle = CreateFile(path, right, 7, IntPtr.Zero, 3, flags, IntPtr.Zero)) {
-                        int error = Marshal.GetLastWin32Error();
-                        if (!handle.IsInvalid) return "LOCAL SERVICE can modify code/config/runtime: " + path;
-                        if (error != 5) return "Cannot establish read-only access (" + error + "): " + path;
-                    }
-                }
-                count++;
-                if (count % 100 == 0) File.WriteAllText(progress, "Checked " + count + " of " + allPaths.Length + " paths");
+                rights = directory ? directoryRights : fileRights;
+                if ((attributes & FileAttributes.ReparsePoint) != 0) flags |= 0x00200000;
             }
+            foreach (uint right in rights) {
+                using (SafeFileHandle handle = CreateFile(path, right, 7, IntPtr.Zero, 3, flags, IntPtr.Zero)) {
+                    int error = Marshal.GetLastWin32Error();
+                    if (!handle.IsInvalid) return "LOCAL SERVICE can modify code/config/runtime: " + path;
+                    if (error != 5) return "Cannot establish read-only access (" + error + "): " + path;
+                }
+            }
+            return null;
+        });
+    }
+    internal static string ValidatePaths(string[] allPaths, string progress, Func<string, string> check) {
+        int count = 0;
+        int lastProgress = 0;
+        string failure = null;
+        object progressLock = new object();
+        try {
+            Parallel.ForEach(allPaths, new ParallelOptions { MaxDegreeOfParallelism = 16 }, (path, loop) => {
+                string errorMessage = null;
+                try { errorMessage = check(path); }
+                catch (Exception error) { errorMessage = error.Message; }
+                if (errorMessage != null) {
+                    Interlocked.CompareExchange(ref failure, errorMessage, null);
+                    loop.Stop();
+                    return;
+                }
+                int completed = Interlocked.Increment(ref count);
+                if (completed % 100 == 0) lock (progressLock) {
+                    if (completed > lastProgress) {
+                        File.WriteAllText(progress, "Checked " + completed + " of " + allPaths.Length + " paths");
+                        lastProgress = completed;
+                    }
+                }
+            });
+            if (failure != null) return failure;
             File.WriteAllText(progress, "Checked " + count + " of " + allPaths.Length + " paths");
             return "";
         }

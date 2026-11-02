@@ -4,7 +4,21 @@ Describe 'Compiled bulk access validator' {
     It 'compiles the actual probe checker and rejects writable payload without changing its bytes' {
         $module = Get-Content (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\CollectorAccess.psm1') -Raw
         $source = [regex]::Match($module, "(?s)Add-Type -TypeDefinition @'\r?\n(.*?)\r?\n'@").Groups[1].Value
-        if (-not ('CollectorFileAccess' -as [type])) { Add-Type -TypeDefinition $source }
+        $fixtureSource = @'
+public static class CollectorAccessParallelFixture {
+    public static int Count;
+    public static string Run(string[] paths, string invalid, string progress) {
+        Count = 0;
+        return CollectorFileAccess.ValidatePaths(paths, progress, path => {
+            System.Threading.Interlocked.Increment(ref Count);
+            if (path == invalid) return "synthetic denied path";
+            if (path == "throws") throw new System.InvalidOperationException("synthetic read failure");
+            return null;
+        });
+    }
+}
+'@
+        if (-not ('CollectorFileAccess' -as [type])) { Add-Type -TypeDefinition ($source + $fixtureSource) }
         $fixture = Join-Path (Get-Location) ('.local\collector-native-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $fixture -Force | Out-Null
         try {
@@ -22,6 +36,12 @@ Describe 'Compiled bulk access validator' {
             Get-Content $progress -Raw | Should Match 'Checked 0 of 0 paths'
             [CollectorFileAccess]::Validate(@((Join-Path $fixture 'missing')), @((Join-Path $fixture 'missing')), $progress) |
                 Should Not Be ''
+            $paths = [string[]]@(1..1024 | ForEach-Object { "path-$_" })
+            [CollectorAccessParallelFixture]::Run($paths, '', $progress) | Should Be ''
+            [CollectorAccessParallelFixture]::Count | Should Be 1024
+            Get-Content $progress -Raw | Should Be 'Checked 1024 of 1024 paths'
+            [CollectorAccessParallelFixture]::Run($paths, 'path-1024', $progress) | Should Be 'synthetic denied path'
+            [CollectorAccessParallelFixture]::Run(@('throws'), '', $progress) | Should Be 'synthetic read failure'
         }
         finally { Remove-Item -LiteralPath $fixture -Recurse -Force }
     }
