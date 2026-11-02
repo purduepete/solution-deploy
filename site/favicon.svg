@@ -1,13 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0f172a" />
-  <g fill="#6b8cae">
-    <circle cx="19" cy="22" r="3" />
-    <circle cx="19" cy="32" r="3" />
-    <circle cx="19" cy="42" r="3" />
-  </g>
-  <g stroke="#6b8cae" stroke-width="3.5" stroke-linecap="round">
-    <line x1="27" y1="22" x2="46" y2="22" />
-    <line x1="27" y1="32" x2="46" y2="32" />
-    <line x1="27" y1="42" x2="40" y2="42" />
+  <style>
+    .light-outline { display: none; }
+    @media (prefers-color-scheme: light) {
+      .background { fill: #e2e8f0; }
+      .warm-tab { stroke: #9a5d00; stroke-width: 1.5; }
+      .blue-tab { stroke: #364c66; stroke-width: 1.5; }
+      .index-border { stroke: #9a5d00; stroke-width: 5; }
+      .light-outline { display: inline; }
+    }
+  </style>
+  <rect x="4" y="4" width="56" height="56" rx="14" fill="#0f172a" class="background" />
+  <g id="mark">
+    <rect x="40" y="15" width="12" height="8" rx="2" fill="#fb923c" class="warm-tab" />
+    <rect x="40" y="28" width="12" height="8" rx="2" fill="#fbbf24" class="warm-tab" />
+    <rect x="40" y="41" width="12" height="8" rx="2" fill="#6b8cae" class="blue-tab" />
+    <rect x="12" y="11" width="32" height="42" rx="3" fill="#fbbf24" fill-opacity=".12" stroke="#fbbf24" stroke-width="3" class="index-border" />
+    <rect x="12" y="11" width="32" height="42" rx="3" fill="none" stroke="#fbbf24" stroke-width="3" class="light-outline" />
+    <path d="M20 23h16M20 31h16M20 39h11" fill="none" stroke="#ae470b" stroke-width="5.5" stroke-linecap="round" class="light-outline" />
+    <path d="M20 23h16M20 31h16M20 39h11" fill="none" stroke="#fb923c" stroke-width="3.5" stroke-linecap="round" />
   </g>
 </svg>

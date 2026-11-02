@@ -15,6 +15,8 @@ const files = new Map([
     ['/collectors.js', ['collectors.js', 'text/javascript; charset=utf-8']],
     ['/sites.json', ['sites.json', 'application/json; charset=utf-8']],
     ['/favicon.svg', ['favicon.svg', 'image/svg+xml']],
+    ['/favicon-dark.svg', ['favicon-dark.svg', 'image/svg+xml']],
+    ['/favicon-light.svg', ['favicon-light.svg', 'image/svg+xml']],
     ['/apple-touch-icon.png', ['apple-touch-icon.png', 'image/png']],
 ]);
 

@@ -16,6 +16,9 @@
         root.style.colorScheme = theme === 'light' ? 'light' : 'dark';
         root.style.backgroundColor = theme === 'light' ? '#ffffff' : '#0f172a';
         document.querySelector('meta[name="theme-color"]').content = theme === 'light' ? '#ffffff' : '#0f172a';
+        document
+            .querySelector('link[rel="icon"]')
+            ?.setAttribute('href', theme === 'light' ? '/favicon-light.svg' : '/favicon-dark.svg');
     };
     apply();
     media.addEventListener('change', () => {

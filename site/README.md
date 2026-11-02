@@ -22,6 +22,24 @@ in the inventory to avoid a Tailscale DNS result. Set `faviconPath` in
 has no icon. If an icon cannot be loaded, the card shows initials and the server
 logs the failure.
 
+## Alternative directory icons
+
+The [tabbed-index](./icon-options/tabbed-index/) set is the active icon in the
+directory source. The [connected-sites](./icon-options/connected-sites/) and
+[compass](./icon-options/compass/) sets are also saved. Each contains
+`favicon.svg`, `favicon-dark.svg`, `favicon-light.svg`, an `apple-touch-icon.svg`
+source, and its 180-by-180 `apple-touch-icon.png`.
+
+The other sets are not served or selected automatically. To use one, copy its
+5 files over the matching files in `site`, update this note, then follow the
+[directory release procedure](../docs/ReleaseCommands.md) when a deployment is
+approved. The tabbed index uses the original dark background in Midnight and a
+light background in Light. Browser tabs use the fixed theme-specific SVGs; the
+shared favicon follows the surrounding page theme in the directory card and
+Site Dock. The iPhone and iPad home-screen PNG stays dark in both themes.
+
+## Appearance controls
+
 The Theme group uses pressed buttons, theme icons and a sliding selection fill.
 Reduced motion disables the slide. Enter or Space opens the popover and selects
 the focused choice. Arrow keys move

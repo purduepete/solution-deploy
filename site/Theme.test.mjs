@@ -40,6 +40,7 @@ function launch(stored, dark = false, blocked = false) {
     }
     const control = element();
     const value = element();
+    const favicon = element();
     const picker = {
         style: {
             setProperty(key, value) {
@@ -69,7 +70,8 @@ function launch(stored, dark = false, blocked = false) {
     vm.runInNewContext(script, {
         document: {
             documentElement: root,
-            querySelector: () => meta,
+            querySelector: (selector) =>
+                ({ 'meta[name="theme-color"]': meta, 'link[rel="icon"]': favicon })[selector] ?? null,
             getElementById: (id) =>
                 ({ theme: control, 'theme-value': value, 'theme-menu': menu, 'theme-picker': picker })[id],
             addEventListener(type, fn) {
@@ -94,6 +96,7 @@ function launch(stored, dark = false, blocked = false) {
     return {
         root,
         meta,
+        favicon,
         control,
         value,
         picker,
@@ -140,18 +143,23 @@ test('default, invalid and legacy dark preferences resolve to midnight', () => {
 test('selectable system tracks OS, fixed themes ignore it, controls persist', () => {
     const app = launch('system');
     assert.equal(app.meta.content, '#ffffff');
+    assert.equal(app.favicon.attributes.href, '/favicon-light.svg');
     app.os(true);
     assert.equal(app.meta.content, '#0f172a');
+    assert.equal(app.favicon.attributes.href, '/favicon-dark.svg');
     app.choose('light');
     app.os(true);
     assert.equal(app.meta.content, '#ffffff');
     assert.equal(app.root.style.colorScheme, 'light');
+    assert.equal(app.favicon.attributes.href, '/favicon-light.svg');
     app.choose('midnight');
     app.os(false);
     assert.equal(app.meta.content, '#0f172a');
+    assert.equal(app.favicon.attributes.href, '/favicon-dark.svg');
     app.choose('system');
     assert.equal(app.storage.get('solution-deploy-theme'), 'system');
     assert.equal(app.meta.content, '#ffffff');
+    assert.equal(app.favicon.attributes.href, '/favicon-light.svg');
 });
 
 test('storage denial leaves system tracking functional', () => {

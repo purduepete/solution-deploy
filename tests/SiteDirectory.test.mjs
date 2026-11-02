@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -224,6 +224,86 @@ test('solution headings show decorative favicons and fall back to initials', () 
     const withoutFavicon = headingFor({ id: 'no-icon', name: 'No Icon', faviconPath: null });
     assert.equal(withoutFavicon.children[0].children[0].textContent, 'NI');
     assert.equal(withoutFavicon.children[1].textContent, 'No Icon');
+});
+
+test('alternative directory icons have matching marks and 180-pixel PNGs', () => {
+    const root = new URL('../site/icon-options/', import.meta.url);
+    const options = readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+    assert.deepEqual(options, ['compass', 'connected-sites', 'tabbed-index']);
+
+    const marks = new Set();
+    for (const option of options) {
+        const favicon = readFileSync(new URL(`${option}/favicon.svg`, root), 'utf8');
+        const dark = readFileSync(new URL(`${option}/favicon-dark.svg`, root), 'utf8');
+        const light = readFileSync(new URL(`${option}/favicon-light.svg`, root), 'utf8');
+        const touch = readFileSync(new URL(`${option}/apple-touch-icon.svg`, root), 'utf8');
+        const png = readFileSync(new URL(`${option}/apple-touch-icon.png`, root));
+        for (const svg of [favicon, dark, light]) {
+            assert.match(svg, /viewBox="0 0 64 64" width="64" height="64"/);
+        }
+        assert.match(touch, /viewBox="0 0 64 64" width="180" height="180"/);
+        const darkBackground = dark.match(
+            /<rect x="4" y="4" width="56" height="56" rx="14" fill="(#[0-9a-f]{6})" \/>/i
+        );
+        const lightBackground = light.match(
+            /<rect x="4" y="4" width="56" height="56" rx="14" fill="(#[0-9a-f]{6})" \/>/i
+        );
+        const touchBackground = touch.match(/<rect width="64" height="64" fill="(#[0-9a-f]{6})" \/>/i);
+        assert.ok(darkBackground, `${option} dark favicon background`);
+        assert.ok(lightBackground, `${option} light favicon background`);
+        assert.ok(touchBackground, `${option} home-screen background`);
+        assert.equal(darkBackground[1], touchBackground[1]);
+        const darkMark = dark.match(/<g id="mark">[\s\S]*?<\/g>/);
+        const lightMark = light.match(/<g id="mark">[\s\S]*?<\/g>/);
+        const touchMark = touch.match(/<g id="mark">[\s\S]*?<\/g>/);
+        assert.ok(darkMark, `${option} dark favicon mark`);
+        assert.ok(lightMark, `${option} light favicon mark`);
+        assert.ok(touchMark, `${option} home-screen mark`);
+        assert.equal(darkMark[0], touchMark[0]);
+        assert(new Set(darkMark[0].match(/#[0-9a-f]{6}/gi)).size > 1, `${option} mark colors`);
+        if (option === 'tabbed-index') {
+            assert.equal(darkBackground[1], '#0f172a', 'tabbed index keeps its original dark background');
+            assert.equal(lightBackground[1], '#e2e8f0', 'tabbed index has a light background');
+            assert.match(favicon, /@media \(prefers-color-scheme: light\)/);
+            for (const color of ['#fbbf24', '#fb923c', '#6b8cae']) {
+                assert(
+                    dark.includes(color) && light.includes(color),
+                    `tabbed index includes Idea Notes color ${color}`
+                );
+            }
+        } else {
+            assert.equal(favicon, dark);
+            assert.equal(favicon, light);
+        }
+        marks.add(darkMark[0]);
+        assert.deepEqual(png.subarray(0, 8), Buffer.from('89504e470d0a1a0a', 'hex'));
+        assert.equal(png.subarray(12, 16).toString('ascii'), 'IHDR');
+        assert.equal(png.readUInt32BE(16), 180);
+        assert.equal(png.readUInt32BE(20), 180);
+    }
+    assert.equal(marks.size, 3);
+});
+
+test('active directory icons match one complete saved set', () => {
+    const root = new URL('../site/', import.meta.url);
+    const options = new URL('icon-options/', root);
+    const names = [
+        'favicon.svg',
+        'favicon-dark.svg',
+        'favicon-light.svg',
+        'apple-touch-icon.svg',
+        'apple-touch-icon.png',
+    ];
+    const active = names.map((name) => readFileSync(new URL(name, root)));
+    const matches = readdirSync(options, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .filter((entry) =>
+            names.every((name, index) => active[index].equals(readFileSync(new URL(`${entry.name}/${name}`, options))))
+        );
+    assert.equal(matches.length, 1);
 });
 
 test('favicon reader accepts bounded image responses from configured LAN paths only', async () => {
@@ -1034,6 +1114,8 @@ test('server exposes only fixed read-only assets with protective headers', async
             '/sites.json',
             '/deployments.json',
             '/favicon.svg',
+            '/favicon-dark.svg',
+            '/favicon-light.svg',
             '/apple-touch-icon.png',
             '/health',
         ]) {

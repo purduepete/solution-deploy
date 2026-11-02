@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="180" height="180" role="img" aria-label="Solution Directory connected sites">
+  <rect width="64" height="64" fill="#2c2046" />
+  <g id="mark">
+    <path d="M16 16l32 32M48 16 16 48" fill="none" stroke="#d8c9f0" stroke-width="4" stroke-linecap="round" />
+    <rect x="9" y="9" width="14" height="14" rx="3" fill="#63c8f2" />
+    <rect x="41" y="9" width="14" height="14" rx="3" fill="#fc8bab" />
+    <rect x="9" y="41" width="14" height="14" rx="3" fill="#6ee2b3" />
+    <rect x="41" y="41" width="14" height="14" rx="3" fill="#ffd074" />
+    <rect x="25" y="25" width="14" height="14" rx="3" fill="#fff5e3" />
+  </g>
+</svg>
