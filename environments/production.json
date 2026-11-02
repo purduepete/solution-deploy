@@ -69,6 +69,7 @@
     },
     "the-workbench": {
       "manifest": "..\\the-workbench\\deploy\\application.json",
+      "newInstallation": true,
       "account": "sd-ideas",
       "port": 8802
     }
