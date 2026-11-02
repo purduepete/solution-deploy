@@ -36,7 +36,7 @@
     "databases": {
       "ferry-tracker": "ferry_tracker",
       "home-automation": "home_automation",
-      "idea-notes": "the_workbench",
+      "the-workbench": "the_workbench",
       "site-dock": "site_dock",
       "team-scoreboard": "team_scoreboard"
     },
@@ -67,9 +67,8 @@
       "account": "sd-scoreboard",
       "port": 8801
     },
-    "idea-notes": {
+    "the-workbench": {
       "manifest": "..\\the-workbench\\deploy\\application.json",
-      "newInstallation": true,
       "account": "sd-ideas",
       "port": 8802
     }

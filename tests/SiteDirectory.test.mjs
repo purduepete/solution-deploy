@@ -271,7 +271,7 @@ test('alternative directory icons have matching marks and 180-pixel PNGs', () =>
             for (const color of ['#fbbf24', '#fb923c', '#6b8cae']) {
                 assert(
                     dark.includes(color) && light.includes(color),
-                    `tabbed index includes Idea Notes color ${color}`
+                    `tabbed index includes The Workbench color ${color}`
                 );
             }
         } else {

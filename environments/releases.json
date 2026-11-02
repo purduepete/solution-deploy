@@ -37,12 +37,12 @@
       "tasks": ["SolutionDeploy-team-scoreboard"],
       "preserve": ["shared", "PostgreSQL team_scoreboard"]
     },
-    "idea-notes": {
+    "the-workbench": {
       "procedure": "controller",
       "source": "..\\the-workbench",
       "components": ["web"],
       "versionEvidence": "Protected state\\active.json and release.json",
-      "tasks": ["SolutionDeploy-idea-notes"],
+      "tasks": ["SolutionDeploy-the-workbench"],
       "preserve": ["shared", "PostgreSQL the_workbench"]
     },
     "fit-track": {

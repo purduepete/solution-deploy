@@ -38,7 +38,7 @@ const apps = {
     'web-options': { key: 'config_theme_preference' },
     'solution-deploy': { key: 'solution-deploy-theme', source: 'solution-deploy/site' },
     'team-scoreboard': { key: 'team-scoreboard-theme' },
-    'idea-notes': { key: 'idea-notes.theme-preference', stubWrites: ['/api/preferences'] },
+    'the-workbench': { key: 'idea-notes.theme-preference', stubWrites: ['/api/preferences'] },
 };
 const MIDNIGHT = ['#020617', '#0f172a'];
 const LIGHT = ['#ffffff'];
@@ -47,7 +47,7 @@ const desktopLayouts = {
     'fit-track': ['header', 'main.container'],
     'ferry-tracker': ['.header-inner', 'main'],
     'team-scoreboard': ['.header-inner', 'main'],
-    'idea-notes': ['.topbar-inner', 'main'],
+    'the-workbench': ['.topbar-inner', 'main'],
     'home-automation': ['.app-header-inner', 'header .wrap'],
     'web-inventory': ['.topbar', 'main.content'],
 };

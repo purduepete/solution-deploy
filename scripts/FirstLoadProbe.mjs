@@ -16,7 +16,7 @@ export const firstLoadTargets = {
     'web-options': { shell: 'header, nav', content: 'main' },
     'solution-deploy': { shell: 'header', content: 'main', pendingClass: 'page-initial-loading' },
     'team-scoreboard': { shell: 'header', content: 'main' },
-    'idea-notes': { shell: '.topbar', content: '.workspace' },
+    'the-workbench': { shell: '.topbar', content: '.workspace' },
 };
 
 export function installFirstLoadProbe(targets) {

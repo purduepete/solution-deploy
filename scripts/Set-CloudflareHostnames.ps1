@@ -2,7 +2,7 @@
 param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
     [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory, [switch]$PublishTeamScoreboard,
     [switch]$RemoveRetiredFerryHeaderRule, [switch]$PublishFitTrackOAuthPages, [switch]$PublishTeamScoreboardCalendar,
-    [switch]$PublishIdeaNotes, [string]$AddGoogleEmail)
+    [switch]$PublishTheWorkbench, [string]$AddGoogleEmail)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
@@ -19,6 +19,9 @@ if($PublishTeamScoreboardCalendar -and ($RemoveRetiredFerryHeaderRule -or $Enabl
 if($RemoveRetiredFerryHeaderRule -and ($EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory)){
     throw 'Remove the retired Ferry header rule separately from other changes.'
 }
+if($PublishTheWorkbench -and ($EnableGoogleSignIn -or $RemoveRetiredFerryHeaderRule -or $PublishFitTrackOAuthPages -or $PublishTeamScoreboardCalendar)){
+    throw 'Publish the Workbench hostname separately from other changes.'
+}
 $allowed=[ordered]@{
     'ferry-tracker.jimlertech.com'=8787
     'home-automation.jimlertech.com'=8788
@@ -32,10 +35,10 @@ $allowed=[ordered]@{
     'web-options.jimlertech.com'=18797
     'solution-deploy.jimlertech.com'=18798
     'team-scoreboard.jimlertech.com'=8801
-    'idea-notes.jimlertech.com'=8802
+    'the-workbench.jimlertech.com'=8802
 }
-if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory,$PublishTeamScoreboard,$PublishIdeaNotes)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
-$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}elseif($PublishTeamScoreboard){'team-scoreboard.jimlertech.com'}elseif($PublishIdeaNotes){'idea-notes.jimlertech.com'}else{''}
+if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory,$PublishTeamScoreboard,$PublishTheWorkbench)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
+$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}elseif($PublishTeamScoreboard){'team-scoreboard.jimlertech.com'}elseif($PublishTheWorkbench){'the-workbench.jimlertech.com'}else{''}
 $catchHosts=@('ferry-tracker.jimlertech.com/api/catch','fit-track.jimlertech.com/oauth/*','team-scoreboard.jimlertech.com/calendar/*')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
 $zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'
@@ -169,9 +172,106 @@ try{
 
     $apps=@(Api Get "$account/access/apps?per_page=100" $null)
     if($publishName){
-        if(-not $Apply){$report.publish=$publishName;return}
         $name=$publishName
         $service="http://127.0.0.1:$($allowed[$name])"
+        if($PublishTheWorkbench){
+            $oldName='idea-notes.jimlertech.com'
+            $oldApps=@($apps|Where-Object domain -eq $oldName)
+            $newApps=@($apps|Where-Object domain -eq $name)
+            if($oldApps.Count -ne 1 -or $newApps.Count){throw 'Expected one existing Workbench Access app and no app at the new hostname.'}
+            $app=$oldApps[0]
+            $policyIds=@($app.policies|ForEach-Object id)
+            $policyDefinitions=@(Api Get "$account/access/policies?per_page=100" $null|Where-Object {$_.id -in $policyIds})
+            if((@($app.self_hosted_domains) -join ',') -cne $oldName -or
+                (@($app.destinations|ForEach-Object uri) -join ',') -cne $oldName -or
+                $policyDefinitions.Count -ne $policyIds.Count -or
+                -not @($policyDefinitions|Where-Object decision -eq 'allow').Count -or
+                @($policyDefinitions|Where-Object decision -ne 'allow').Count){
+                throw 'Existing Workbench Access app is not a single-host owner-protected app.'
+            }
+            $oldRules=@($config.ingress|Where-Object hostname -eq $oldName)
+            $newRules=@($config.ingress|Where-Object hostname -eq $name)
+            if($oldRules.Count -ne 1 -or $oldRules[0].service -cne $service -or
+                $newRules.Count -gt 1 -or ($newRules.Count -eq 1 -and $newRules[0].service -cne $service)){
+                throw 'Workbench tunnel ingress differs from the expected single origin.'
+            }
+            $oldDns=@(Api Get "$zone/dns_records?name=$oldName" $null)
+            $newDns=@(Api Get "$zone/dns_records?name=$name" $null)
+            foreach($record in $oldDns+$newDns){
+                if($record.type -ne 'CNAME' -or $record.content -ne "$tunnelId.cfargotunnel.com" -or -not $record.proxied){
+                    throw "Conflicting Workbench DNS record: $($record.name)"
+                }
+            }
+            if($oldDns.Count -ne 1 -or $newDns.Count -gt 1){throw 'Expected one old Workbench DNS record and at most one new record.'}
+            $report.hostnameRename=@{from=$oldName;to=$name;accessApp=$app.name;preservedPolicies=@($app.policies|ForEach-Object id)}
+            $report.publish=$name
+            if(-not $Apply){return}
+
+            $put=[ordered]@{}
+            foreach($key in ($app.Keys|Where-Object {$_ -notin $readOnly})){$put[$key]=$app[$key]}
+            $dualHosts=@($oldName,$name)
+            $put.name='The Workbench'
+            $put.domain=$name
+            $put.self_hosted_domains=$dualHosts
+            $put.destinations=@($dualHosts|ForEach-Object {@{type='public';uri=$_}})
+            $put.policies=@($app.policies|ForEach-Object {@{id=$_.id;precedence=$_.precedence}})
+            if(((Api Get "$account/access/apps/$($app.id)" $null)|ConvertTo-Json -Depth 60 -Compress) -cne ($app|ConvertTo-Json -Depth 60 -Compress)){
+                throw 'Workbench Access app changed concurrently; nothing renamed.'
+            }
+            $null=Api Put "$account/access/apps/$($app.id)" $put
+            $read=Api Get "$account/access/apps/$($app.id)" $null
+            $expected=@{}+$app
+            $expected.name=$put.name;$expected.domain=$name;$expected.self_hosted_domains=$dualHosts
+            $expected.destinations=$put.destinations
+            if((@($read.self_hosted_domains) -join ',') -cne ($dualHosts -join ',') -or
+                (Comparable $read) -cne (Comparable $expected)){
+                throw 'Workbench Access policies or settings changed while adding the new hostname.'
+            }
+
+            if(-not $newDns.Count){
+                $null=Api Post "$zone/dns_records" @{type='CNAME';name=$name;content="$tunnelId.cfargotunnel.com";proxied=$true;ttl=1}
+            }
+            $newDns=@(Api Get "$zone/dns_records?name=$name" $null)
+            if($newDns.Count -ne 1 -or $newDns[0].content -ne "$tunnelId.cfargotunnel.com" -or -not $newDns[0].proxied){
+                throw 'New Workbench DNS readback differs.'
+            }
+
+            $beforeConfig=$config|ConvertTo-Json -Depth 60 -Compress
+            $fallback=@($config.ingress|Where-Object {-not $_.hostname -and $_.service -eq 'http_status:404'})
+            if($fallback.Count -ne 1 -or $config.ingress[-1].service -cne 'http_status:404'){
+                throw 'Tunnel terminal fallback changed; no Workbench route update applied.'
+            }
+            $otherIngress=@($config.ingress|Where-Object {$_.hostname -notin @($oldName,$name) -and $_.service -ne 'http_status:404'})
+            $nextConfig=@{}+$config
+            $nextConfig.ingress=@($otherIngress)+@(@{hostname=$name;service=$service})+$fallback
+            if(((Api Get $tunnel $null).config|ConvertTo-Json -Depth 60 -Compress) -cne $beforeConfig){
+                throw 'Tunnel config changed concurrently; no route update applied.'
+            }
+            $null=Api Put $tunnel @{config=$nextConfig}
+            $config=(Api Get $tunnel $null).config
+            if(@($config.ingress|Where-Object {$_.hostname -eq $name -and $_.service -eq $service}).Count -ne 1 -or
+                @($config.ingress|Where-Object hostname -eq $oldName).Count){
+                throw 'Workbench tunnel route readback differs.'
+            }
+
+            if(@(Api Get "$zone/dns_records?name=$oldName" $null).Count){
+                $null=Api Delete "$zone/dns_records/$($oldDns[0].id)" $null
+                if(@(Api Get "$zone/dns_records?name=$oldName" $null).Count){throw 'Old Workbench DNS record remains.'}
+            }
+            $put.self_hosted_domains=@($name)
+            $put.destinations=@(@{type='public';uri=$name})
+            $null=Api Put "$account/access/apps/$($app.id)" $put
+            $read=Api Get "$account/access/apps/$($app.id)" $null
+            $expected.self_hosted_domains=@($name);$expected.destinations=$put.destinations
+            if($read.domain -cne $name -or (@($read.self_hosted_domains) -join ',') -cne $name -or
+                (@($read.destinations|ForEach-Object uri) -join ',') -cne $name -or
+                (Comparable $read) -cne (Comparable $expected)){
+                throw 'Final Workbench Access readback differs.'
+            }
+            $report.hostnameRenamed=$true
+            return
+        }
+        if(-not $Apply){$report.publish=$publishName;return}
         $template=@($apps|Where-Object domain -eq 'site-dock.jimlertech.com')
         if($template.Count -ne 1){throw 'Expected the SiteDock Access policy template.'}
         $app=@($apps|Where-Object domain -eq $name)

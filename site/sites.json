@@ -157,15 +157,15 @@
       "notes": "Framework app, task \\JimlerTech\\SolutionDeploy-team-scoreboard as sd-scoreboard. Origin is 127.0.0.1:8801; the LAN proxy forwards 192.168.2.14:8801."
     },
     {
-      "id": "idea-notes",
+      "id": "the-workbench",
       "name": "The Workbench",
       "purpose": "Ideas and thoughts, each optionally tied to one of these solutions with a status, so Copilot can read them as work direction.",
       "localUrl": "http://192.168.2.14:8802/",
-      "cloudflareUrl": "https://idea-notes.jimlertech.com/",
+      "cloudflareUrl": "https://the-workbench.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8802/",
       "database": "PostgreSQL on jimbrownhome1:5432 / the_workbench / public",
       "sourceDatabase": "New in 2026-10. Ideas are typed in the app; the solution list comes from this directory.",
-      "notes": "Framework app, task \\JimlerTech\\SolutionDeploy-idea-notes as sd-ideas. Origin is 127.0.0.1:8802; the LAN proxy forwards 192.168.2.14:8802."
+      "notes": "Framework app, task \\JimlerTech\\SolutionDeploy-the-workbench as sd-ideas. Origin is 127.0.0.1:8802; the LAN proxy forwards 192.168.2.14:8802."
     }
   ]
 }

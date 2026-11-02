@@ -27,7 +27,7 @@ Describe 'Common release inventory and routing' {
         }
     }
     It 'keeps all five registered controller apps on the existing routine route' {
-        foreach($app in @('ferry-tracker','home-automation','site-dock','team-scoreboard','idea-notes')){
+        foreach($app in @('ferry-tracker','home-automation','site-dock','team-scoreboard','the-workbench')){
             (Get-CommonReleaseRoute -App $app -Target jimbrownhome1).procedure|Should Be controller
             Assert-CommonThrows {Get-CommonReleaseRoute -App $app -Target jimbrownhome1 -Component web} '*omit -Component*'
         }

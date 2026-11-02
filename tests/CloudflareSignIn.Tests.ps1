@@ -1,7 +1,7 @@
 $script:hostnamesScript=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Set-CloudflareHostnames.ps1'
 Describe 'Google sign-in on allowlisted applications' {
     BeforeEach {
-        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options',        'solution-deploy','team-scoreboard','idea-notes')
+        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options',        'solution-deploy','team-scoreboard','the-workbench')
                 $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798,8801,8802)
         $global:cfTest_owner=@{
             id='owner';name='Owner';decision='allow';precedence=1
@@ -14,6 +14,15 @@ Describe 'Google sign-in on allowlisted applications' {
               allowed_idps=@('microsoft');auto_redirect_to_identity=$false;policies=@($global:cfTest_owner)}
         })
         $global:cfTest_fakeApps+=@{id='catch';domain='ferry-tracker.jimlertech.com/api/catch';self_hosted_domains=@('ferry-tracker.jimlertech.com/api/catch');policies=@(@{id='bypass';decision='bypass'})}
+        $global:cfTest_dns=@(foreach($name in $global:cfTest_names){
+            @{id=$name;name="$name.jimlertech.com";type='CNAME';content='209bf0e7-20c1-45b9-bba9-fca92fc58344.cfargotunnel.com';proxied=$true}
+        })
+        $global:cfTest_config=@{ingress=@(
+            for($i=0;$i -lt $global:cfTest_names.Count;$i++){
+                @{hostname="$($global:cfTest_names[$i]).jimlertech.com";service="http://127.0.0.1:$($global:cfTest_ports[$i])"}
+            }
+            @{service='http_status:404'}
+        )}
         $global:cfTest_writes=0
         Mock Import-Clixml {ConvertTo-SecureString 'synthetic' -AsPlainText -Force}
         Mock Invoke-RestMethod {
@@ -28,6 +37,24 @@ Describe 'Google sign-in on allowlisted applications' {
                     $global:cfTest_fakePolicies=@($global:cfTest_fakePolicies|Where-Object id -ne $id)+@($new)
                 }
                 $result=$global:cfTest_fakePolicies|Where-Object id -eq $id
+            }elseif($Uri -match '/dns_records' -and $Method -eq 'Post'){
+                $global:cfTest_writes++
+                $new=$Body|ConvertFrom-Json -AsHashtable
+                $new.id=$new.name
+                $global:cfTest_dns+=,$new
+                $result=$new
+            }elseif($Uri -match '/dns_records/([^/?]+)$' -and $Method -eq 'Delete'){
+                $global:cfTest_writes++
+                $id=$Matches[1]
+                $global:cfTest_dns=@($global:cfTest_dns|Where-Object id -ne $id)
+                $result=$null
+            }elseif($Uri -match '/configurations$' -and $Method -eq 'Put'){
+                $global:cfTest_writes++
+                $new=$Body|ConvertFrom-Json -AsHashtable
+                $global:cfTest_config=$new.config
+                $result=@{config=$global:cfTest_config}
+            }elseif($Uri -match '/configurations$'){
+                $result=@{config=$global:cfTest_config}
             }elseif($Method -eq 'Post'){
                 $global:cfTest_writes++
                 $new=$Body|ConvertFrom-Json -AsHashtable
@@ -49,11 +76,8 @@ Describe 'Google sign-in on allowlisted applications' {
                 $global:cfTest_fakeApps=@($global:cfTest_fakeApps|Where-Object id -ne $new.id)+@($new)
                 $result=$new
             }elseif($Uri -match '/dns_records'){
-                $result=@($global:cfTest_names|ForEach-Object {@{name="$_.jimlertech.com";type='CNAME';content='209bf0e7-20c1-45b9-bba9-fca92fc58344.cfargotunnel.com';proxied=$true}})
+                $result=$global:cfTest_dns
                 if($Uri -match '\?name=([^&]+)$'){$result=@($result|Where-Object name -eq $Matches[1])}
-            }elseif($Uri -match '/configurations$'){
-                $ingress=@(for($i=0;$i -lt $global:cfTest_names.Count;$i++){@{hostname="$($global:cfTest_names[$i]).jimlertech.com";service="http://127.0.0.1:$($global:cfTest_ports[$i])"}})
-                $result=@{config=@{ingress=($ingress+@(@{service='http_status:404'}))}}
             }elseif($Uri -match '/identity_providers$'){
                 $result=@(@{id='google';type='google'},@{id='microsoft';type='azureAD'})
             }elseif($Uri -match '/policies\?'){
@@ -100,6 +124,40 @@ Describe 'Google sign-in on allowlisted applications' {
         $report=& $script:hostnamesScript -PublishWorkLog|ConvertFrom-Json
         $report.publish|Should Be 'work-log.jimlertech.com'
         $global:cfTest_writes|Should Be 0
+    }
+    It 'renames the Workbench hostname and preserves its owner policy' {
+        $global:cfTest_names=@($global:cfTest_names|Where-Object {$_ -ne 'the-workbench'})+@('idea-notes')
+        $global:cfTest_ports=@($global:cfTest_ports|Where-Object {$_ -ne 8802})+@(8802)
+        $global:cfTest_fakeApps=@($global:cfTest_fakeApps|Where-Object id -ne 'the-workbench')
+        $global:cfTest_fakeApps+=@{
+            id='idea-notes';name='Idea Notes';domain='idea-notes.jimlertech.com'
+            self_hosted_domains=@('idea-notes.jimlertech.com')
+            destinations=@(@{type='public';uri='idea-notes.jimlertech.com'})
+            allowed_idps=@('microsoft');auto_redirect_to_identity=$false;policies=@($global:cfTest_owner)
+        }
+        $global:cfTest_dns=@(foreach($name in $global:cfTest_names){
+            @{id=$name;name="$name.jimlertech.com";type='CNAME';content='209bf0e7-20c1-45b9-bba9-fca92fc58344.cfargotunnel.com';proxied=$true}
+        })
+        $global:cfTest_config=@{ingress=@(
+            for($i=0;$i -lt $global:cfTest_names.Count;$i++){
+                @{hostname="$($global:cfTest_names[$i]).jimlertech.com";service="http://127.0.0.1:$($global:cfTest_ports[$i])"}
+            }
+            @{service='http_status:404'}
+        )}
+
+        $report=& $script:hostnamesScript -PublishTheWorkbench -Apply|ConvertFrom-Json
+
+        $report.hostnameRenamed|Should Be $true
+        $global:cfTest_writes|Should Be 5
+        $app=$global:cfTest_fakeApps|Where-Object id -eq 'idea-notes'
+        $app.name|Should Be 'The Workbench'
+        $app.domain|Should Be 'the-workbench.jimlertech.com'
+        $app.self_hosted_domains|Should Be @('the-workbench.jimlertech.com')
+        $app.policies[0].id|Should Be 'owner'
+        @($global:cfTest_dns|Where-Object name -eq 'idea-notes.jimlertech.com').Count|Should Be 0
+        @($global:cfTest_dns|Where-Object name -eq 'the-workbench.jimlertech.com').Count|Should Be 1
+        @($global:cfTest_config.ingress|Where-Object hostname -eq 'idea-notes.jimlertech.com').Count|Should Be 0
+        @($global:cfTest_config.ingress|Where-Object hostname -eq 'the-workbench.jimlertech.com').Count|Should Be 1
     }
     It 'previews WebInventory publication without writing' {
         $report=& $script:hostnamesScript -PublishWebInventory|ConvertFrom-Json
@@ -177,6 +235,6 @@ Describe 'Google sign-in on allowlisted applications' {
         ($global:cfTest_fakeApps|Where-Object id -eq 'catch').policies[0].id|Should Be 'bypass'
     }
     AfterEach {
-        Remove-Variable -Scope Global -Name cfTest_names,cfTest_ports,cfTest_owner,cfTest_fakePolicies,cfTest_fakeApps,cfTest_writes -ErrorAction SilentlyContinue
+        Remove-Variable -Scope Global -Name cfTest_names,cfTest_ports,cfTest_owner,cfTest_fakePolicies,cfTest_fakeApps,cfTest_dns,cfTest_config,cfTest_writes -ErrorAction SilentlyContinue
     }
 }

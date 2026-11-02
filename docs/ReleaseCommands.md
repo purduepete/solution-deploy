@@ -42,7 +42,7 @@ on its own: run it as written, with no prefix and no consent flags.
 | `home-automation` | all (web, automation) | `-App home-automation -TailscaleUrl https://jimbrownhome1.tail8ad282.ts.net:8788`       | controller  | 9 to 13 min               | about 2 min                    |
 | `site-dock`       | all (web)             | `-App site-dock`                                                                        | controller  | 9 to 10 min               | about 2 min                    |
 | `team-scoreboard` | all (web)             | `-App team-scoreboard`                                                                  | controller  | 9 to 10 min               | about 2 min                    |
-| `idea-notes`      | all (web)             | `-App idea-notes`                                                                       | controller  | 9 to 10 min               | about 2 min                    |
+| `the-workbench`   | all (web)             | `-App the-workbench`                                                                    | controller  | 9 to 10 min               | about 2 min                    |
 | `fit-track`       | web                   | `-App fit-track -Component web`                                                         | fit-track   | about 5 min               | stop and restart, not measured |
 | `fit-track`       | upload-watcher        | `-App fit-track -Component upload-watcher`                                              | fit-track   | about 30 s                | watcher only                   |
 | `web-bookmarks`   | web                   | `-App web-bookmarks` (defaults to web)                                                  | hand-placed | about 1 min               | about 30 s                     |
@@ -66,7 +66,7 @@ on its own: run it as written, with no prefix and no consent flags.
 Rules the table encodes:
 
 - Controller apps (Ferry Tracker, Home Automation, Site Dock, Team Scoreboard,
-  Idea Notes) reject `-Component`. They always release everything.
+  The Workbench) reject `-Component`. They always release everything.
 - Web Options and Web Portfolio have no default component. Leaving out
   `-Component` releases web and the collector together. Pass `-Component web`
   for a site change.
