@@ -68,7 +68,7 @@
       "port": 8801
     },
     "idea-notes": {
-      "manifest": "..\\idea-notes\\deploy\\application.json",
+      "manifest": "..\\the-workbench\\deploy\\application.json",
       "newInstallation": true,
       "account": "sd-ideas",
       "port": 8802

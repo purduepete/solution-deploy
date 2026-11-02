@@ -158,7 +158,7 @@
     },
     {
       "id": "idea-notes",
-      "name": "Idea Notes",
+      "name": "The Workbench",
       "purpose": "Ideas and thoughts, each optionally tied to one of these solutions with a status, so Copilot can read them as work direction.",
       "localUrl": "http://192.168.2.14:8802/",
       "cloudflareUrl": "https://idea-notes.jimlertech.com/",

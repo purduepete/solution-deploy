@@ -39,7 +39,7 @@
     },
     "idea-notes": {
       "procedure": "controller",
-      "source": "..\\idea-notes",
+      "source": "..\\the-workbench",
       "components": ["web"],
       "versionEvidence": "Protected state\\active.json and release.json",
       "tasks": ["SolutionDeploy-idea-notes"],
