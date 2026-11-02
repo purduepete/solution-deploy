@@ -163,7 +163,7 @@
       "localUrl": "http://192.168.2.14:8802/",
       "cloudflareUrl": "https://idea-notes.jimlertech.com/",
       "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8802/",
-      "database": "PostgreSQL on jimbrownhome1:5432 / idea_notes / public",
+      "database": "PostgreSQL on jimbrownhome1:5432 / the_workbench / public",
       "sourceDatabase": "New in 2026-10. Ideas are typed in the app; the solution list comes from this directory.",
       "notes": "Framework app, task \\JimlerTech\\SolutionDeploy-idea-notes as sd-ideas. Origin is 127.0.0.1:8802; the LAN proxy forwards 192.168.2.14:8802."
     }

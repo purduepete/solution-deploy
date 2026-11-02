@@ -43,7 +43,7 @@
       "components": ["web"],
       "versionEvidence": "Protected state\\active.json and release.json",
       "tasks": ["SolutionDeploy-idea-notes"],
-      "preserve": ["shared", "PostgreSQL idea_notes"]
+      "preserve": ["shared", "PostgreSQL the_workbench"]
     },
     "fit-track": {
       "procedure": "fit-track",

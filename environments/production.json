@@ -36,7 +36,7 @@
     "databases": {
       "ferry-tracker": "ferry_tracker",
       "home-automation": "home_automation",
-      "idea-notes": "idea_notes",
+      "idea-notes": "the_workbench",
       "site-dock": "site_dock",
       "team-scoreboard": "team_scoreboard"
     },

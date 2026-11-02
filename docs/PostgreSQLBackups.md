@@ -14,8 +14,8 @@
 
 The job discovers every connectable, non-template database, including the
 maintenance database `postgres`. The current application databases are
-`ferry_tracker`, `fit_track`, `home_automation`, `idea_notes`, `site_dock`,
-`team_scoreboard`, `web_bookmarks`, `web_inventory`, `web_options`,
+`ferry_tracker`, `fit_track`, `home_automation`, `site_dock`,
+`team_scoreboard`, `the_workbench`, `web_bookmarks`, `web_inventory`, `web_options`,
 `web_portfolio`, and `work_log`. An unexpected `sd_validate_*` database stops
 the job for inspection rather than being backed up or overwritten.
 
