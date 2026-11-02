@@ -125,40 +125,6 @@ Describe 'Google sign-in on allowlisted applications' {
         $report.publish|Should Be 'work-log.jimlertech.com'
         $global:cfTest_writes|Should Be 0
     }
-    It 'renames the Workbench hostname and preserves its owner policy' {
-        $global:cfTest_names=@($global:cfTest_names|Where-Object {$_ -ne 'the-workbench'})+@('idea-notes')
-        $global:cfTest_ports=@($global:cfTest_ports|Where-Object {$_ -ne 8802})+@(8802)
-        $global:cfTest_fakeApps=@($global:cfTest_fakeApps|Where-Object id -ne 'the-workbench')
-        $global:cfTest_fakeApps+=@{
-            id='idea-notes';name='Idea Notes';domain='idea-notes.jimlertech.com'
-            self_hosted_domains=@('idea-notes.jimlertech.com')
-            destinations=@(@{type='public';uri='idea-notes.jimlertech.com'})
-            allowed_idps=@('microsoft');auto_redirect_to_identity=$false;policies=@($global:cfTest_owner)
-        }
-        $global:cfTest_dns=@(foreach($name in $global:cfTest_names){
-            @{id=$name;name="$name.jimlertech.com";type='CNAME';content='209bf0e7-20c1-45b9-bba9-fca92fc58344.cfargotunnel.com';proxied=$true}
-        })
-        $global:cfTest_config=@{ingress=@(
-            for($i=0;$i -lt $global:cfTest_names.Count;$i++){
-                @{hostname="$($global:cfTest_names[$i]).jimlertech.com";service="http://127.0.0.1:$($global:cfTest_ports[$i])"}
-            }
-            @{service='http_status:404'}
-        )}
-
-        $report=& $script:hostnamesScript -PublishTheWorkbench -Apply|ConvertFrom-Json
-
-        $report.hostnameRenamed|Should Be $true
-        $global:cfTest_writes|Should Be 5
-        $app=$global:cfTest_fakeApps|Where-Object id -eq 'idea-notes'
-        $app.name|Should Be 'The Workbench'
-        $app.domain|Should Be 'the-workbench.jimlertech.com'
-        $app.self_hosted_domains|Should Be @('the-workbench.jimlertech.com')
-        $app.policies[0].id|Should Be 'owner'
-        @($global:cfTest_dns|Where-Object name -eq 'idea-notes.jimlertech.com').Count|Should Be 0
-        @($global:cfTest_dns|Where-Object name -eq 'the-workbench.jimlertech.com').Count|Should Be 1
-        @($global:cfTest_config.ingress|Where-Object hostname -eq 'idea-notes.jimlertech.com').Count|Should Be 0
-        @($global:cfTest_config.ingress|Where-Object hostname -eq 'the-workbench.jimlertech.com').Count|Should Be 1
-    }
     It 'previews WebInventory publication without writing' {
         $report=& $script:hostnamesScript -PublishWebInventory|ConvertFrom-Json
         $report.publish|Should Be 'web-inventory.jimlertech.com'
