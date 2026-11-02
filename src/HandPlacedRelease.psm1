@@ -132,8 +132,12 @@ function Invoke-ReleaseHostPhase {
             return $result
         }
         $progress=''
-        if($ProgressPath -and (Test-Path -LiteralPath $ProgressPath)){
-            try{$progress='; '+(Get-Content -LiteralPath $ProgressPath -Raw).Trim()}
+        if($ProgressPath -and (Test-Path -LiteralPath $ProgressPath -PathType Container)){
+            try{
+                $latest=Get-ChildItem -LiteralPath $ProgressPath -File -Filter '*.txt' |
+                    Sort-Object Name -Descending | Select-Object -First 1
+                if($latest){$progress='; '+(Get-Content -LiteralPath $latest.FullName -Raw).Trim()}
+            }
             catch{$progress='; progress read failed: '+$_.Exception.Message}
         }
         Write-Host ("{0} {1}: elapsed {2:n0}s; host PID {3}{4}." -f $Label,$Phase,$clock.Elapsed.TotalSeconds,$created.ProcessId,$progress)

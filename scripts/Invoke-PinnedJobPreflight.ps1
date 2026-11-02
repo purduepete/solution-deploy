@@ -10,6 +10,13 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $framework='C:\ProgramData\SolutionDeploy\control\framework'
 Import-Module (Join-Path $framework 'src\Deployment.psm1') -DisableNameChecking
+function Write-PinnedJobProgress {
+    param([string]$Directory,[int]$Sequence,[string]$Message)
+    $name=$Sequence.ToString('D8')
+    $pending=Join-Path $Directory ($name+'.pending')
+    [IO.File]::WriteAllText($pending,$Message)
+    [IO.File]::Move($pending,(Join-Path $Directory ($name+'.txt')))
+}
 $operation=Split-Path -Parent $RequestPath
 if($operation -notmatch '^C:\\ProgramData\\SolutionDeploy\\control\\collector-access\\release-[a-f0-9]{32}$' -or
     $RequestPath -ine (Join-Path $operation 'request.json')){throw 'Unexpected collector preflight request location.'}
@@ -38,11 +45,15 @@ try{
     $directories=@((Join-Path $root 'shared\logs'))
     $state=$config.PSObject.Properties['notification_state_file']
     if($state -and $state.Value){$directories+=Split-Path -Parent $state.Value}
+    $progressDirectory=Join-Path $operation 'progress'
+    [IO.Directory]::CreateDirectory($progressDirectory)|Out-Null
+    $progressIndex=0
     $access=& $helper -ReleasePath $release -PythonPath $python -ConfigPath $configPath `
         -CollectorAccessModulePath $module -WritableDirectories @($directories|Sort-Object -Unique) `
         -TimeoutSeconds $request.timeoutSeconds 6>&1 | ForEach-Object {
             if($_ -is [System.Management.Automation.InformationRecord]){
-                Set-Content -LiteralPath (Join-Path $operation 'progress.txt') -Value ([string]$_.MessageData)
+                $progressIndex++
+                Write-PinnedJobProgress $progressDirectory $progressIndex ([string]$_.MessageData)
             }else{$_}
         }
     if(-not $access.Success -or $access.Sid -ne 'S-1-5-19'){throw 'Collector access preflight did not verify LOCAL SERVICE.'}

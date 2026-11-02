@@ -565,6 +565,21 @@ Describe 'Pinned-job release boundaries' {
         ($receipt.repointed -join ',')|Should Be 'tick,watchdog'
         Assert-MockCalled Set-PinnedJobTaskAction -ModuleName PinnedJobRelease -Times 2 -Exactly -Scope It
     }
+    It 'writes new preflight progress while the previous progress file is open' {
+        $runner=Join-Path $root 'scripts\Invoke-PinnedJobPreflight.ps1'
+        $ast=[Management.Automation.Language.Parser]::ParseFile($runner,[ref]$null,[ref]$null)
+        $definition=$ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Write-PinnedJobProgress'},$true)
+        . ([scriptblock]::Create($definition.Extent.Text))
+        $directory=Join-Path $TestDrive 'progress'
+        [IO.Directory]::CreateDirectory($directory)|Out-Null
+        Write-PinnedJobProgress $directory 1 'first'
+        $first=Join-Path $directory '00000001.txt'
+        $reader=[IO.File]::Open($first,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+        try{Write-PinnedJobProgress $directory 2 'second'}finally{$reader.Dispose()}
+        (Get-Content -LiteralPath $first -Raw)|Should Be 'first'
+        (Get-Content -LiteralPath (Join-Path $directory '00000002.txt') -Raw)|Should Be 'second'
+        @(Get-ChildItem -LiteralPath $directory -Filter '*.pending').Count|Should Be 0
+    }
     It 'maps a subfolder to the release root and compares trees without caches or line endings' {
         $source=Join-Path $TestDrive 'repo'
         New-Item -ItemType Directory -Path "$source\stock-collector\collector\__pycache__","$source\stock-collector\scripts" -Force|Out-Null

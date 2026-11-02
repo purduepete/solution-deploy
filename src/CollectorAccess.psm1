@@ -82,6 +82,14 @@ function Assert-CollectorAdminDirectory {
     }
 }
 
+function Write-CollectorProbeProgress {
+    param([string]$Directory,[int]$Count,[string]$Message)
+    $name='0-enumerated-'+$Count.ToString('D8')
+    $pending=Join-Path $Directory ($name+'.pending')
+    [IO.File]::WriteAllText($pending,$Message)
+    [IO.File]::Move($pending,(Join-Path $Directory ($name+'.txt')))
+}
+
 function Invoke-CollectorTokenProbe {
     param([Parameter(Mandatory)][string]$ManifestPath)
     $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
@@ -100,6 +108,12 @@ public static class CollectorFileAccess {
     [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
     public static extern SafeFileHandle CreateFile(string name, uint access, uint share,
         IntPtr security, uint creation, uint flags, IntPtr template);
+    internal static void WriteProgress(string directory, int count, int total) {
+        string name = "1-checked-" + count.ToString("D8");
+        string pending = Path.Combine(directory, name + ".pending");
+        File.WriteAllText(pending, "Checked " + count + " of " + total + " paths");
+        File.Move(pending, Path.Combine(directory, name + ".txt"));
+    }
     public static string Validate(string[] payloadPaths, string[] allPaths, string progress) {
         var payload = new HashSet<string>(payloadPaths, StringComparer.OrdinalIgnoreCase);
         uint[] ancestorRights = { 64, 65536, 262144, 524288 };
@@ -146,13 +160,13 @@ public static class CollectorFileAccess {
                 int completed = Interlocked.Increment(ref count);
                 if (completed % 100 == 0) lock (progressLock) {
                     if (completed > lastProgress) {
-                        File.WriteAllText(progress, "Checked " + completed + " of " + allPaths.Length + " paths");
+                        WriteProgress(progress, completed, allPaths.Length);
                         lastProgress = completed;
                     }
                 }
             });
             if (failure != null) return failure;
-            File.WriteAllText(progress, "Checked " + count + " of " + allPaths.Length + " paths");
+            if (count != lastProgress || count == 0) WriteProgress(progress, count, allPaths.Length);
             return "";
         }
         catch (Exception error) { return error.Message; }
@@ -165,7 +179,7 @@ public static class CollectorFileAccess {
             $paths += @(Get-CollectorTree -Path $tree -AllowedRuntimeJunction $manifest.AllowedRuntimeJunction | ForEach-Object {
                 $enumerated++
                 if ($enumerated % 100 -eq 0) {
-                    "Enumerated $enumerated code/runtime paths" | Set-Content -LiteralPath $manifest.ProgressPath
+                    Write-CollectorProbeProgress $manifest.ProgressDirectory $enumerated "Enumerated $enumerated code/runtime paths"
                 }
                 $_.FullName
             })
@@ -180,7 +194,7 @@ public static class CollectorFileAccess {
                 $parent = [IO.Path]::GetDirectoryName($parent.TrimEnd('\'))
             }
         }
-        $validationError = [CollectorFileAccess]::Validate([string[]]$payloadPaths, [string[]]$allPaths, $manifest.ProgressPath)
+        $validationError = [CollectorFileAccess]::Validate([string[]]$payloadPaths, [string[]]$allPaths, $manifest.ProgressDirectory)
         if ($validationError) { throw $validationError }
         foreach ($directory in $manifest.WriteDirectories) {
             $testFile = Join-Path $directory ("collector-access-" + [guid]::NewGuid().ToString('N') + '.tmp')
@@ -310,6 +324,8 @@ function Invoke-CollectorAccessPreflight {
     $outputAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
         [Security.Principal.SecurityIdentifier]::new('S-1-5-19'), 'Modify', 'ContainerInherit,ObjectInherit', 'None', 'Allow'))
     Set-Acl -LiteralPath $output.FullName -AclObject $outputAcl
+    $progressDirectory = Join-Path $output.FullName 'progress'
+    New-Item -ItemType Directory -Path $progressDirectory | Out-Null
     $snapshot = Join-Path $run 'original-acl.json'
     @($code | ForEach-Object {
         @{ Path = $_.FullName; Sddl = (Get-Acl -LiteralPath $_.FullName).Sddl }
@@ -333,7 +349,7 @@ function Invoke-CollectorAccessPreflight {
             ReadTrees = @($root) + $runtimeTrees
             WriteDirectories = @($WritableDirectories)
             PythonPath = $PythonPath; WorkingDirectory = $run; ResultPath = $resultPath
-            ProgressPath = (Join-Path $output.FullName 'progress.txt')
+            ProgressDirectory = $progressDirectory
             AllowedRuntimeJunction = $allowedRuntimeJunction
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding utf8
         $modulePath = $probeModule.Replace("'", "''")
@@ -357,8 +373,9 @@ function Invoke-CollectorAccessPreflight {
         while (-not (Test-Path -LiteralPath $resultPath)) {
             if ($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds) { throw 'LOCAL SERVICE access probe timed out.' }
             if ($clock.Elapsed.TotalSeconds -ge $nextHeartbeat) {
-                $progressPath = Join-Path $output.FullName 'progress.txt'
-                $progress = if (Test-Path -LiteralPath $progressPath) { Get-Content -LiteralPath $progressPath -Raw } else { 'enumerating paths' }
+                $latest = Get-ChildItem -LiteralPath $progressDirectory -File -Filter '*.txt' |
+                    Sort-Object Name -Descending | Select-Object -First 1
+                $progress = if ($latest) { Get-Content -LiteralPath $latest.FullName -Raw } else { 'enumerating paths' }
                 Write-Information "Collector LOCAL SERVICE probe: $([int]$clock.Elapsed.TotalSeconds)s, $progress" -InformationAction Continue
                 $nextHeartbeat += 5
             }

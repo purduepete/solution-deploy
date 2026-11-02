@@ -124,7 +124,7 @@ function Invoke-PinnedJobAccessPreflight {
     try{
         $result=Invoke-ReleaseHostPhase -Session $Session -Label "$App collector access" -Operation $operation `
             -RemoteOperation $remoteOperation -RequestSHA256 $hash -Phase Prepare -TimeoutSeconds $TimeoutSeconds `
-            -ProgressPath (Join-Path $operation 'progress.txt')
+            -ProgressPath (Join-Path $operation 'progress')
         if($result.sid -ne 'S-1-5-19'){throw 'Collector preflight returned an unexpected identity.'}
         $success=$true
         return $result

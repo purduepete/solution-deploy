@@ -7,6 +7,9 @@ Describe 'Compiled bulk access validator' {
         $fixtureSource = @'
 public static class CollectorAccessParallelFixture {
     public static int Count;
+    public static void Report(string progress, int count, int total) {
+        CollectorFileAccess.WriteProgress(progress, count, total);
+    }
     public static string Run(string[] paths, string invalid, string progress) {
         Count = 0;
         return CollectorFileAccess.ValidatePaths(paths, progress, path => {
@@ -23,7 +26,8 @@ public static class CollectorAccessParallelFixture {
         New-Item -ItemType Directory -Path $fixture -Force | Out-Null
         try {
             $file = Join-Path $fixture 'payload.txt'
-            $progress = Join-Path $fixture 'progress.txt'
+            $progress = Join-Path $fixture 'progress'
+            New-Item -ItemType Directory -Path $progress | Out-Null
             Set-Content $file 'fixture contents stay unchanged'
             $hash = (Get-FileHash $file).Hash
             [CollectorFileAccess]::Validate(@($file), @($file), $progress) | Should Match 'can modify code/config/runtime'
@@ -33,15 +37,24 @@ public static class CollectorAccessParallelFixture {
             $source | Should Match 'uint\[\] ancestorRights = \{ 64, 65536, 262144, 524288 \}'
             (Get-FileHash $file).Hash | Should Be $hash
             [CollectorFileAccess]::Validate(@(), @(), $progress) | Should Be ''
-            Get-Content $progress -Raw | Should Match 'Checked 0 of 0 paths'
+            Get-Content (Join-Path $progress '1-checked-00000000.txt') -Raw | Should Match 'Checked 0 of 0 paths'
             [CollectorFileAccess]::Validate(@((Join-Path $fixture 'missing')), @((Join-Path $fixture 'missing')), $progress) |
                 Should Not Be ''
             $paths = [string[]]@(1..1024 | ForEach-Object { "path-$_" })
             [CollectorAccessParallelFixture]::Run($paths, '', $progress) | Should Be ''
             [CollectorAccessParallelFixture]::Count | Should Be 1024
-            Get-Content $progress -Raw | Should Be 'Checked 1024 of 1024 paths'
-            [CollectorAccessParallelFixture]::Run($paths, 'path-1024', $progress) | Should Be 'synthetic denied path'
-            [CollectorAccessParallelFixture]::Run(@('throws'), '', $progress) | Should Be 'synthetic read failure'
+            Get-Content (Join-Path $progress '1-checked-00001024.txt') -Raw | Should Be 'Checked 1024 of 1024 paths'
+            $failureProgress = Join-Path $fixture 'failure-progress'
+            New-Item -ItemType Directory -Path $failureProgress | Out-Null
+            [CollectorAccessParallelFixture]::Run($paths, 'path-1024', $failureProgress) | Should Be 'synthetic denied path'
+            [CollectorAccessParallelFixture]::Run(@('throws'), '', $failureProgress) | Should Be 'synthetic read failure'
+            $lockedProgress = Join-Path $fixture 'locked-progress'
+            New-Item -ItemType Directory -Path $lockedProgress | Out-Null
+            [CollectorAccessParallelFixture]::Report($lockedProgress, 100, 200)
+            $reader = [IO.File]::Open((Join-Path $lockedProgress '1-checked-00000100.txt'),
+                [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+            try { [CollectorAccessParallelFixture]::Report($lockedProgress, 200, 200) } finally { $reader.Dispose() }
+            Get-Content (Join-Path $lockedProgress '1-checked-00000200.txt') -Raw | Should Be 'Checked 200 of 200 paths'
         }
         finally { Remove-Item -LiteralPath $fixture -Recurse -Force }
     }
