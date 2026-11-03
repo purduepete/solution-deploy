@@ -22,6 +22,16 @@ in the inventory to avoid a Tailscale DNS result. Set `faviconPath` in
 has no icon. If an icon cannot be loaded, the card shows initials and the server
 logs the failure.
 
+## Workbench idea counts
+
+Cards with unarchived ideas show one compact, rounded pill with open, active
+(in-progress) and done counts. Counts use solution ids, exclude archived and unassigned ideas,
+and refresh when the directory is loaded. Solutions without ideas have no badge.
+Phone-sized screens use smaller solution names and show the counts without their status initials.
+The read-only `/idea-counts.json` endpoint reads The Workbench's LAN `/api/ideas`
+and returns counts only, never idea titles or bodies. Requests time out after
+5 seconds; failures are logged and shown on the page instead of displaying zeros.
+
 ## Alternative directory icons
 
 The [tabbed-index](./icon-options/tabbed-index/) set is the active icon in the

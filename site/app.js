@@ -7,6 +7,7 @@ const element = (tag, text, className) => {
 
 function siteHeading(site) {
     const heading = element('h2', undefined, 'site-heading');
+    heading.setAttribute('aria-label', site.name);
     const icon = element('span', undefined, 'site-icon');
     icon.setAttribute('aria-hidden', 'true');
     const initials = site.name
@@ -29,8 +30,27 @@ function siteHeading(site) {
         });
         icon.append(image);
     }
-    heading.append(icon, document.createTextNode(site.name));
+    heading.append(icon, element('span', site.name, 'site-name'));
     return heading;
+}
+
+function ideaCountPill(counts) {
+    const pill = element('span', undefined, 'idea-counts');
+    for (const [label, count] of [
+        ['O', counts.open],
+        ['A', counts['in-progress']],
+        ['D', counts.done],
+    ]) {
+        const group = element('span', undefined, 'idea-count-group');
+        group.append(element('span', `${label}: `, 'idea-count-label'), String(count));
+        pill.append(group);
+    }
+    pill.setAttribute('role', 'img');
+    pill.setAttribute(
+        'aria-label',
+        `Ideas: ${counts.open} open, ${counts['in-progress']} in progress, ${counts.done} done`
+    );
+    return pill;
 }
 
 function deploymentSection(info) {
@@ -141,14 +161,24 @@ async function load() {
     sortOptions.forEach((option) => {
         option.setAttribute('aria-pressed', String(option.dataset.sortMode === sortMode));
     });
-    const [response, deployments] = await Promise.all([fetch('/sites.json', { cache: 'no-store' }), loadDeployments()]);
+    const [response, deployments, ideaCounts] = await Promise.all([
+        fetch('/sites.json', { cache: 'no-store' }),
+        loadDeployments(),
+        loadIdeaCounts(),
+    ]);
     if (!response.ok) throw new Error(`Inventory request failed (HTTP ${response.status}).`);
     const inventory = await response.json();
     if (!Array.isArray(inventory.sites) || !inventory.sites.length) throw new Error('Inventory has no sites.');
     const root = document.getElementById('sites');
     const sites = inventory.sites.map((site) => {
         const card = element('article');
-        card.append(element('p', inventory.host, 'host'), siteHeading(site), element('p', site.purpose, 'purpose'));
+        const counts = ideaCounts?.get(site.id);
+        if (ideaCounts && !counts) throw new Error(`Idea counts missing for ${site.name}.`);
+        const heading = siteHeading(site);
+        if (counts && counts.open + counts['in-progress'] + counts.done > 0) {
+            heading.append(ideaCountPill(counts));
+        }
+        card.append(element('p', inventory.host, 'host'), heading, element('p', site.purpose, 'purpose'));
         const links = element('dl', undefined, 'links');
         for (const [label, field] of [
             ['Cloudflare', 'cloudflareUrl'],
@@ -224,7 +254,34 @@ async function load() {
         });
     });
     filter();
-    return deployments !== null;
+    return deployments !== null && ideaCounts !== null;
+}
+
+async function loadIdeaCounts() {
+    try {
+        const response = await fetch('/idea-counts.json', { cache: 'no-store' });
+        if (!response.ok) throw new Error(`Idea counts request failed (HTTP ${response.status}).`);
+        const data = await response.json();
+        if (
+            !Array.isArray(data.solutions) ||
+            !data.solutions.length ||
+            !data.solutions.every(
+                (entry) =>
+                    typeof entry.id === 'string' &&
+                    ['open', 'in-progress', 'done'].every(
+                        (status) => Number.isSafeInteger(entry[status]) && entry[status] >= 0
+                    )
+            )
+        )
+            throw new Error('Idea counts response is invalid.');
+        return new Map(data.solutions.map((entry) => [entry.id, entry]));
+    } catch (error) {
+        console.error('Cannot load Workbench idea counts:', error);
+        const message = document.getElementById('ideas-error');
+        message.textContent = `${error.message} Workbench idea counts are unavailable. Site links remain available.`;
+        message.hidden = false;
+        return null;
+    }
 }
 
 const finishLoading = startPageLoading('Loading solutions');

@@ -188,11 +188,78 @@ export function publicDeployments(releases, inventory) {
     };
 }
 
+export async function readWorkbenchIdeas(site, hostname) {
+    const source = new URL(site.localUrl);
+    if (source.protocol !== 'http:' || !isIPv4(source.hostname) || source.username || source.password)
+        throw new Error('Workbench source must be a LAN HTTP IPv4 URL without credentials.');
+    return new Promise((resolve, reject) => {
+        const request = http.get(
+            {
+                hostname,
+                family: 4,
+                port: source.port || 80,
+                path: '/api/ideas',
+                lookup: (_name, _options, callback) => callback(null, source.hostname, 4),
+                headers: { Host: source.host, 'Accept-Encoding': 'identity' },
+            },
+            (response) => {
+                if (
+                    response.statusCode !== 200 ||
+                    !(response.headers['content-type'] || '').startsWith('application/json')
+                ) {
+                    response.resume();
+                    reject(new Error(`Workbench returned HTTP ${response.statusCode} or non-JSON content.`));
+                    return;
+                }
+                const chunks = [];
+                let size = 0;
+                response.on('data', (chunk) => {
+                    size += chunk.length;
+                    if (size > 16 * 1024 * 1024) {
+                        response.destroy(new Error('Workbench response exceeds 16 MiB.'));
+                        return;
+                    }
+                    chunks.push(chunk);
+                });
+                response.on('error', reject);
+                response.on('end', () => {
+                    try {
+                        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+                    } catch (error) {
+                        reject(error);
+                    }
+                });
+            }
+        );
+        const timer = setTimeout(() => request.destroy(new Error('Workbench request timed out.')), 5000);
+        request.on('error', reject);
+        request.on('close', () => clearTimeout(timer));
+    });
+}
+
+export function countWorkbenchIdeas(data, inventory) {
+    if (!Array.isArray(data?.ideas)) throw new Error('Workbench response has no ideas array.');
+    const counts = new Map(inventory.sites.map(({ id }) => [id, { id, open: 0, 'in-progress': 0, done: 0 }]));
+    for (const idea of data.ideas) {
+        if (
+            !idea ||
+            typeof idea.archived !== 'boolean' ||
+            !(idea.solution === null || typeof idea.solution === 'string') ||
+            !['n/a', 'open', 'in-progress', 'done'].includes(idea.status)
+        )
+            throw new Error('Workbench returned an invalid idea.');
+        const count = counts.get(idea.solution);
+        if (!idea.archived && count && idea.status !== 'n/a') count[idea.status]++;
+    }
+    return { solutions: [...counts.values()] };
+}
+
 export function createServer({
     statusPath = process.env.COLLECTOR_STATUS_PATH || defaultStatusPath,
     releaseInventoryPath = defaultReleaseInventoryPath,
     releaseRecordsPath = process.env.RELEASE_RECORDS_PATH || defaultReleaseRecordsPath,
     faviconLoader = readFavicon,
+    workbenchLoader = readWorkbenchIdeas,
     logger = console,
 } = {}) {
     const content = new Map(
@@ -217,6 +284,25 @@ export function createServer({
             return;
         }
         const url = req.url.split('?')[0];
+        if (url === '/idea-counts.json') {
+            try {
+                const site = inventory.sites.find(({ id }) => id === 'the-workbench');
+                if (!site) throw new Error('Workbench is missing from the inventory.');
+                const counts = countWorkbenchIdeas(await workbenchLoader(site, `${inventory.host}.local`), inventory);
+                const body = Buffer.from(JSON.stringify(counts));
+                res.writeHead(200, {
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'Content-Length': body.length,
+                });
+                res.end(req.method === 'HEAD' ? undefined : body);
+            } catch (error) {
+                logger.warn(`Cannot load Workbench idea counts: ${error.message}`);
+                res.writeHead(503, { 'Content-Type': 'application/json' }).end(
+                    req.method === 'HEAD' ? undefined : '{"error":"Workbench idea counts unavailable"}'
+                );
+            }
+            return;
+        }
         if (url.startsWith('/site-favicons/')) {
             const id = url.slice('/site-favicons/'.length);
             const site = faviconSites.get(id);

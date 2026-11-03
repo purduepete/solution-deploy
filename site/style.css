@@ -355,6 +355,11 @@ article {
     align-items: center;
     gap: 10px;
 }
+.site-name {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
 .site-icon {
     display: grid;
     place-items: center;
@@ -378,6 +383,24 @@ article {
 }
 .purpose {
     min-height: 52px;
+}
+.idea-counts {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    margin-left: auto;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    background: var(--sub);
+    color: var(--text);
+    font-size: 12px;
+    white-space: nowrap;
+    border-radius: 999px;
+}
+.idea-count-group + .idea-count-group {
+    border-left: 1px solid var(--line);
+    margin-left: 5px;
+    padding-left: 5px;
 }
 .links {
     display: grid;
@@ -882,6 +905,28 @@ footer {
         grid-template-columns: 1fr;
     }
     .table-wrap .wide {
+        display: none;
+    }
+    .site-heading {
+        gap: 4px;
+    }
+    .site-name {
+        font-size: clamp(16px, 5vw, 20px);
+    }
+    .site-icon {
+        width: 18px;
+        height: 18px;
+    }
+    .idea-counts {
+        padding: 3px;
+    }
+    .idea-count-group + .idea-count-group {
+        margin-left: 2px;
+        padding-left: 2px;
+    }
+}
+@media (max-width: 640px), (max-height: 500px) and (pointer: coarse) {
+    .idea-count-label {
         display: none;
     }
 }

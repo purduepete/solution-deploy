@@ -4,8 +4,142 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'n
 import { createServer as createHttpServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createServer, publicDeployments, readFavicon, withReleaseRecords } from '../site/server.mjs';
+import {
+    countWorkbenchIdeas,
+    createServer,
+    publicDeployments,
+    readFavicon,
+    readWorkbenchIdeas,
+    withReleaseRecords,
+} from '../site/server.mjs';
 import { runInNewContext } from 'node:vm';
+
+test('Workbench counts match solution ids and exclude archived, unassigned and unknown ideas', () => {
+    const inventory = { sites: [{ id: 'one' }, { id: 'empty' }] };
+    const idea = (status, extra = {}) => ({ solution: 'one', status, archived: false, ...extra });
+    const data = {
+        ideas: [
+            idea('open'),
+            idea('open'),
+            idea('in-progress'),
+            idea('done'),
+            idea('done', { archived: true }),
+            idea('n/a', { solution: null }),
+            idea('open', { solution: 'unknown' }),
+        ],
+    };
+    assert.deepEqual(countWorkbenchIdeas(data, inventory), {
+        solutions: [
+            { id: 'one', open: 2, 'in-progress': 1, done: 1 },
+            { id: 'empty', open: 0, 'in-progress': 0, done: 0 },
+        ],
+    });
+    assert.throws(() => countWorkbenchIdeas({}, inventory), /ideas array/);
+    assert.throws(() => countWorkbenchIdeas({ ideas: [idea('invalid')] }, inventory), /invalid idea/);
+});
+
+test('idea pill separates status counts and hides initials at phone sizes', () => {
+    const source = readFileSync(new URL('../site/app.js', import.meta.url), 'utf8');
+    const code = source.slice(
+        source.indexOf('function ideaCountPill('),
+        source.indexOf('\nfunction deploymentSection(')
+    );
+    const makePill = runInNewContext(`${code}\nideaCountPill`, {
+        element: (tag, text, className) => ({
+            tag,
+            text,
+            className,
+            attributes: {},
+            children: [],
+            append(...children) {
+                this.children.push(...children);
+            },
+            setAttribute(name, value) {
+                this.attributes[name] = value;
+            },
+        }),
+    });
+    const pill = makePill({ open: 1, 'in-progress': 2, done: 3 });
+    assert.deepEqual(
+        pill.children.map((group) => [group.children[0].text, group.children[1]]),
+        [
+            ['O: ', '1'],
+            ['A: ', '2'],
+            ['D: ', '3'],
+        ]
+    );
+    assert.equal(pill.className, 'idea-counts');
+    assert.equal(pill.attributes.role, 'img');
+    assert.equal(pill.attributes['aria-label'], 'Ideas: 1 open, 2 in progress, 3 done');
+    const css = readFileSync(new URL('../site/style.css', import.meta.url), 'utf8');
+    assert.match(css, /\.idea-count-group \+ \.idea-count-group \{\s*border-left: 1px solid var\(--line\);/);
+    assert.match(css, /@media \(max-width: 640px\) \{[\s\S]*?\.site-name \{\s*font-size: clamp\(16px, 5vw, 20px\);/);
+    assert.match(
+        css,
+        /@media \(max-width: 640px\), \(max-height: 500px\) and \(pointer: coarse\) \{\s*\.idea-count-label \{\s*display: none;/
+    );
+});
+
+test('Workbench endpoint publishes only counts and surfaces upstream errors', async () => {
+    let fail = false;
+    const warnings = [];
+    const server = createServer({
+        workbenchLoader: async (site, hostname) => {
+            assert.equal(site.id, 'the-workbench');
+            assert.equal(hostname, 'jimbrownhome1.local');
+            if (fail) throw new Error('Connection refused');
+            return {
+                ideas: [{ solution: 'fit-track', status: 'done', archived: false, title: 'PRIVATE', body: 'PRIVATE' }],
+            };
+        },
+        logger: { warn: (message) => warnings.push(message) },
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${server.address().port}/idea-counts.json`;
+    try {
+        const response = await fetch(url);
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get('cache-control'), 'no-store');
+        const data = await response.json();
+        assert.equal(data.solutions.find(({ id }) => id === 'fit-track').done, 1);
+        assert(!JSON.stringify(data).includes('PRIVATE'));
+        assert.equal(await (await fetch(url, { method: 'HEAD' })).text(), '');
+        assert.equal((await fetch(url, { method: 'POST' })).status, 405);
+        fail = true;
+        const failed = await fetch(url);
+        assert.equal(failed.status, 503);
+        assert.deepEqual(await failed.json(), { error: 'Workbench idea counts unavailable' });
+        assert.match(warnings[0], /Connection refused/);
+    } finally {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
+test('Workbench loader uses pinned LAN lookup and host authority without following redirects', async () => {
+    let mode = 'json';
+    const upstream = createHttpServer((req, res) => {
+        assert.equal(req.url, '/api/ideas');
+        assert.equal(req.headers.host, `127.0.0.1:${upstream.address().port}`);
+        assert.equal(req.headers.cookie, undefined);
+        if (mode === 'redirect') res.writeHead(302, { Location: 'https://example.com' }).end();
+        else
+            res.writeHead(200, { 'Content-Type': 'application/json' }).end(mode === 'json' ? '{"ideas":[]}' : 'broken');
+    });
+    await new Promise((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    const site = { localUrl: `http://127.0.0.1:${upstream.address().port}/` };
+    try {
+        assert.deepEqual(await readWorkbenchIdeas(site, 'host.invalid'), { ideas: [] });
+        mode = 'redirect';
+        await assert.rejects(readWorkbenchIdeas(site, 'host.invalid'), /HTTP 302/);
+        mode = 'invalid';
+        await assert.rejects(readWorkbenchIdeas(site, 'host.invalid'), SyntaxError);
+        await assert.rejects(readWorkbenchIdeas({ localUrl: 'https://127.0.0.1/' }, 'host.invalid'), /LAN HTTP/);
+    } finally {
+        upstream.closeAllConnections();
+        await new Promise((resolve) => upstream.close(resolve));
+    }
+});
 
 function pageLoading({ destination = null, navigationType = 'navigate' } = {}) {
     const element = () => {
