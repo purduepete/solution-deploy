@@ -8,6 +8,16 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
+
+function New-PostgresBackupTrigger {
+    param([datetime]$Now=[datetime]::Now)
+    $next=$Now.Date.AddHours(3)
+    if($next -le $Now){$next=$next.AddDays(1)}
+    $trigger=New-ScheduledTaskTrigger -Daily -At $next
+    $trigger.StartBoundary=$next.ToString("yyyy-MM-dd'T'HH:mm:ss",[Globalization.CultureInfo]::InvariantCulture)
+    $trigger
+}
+
 $result=Join-Path $Directory 'backup-installation.json'
 try {
     if($env:COMPUTERNAME -ine 'jimbrownhome1'){throw 'Install only on jimbrownhome1.'}
@@ -34,7 +44,7 @@ try {
         Remove-Item -LiteralPath $probe
     } finally {Remove-PSDrive -Name $share.Name -Force}
     $action=New-ScheduledTaskAction -Execute $PowerShellPath -Argument ('-NoProfile -NonInteractive -File "'+(Join-Path $Directory 'Backup-Postgres.ps1')+'"')
-    $trigger=New-ScheduledTaskTrigger -Daily -At '03:00'
+    $trigger=New-PostgresBackupTrigger
     $principal=New-ScheduledTaskPrincipal -UserId SYSTEM -LogonType ServiceAccount -RunLevel Highest
     $settings=New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
     Register-ScheduledTask -TaskPath '\JimlerTech\' -TaskName 'PostgreSQL-Backup' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Nightly PostgreSQL dumps, snapshot-matched restore tests, verified off-host copies and 14-day retention.' -Force|Out-Null

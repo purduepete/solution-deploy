@@ -12,6 +12,10 @@
 - Failure alerts: Pushover, priority 1. Task failures also appear in Windows Task Scheduler.
 - Limits: a native command gets at most 10 minutes; the job has a 40-minute internal deadline and a 45-minute scheduler limit. Commands emit progress every 15 seconds.
 
+The daily trigger stores its start boundary without a UTC offset. Task Scheduler then keeps the
+03:00 local time when daylight saving time changes. The installer sets the first boundary to
+the next future 03:00; check the task's next run after changing the trigger.
+
 The job discovers every connectable, non-template database, including the
 maintenance database `postgres`. The current application databases are
 `ferry_tracker`, `fit_track`, `home_automation`, `site_dock`,
