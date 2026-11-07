@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 function Get-ReleaseBackupEvidence {
     [CmdletBinding()]
@@ -44,7 +45,7 @@ function Get-ReleaseBackupEvidence {
     if($completed -lt $started){throw 'Backup completion precedes its start.'}
     $runName=Get-BackupRunName $started
     $manifestPath=Resolve-OwnedPath $BackupRoot ($runName+'\manifest.json')
-    $manifestBytes=[IO.File]::ReadAllBytes($manifestPath)
+    $manifestBytes=Invoke-DeploymentFileOperation ReadAllBytes @($manifestPath)
     $manifest=[Text.Encoding]::UTF8.GetString($manifestBytes).TrimStart([char]0xFEFF) | ConvertFrom-Json -AsHashtable -DateKind String
     if((ConvertTo-CanonicalJson $latest) -cne (ConvertTo-CanonicalJson $manifest)){
         throw 'Latest success record differs from its immutable run manifest.'

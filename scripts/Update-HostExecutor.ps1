@@ -1,7 +1,7 @@
 #requires -Version 7.4
 <#
 Upgrades the installed executor code on a provisioned host from this clean, committed repo.
-Copies src, scripts and schemas over the admin share and rewrites the file inventory in
+Copies src, scripts and schemas through SSH/SFTP and rewrites the file inventory in
 control\installation.json so the executor's code check matches the new bytes. The scheduled
 task, ACLs and identity are left as Install-Host.ps1 created them.
 #>
@@ -13,11 +13,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\Deployment.psm1') -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'src\SshTransport.psm1') -DisableNameChecking
 $source=Split-Path -Parent $PSScriptRoot
 $git=(Get-Command git -CommandType Application).Source
 if(& $git -C $source status --porcelain --untracked-files=normal -- src scripts schemas){throw 'Commit src, scripts and schemas before upgrading the executor.'}
 $commit=(& $git -C $source rev-parse HEAD).Trim()
-$remote='\\'+$HostName+'\'+$Root.Substring(0,1)+'$'+$Root.Substring(2)
+$remote=Get-DeploymentRemotePath $HostName $Root
 $installPath=Join-Path $remote 'control\installation.json'
 $install=Read-DeploymentJson $installPath
 $files=@(Get-ChildItem -LiteralPath (Join-Path $source 'src'),(Join-Path $source 'scripts'),(Join-Path $source 'schemas') -File -Recurse |
@@ -36,17 +37,17 @@ if(Test-Path -LiteralPath (Join-Path $remote 'control\pending.json')){
     if(-not (Test-Path -LiteralPath $result)){throw "Operation $($pending.operationId) has no result yet. Upgrade after it finishes."}
 }
 $backup=Join-Path $remote ('archives\executor-upgrade-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
-[IO.Directory]::CreateDirectory($backup)|Out-Null
+Invoke-DeploymentFileOperation CreateDirectory @($backup)|Out-Null
 Copy-Item -LiteralPath $installPath -Destination $backup
 foreach($file in $changed){
     $target=Join-Path $remote ('control\framework\'+$file.path)
     if(Test-Path -LiteralPath $target){
         $saved=Join-Path $backup $file.path
-        [IO.Directory]::CreateDirectory((Split-Path -Parent $saved))|Out-Null
+        Invoke-DeploymentFileOperation CreateDirectory @((Split-Path -Parent $saved))|Out-Null
         Copy-Item -LiteralPath $target -Destination $saved
     }
-    [IO.Directory]::CreateDirectory((Split-Path -Parent $target))|Out-Null
-    [IO.File]::Copy((Join-Path $source $file.path),$target,$true)
+    Invoke-DeploymentFileOperation CreateDirectory @((Split-Path -Parent $target))|Out-Null
+    Invoke-DeploymentFileOperation Copy @((Join-Path $source $file.path),$target,$true)
     if((Get-FileHash -LiteralPath $target).Hash.ToLowerInvariant() -ne $file.sha256){throw "Copied file differs: $($file.path)"}
 }
 $install.files=$inventory

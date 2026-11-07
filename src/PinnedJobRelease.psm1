@@ -4,9 +4,10 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'CommonRelease.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'HandPlacedRelease.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 $script:HostAppRoot='C:\ProgramData\SolutionDeploy\apps'
-$script:HostShareRoot='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps'
+$script:HostShareRoot=Get-DeploymentRemotePath jimbrownhome1 $script:HostAppRoot
 $script:TaskPath='\JimlerTech\'
 
 # Python and test caches are written beside the code at run time and are not part of a release.
@@ -105,9 +106,9 @@ function Invoke-PinnedJobAccessPreflight {
         [Parameter(Mandatory)][object[]]$Tasks,[Parameter(Mandatory)][string]$ReleasePath,
         [Parameter(Mandatory)][ValidatePattern('^[a-f0-9]{32}$')][string]$Id,[int]$TimeoutSeconds=180)
     $paths=Get-PinnedJobAccessParameters $Tasks
-    $operation=Join-Path '\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\control\collector-access' "release-$Id"
+    $operation=Join-Path (Get-DeploymentRemotePath jimbrownhome1 'C:\ProgramData\SolutionDeploy\control\collector-access') "release-$Id"
     $remoteOperation=Join-Path 'C:\ProgramData\SolutionDeploy\control\collector-access' "release-$Id"
-    [IO.Directory]::CreateDirectory($operation)|Out-Null
+    Invoke-DeploymentFileOperation CreateDirectory @($operation)|Out-Null
     $runner=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Invoke-PinnedJobPreflight.ps1'
     $module=Join-Path $PSScriptRoot 'CollectorAccess.psm1'
     Copy-Item -LiteralPath $runner -Destination (Join-Path $operation 'runner.ps1')
@@ -184,7 +185,7 @@ function Invoke-PinnedJobRelease {
     $git=(Get-Command git -CommandType Application).Source
     $sourcePaths=@($job.paths.Keys)
     $remote=Join-Path $script:HostShareRoot $App
-    [IO.Directory]::CreateDirectory((Join-Path $remote 'state'))|Out-Null
+    Invoke-DeploymentFileOperation CreateDirectory @((Join-Path $remote 'state'))|Out-Null
     $lock=Get-DeploymentLock (Join-Path $remote 'state\common-controller.lock')
     $id=[guid]::NewGuid().ToString('N')
     $directory=Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) "releases\$App-$Component-$id"
@@ -194,7 +195,7 @@ function Invoke-PinnedJobRelease {
     $session=$null
     $worktrees=@()
     try{
-        $session=New-CimSession -ComputerName jimbrownhome1.local -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 30
+        $session=New-DeploymentSession -ComputerName jimbrownhome1.local -OperationTimeoutSec 30
         $tasks=Get-PinnedJobTasks $session @($job.tasks)
         $current=Get-PinnedJobReleasePath $App $job $tasks
         foreach($task in $tasks){
@@ -204,7 +205,7 @@ function Invoke-PinnedJobRelease {
         if($baseline -cnotmatch '^[a-f0-9]{40}$' -or -not $baseline.StartsWith($current.short)){throw "Cannot resolve installed $Component release $($current.name) to one commit."}
         $receipt.previousRelease=$current.name;$receipt.baselineCommit=$baseline
         $installed=Join-Path $remote "releases\$($current.name)"
-        $baseTree=Join-Path ([IO.Path]::GetTempPath()) ("sd-job-base-"+$id.Substring(0,8))
+        $baseTree=Join-Path $directory 'baseline-worktree'
         $worktrees+=$baseTree
         New-ReleaseWorktree $Repository $baseline $baseTree
         $expected=Join-Path $directory 'baseline'
@@ -220,7 +221,7 @@ function Invoke-PinnedJobRelease {
         if(Get-CommonReleaseChanges $Repository $runtimeCommit $commitId @($job.requirements)){
             throw "$($job.requirements) changed since runtime $($job.runtime) was built. Build and verify a new Python runtime first; tasks unchanged."
         }
-        $nextTree=Join-Path ([IO.Path]::GetTempPath()) ("sd-job-next-"+$id.Substring(0,8))
+        $nextTree=Join-Path $directory 'source-worktree'
         $worktrees+=$nextTree
         New-ReleaseWorktree $Repository $commitId $nextTree
         $built=Join-Path $directory 'build'
@@ -236,6 +237,7 @@ function Invoke-PinnedJobRelease {
             $existing=@(Compare-PinnedJobTree $builtTree (Get-PinnedJobTree $destination))
             if($existing.Count){throw "$name already exists on the host with different files. Remove or inspect it first."}
         }else{
+            Assert-DeploymentLease @($lock)
             $staging="$destination.staging-$($id.Substring(0,8))"
             Copy-Item -LiteralPath $built -Destination $staging -Recurse
             # The releases folder does not grant LOCAL SERVICE; copy the explicit grants from the installed release.
@@ -253,6 +255,7 @@ function Invoke-PinnedJobRelease {
         foreach($task in $tasks){$before[$task.TaskName]=@{enabled=$task.Settings.Enabled;user=$task.Principal.UserId;triggers=@($task.Triggers).Count}}
         $since=Get-Date
         $receipt.repointed=@()
+        Assert-DeploymentLease @($lock)
         Set-VerifiedPinnedJobActions -Session $session -App $App -Tasks $tasks -Current $current -ReleasePath $hostPath `
             -Receipt $receipt -Id $id -TimeoutSeconds ([Math]::Min(180,$TimeoutSeconds))
         $repointed=$receipt.repointed
@@ -264,6 +267,7 @@ function Invoke-PinnedJobRelease {
                 throw "$($task.TaskName) changed more than its action."
             }
         }
+        Assert-DeploymentLease @($lock)
         Write-DeploymentJson (Join-Path $remote "state\job-$Component.json") @{app=$App;component=$Component;sourceCommit=$commitId
             release=$name;previousRelease=$current.name;tasks=$repointed;completedLocal=(Get-Date).ToString('o')}
         $receipt.status='Repointed'
@@ -278,7 +282,7 @@ function Invoke-PinnedJobRelease {
         if($receipt.ContainsKey('repointed') -and @($receipt.repointed).Count -and -not $wasRepointed){
             $restored=@()
             foreach($task in @($tasks|Where-Object {$_.TaskName -in @($receipt.repointed)})){
-                try{Set-PinnedJobTaskAction $session $task.TaskName (New-PinnedJobAction $task.Actions[0] $current.path $current.path);$restored+=$task.TaskName}catch{}
+                try{Assert-DeploymentLease @($lock);Set-PinnedJobTaskAction $session $task.TaskName (New-PinnedJobAction $task.Actions[0] $current.path $current.path);$restored+=$task.TaskName}catch{}
             }
             $receipt.restored=$restored
             $receipt.repointed=@($receipt.repointed|Where-Object {$_ -notin $restored})
@@ -294,7 +298,7 @@ function Invoke-PinnedJobRelease {
             $path=Join-Path $directory $folder
             if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue}
         }
-        if($session){Remove-CimSession $session}
+        if($session){Close-DeploymentSession $session}
         $lock.Dispose()
     }
 }

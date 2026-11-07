@@ -241,7 +241,7 @@ Describe 'Routine Release prior approval context' {
             target=@{host='synthetic';root='C:\fixed'};hostSnapshot=@{identity='identity'}
             currentRelease=@{planHash='prior';releaseId='old';sourceCommit=('a'*40)};manifest=$global:ReleaseContextManifest
         }
-        Mock Get-AdminSharePath -ModuleName Release {'C:\synthetic'}
+        Mock Get-RemoteDeploymentRoot -ModuleName Release {'C:\synthetic'}
         Mock Resolve-OwnedPath -ModuleName Release {Join-Path $Root $RelativePath}
         Mock Test-Path -ModuleName Release {$true}
         Mock Get-ChildItem -ModuleName Release {@{FullName='C:\synthetic\operations\prior-deploy'}}

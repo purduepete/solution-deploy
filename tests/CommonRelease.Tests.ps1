@@ -72,7 +72,7 @@ Describe 'Common release inventory and routing' {
         @((Get-FileSetPlan $entry finance-launcher).files).Count|Should Be 2
         (Get-FileSetPlan $entry finance-launcher).after.apps -join ','|Should Be 'web-portfolio,web-options'
         @((Get-FileSetPlan $entry postgres-backup).files|ForEach-Object {$_.target}) -join ','|Should Not Match 'pgpass|credential'
-        (Get-FileSetPlan $entry lan-proxy).files[1].share|Should Be '\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\lan-proxy\site\lan-proxy.mjs'
+        (Get-FileSetPlan $entry lan-proxy).files[1].share|Should Be 'C:\.solution-deploy-ssh\jimbrownhome1.local\C\ProgramData\SolutionDeploy\apps\lan-proxy\site\lan-proxy.mjs'
         $bad=@{componentPaths=@{x=@('a.ps1')};fileSets=@{x=@{files=@(@{source='a.ps1';targets=@('C:\ProgramData\SolutionDeploy\..\Windows\a.ps1')});after=@{type='none'}}}}
         Assert-CommonThrows {Get-FileSetPlan $bad x} '*not an allowed host path*'
         $bad.fileSets.x.files[0].targets=@('C:\Windows\a.ps1')

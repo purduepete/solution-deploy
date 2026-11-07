@@ -262,9 +262,8 @@ Describe 'Managed filesystem move without a database import' {
                 transferManifest=@{source=@{host='source';root='C:\ProgramData\SolutionDeploy\apps\ferry-tracker\shared';tasks=@('SolutionDeploy-ferry-tracker')};launch=@{port=8787}}
             }
             $script:fence=@{operationId='move';host='source';writersStopped=$true;restartPathsDisabled=$true;writerInventoryReviewed=$true;sourceProcessId=12345;verifiedLocal=(Get-Date).ToString('o')}
-            Mock New-CimSessionOption -ModuleName Placement {}
-            Mock New-CimSession -ModuleName Placement {$global:SyntheticSourceSession}
-            Mock Remove-CimSession -ModuleName Placement {}
+            Mock New-DeploymentSession -ModuleName Placement {$global:SyntheticSourceSession}
+            Mock Close-DeploymentSession -ModuleName Placement {}
             Mock Invoke-FrozenSourceContentCheck -ModuleName Placement {}
             Mock Test-Path -ModuleName Placement {$global:SyntheticSourceState.maintenance}
             Mock Read-DeploymentJson -ModuleName Placement {@{releaseId='old';planHash='old-hash'}}

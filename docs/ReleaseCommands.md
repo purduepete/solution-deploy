@@ -10,6 +10,25 @@ explains how each procedure works.
 
 ## Before you run anything
 
+All deployment and maintenance access to `jimbrownhome1` uses key-only SSH to
+`jimbrownhome1.local` on the LAN. Install Windows OpenSSH clients locally. The host
+must already have its SSH server, LAN-only firewall rule, local maintenance
+administrator and authorized key configured. Entra accounts cannot authenticate
+to Windows OpenSSH. The default account is `sd-maintenance`; override it with
+`$env:SOLUTION_DEPLOY_SSH_USER`. Set `$env:SOLUTION_DEPLOY_SSH_KEY` to an existing
+private-key path when the SSH agent/default key is insufficient. Verify the
+server's host-key fingerprint independently and install it in `known_hosts`
+before running any command. Helpers require `BatchMode=yes`,
+`StrictHostKeyChecking=yes` and public-key authentication; they never accept a
+new host key or fall back to passwords, SMB or DCOM.
+
+The remote shell is `C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe`.
+The SSH command passes the destination and command as separate arguments and
+invokes that executable with PowerShell's `&` call operator. Windows OpenSSH's
+configured default shell is PowerShell 7.
+SCP uses SFTP with each Windows drive path passed as one argument, including
+spaces. The release commands and consent flags below are unchanged.
+
 1. Commit and push in the app repo. Release reads the repo at `..\<app>`
    relative to this repo (the `source` in `releases.json`), not your current
    directory. That checkout must be clean, and the commit must be on an origin
@@ -109,23 +128,130 @@ process runs, and there is no pending operation or it has a `Succeeded` or
 `Failed` result.
 
 ```powershell
-$s=New-CimSession -ComputerName jimbrownhome1.local -SessionOption (New-CimSessionOption -Protocol Dcom)
-try{
-    (Get-ScheduledTask -CimSession $s -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-Executor).State
-    @(Get-CimInstance -CimSession $s Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" |
+Import-Module C:\Files\Dev\main\solution-deploy\src\SshTransport.psm1 -DisableNameChecking
+Invoke-DeploymentSsh jimbrownhome1 {
+    $root='C:\ProgramData\SolutionDeploy'
+    $state=(Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-Executor).State
+    $processes=@(Get-CimInstance Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" |
         Where-Object CommandLine -match 'Invoke-HostExecutor').Count
-    $root='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy'
+    $lock='Free'
+    if([IO.File]::Exists("$root\control\submission.lock")){
+        try{$held=[IO.File]::Open("$root\control\submission.lock",'Open','ReadWrite','None');$held.Dispose()}
+        catch{$lock='Held or unreadable'}
+    }
+    $pendingStatus='none'
     if(Test-Path "$root\control\pending.json"){
         $p=Get-Content "$root\control\pending.json" -Raw|ConvertFrom-Json
+        if($p.operationId -notmatch '^[a-z0-9][a-z0-9-]{1,79}$'){throw 'Invalid pending operation.'}
+        $request="$root\operations\$($p.operationId)\request.json"
+        if((Get-FileHash $request).Hash.ToLowerInvariant() -ne $p.requestSHA256){throw 'Pending request hash differs.'}
+        $q=Get-Content $request -Raw|ConvertFrom-Json
         $r="$root\operations\$($p.operationId)\result.json"
-        $p.operationId; if(Test-Path $r){(Get-Content $r -Raw|ConvertFrom-Json).status}else{'NO RESULT'}
-    }else{'no pending'}
-}finally{Remove-CimSession $s}
+        $pendingStatus='NO RESULT'
+        if(Test-Path $r){
+            $result=Get-Content $r -Raw|ConvertFrom-Json
+            if($q.operationId -ne $p.operationId -or $result.operationId -ne $p.operationId -or
+                $result.planHash -ne $q.plan.planHash){throw 'Pending result differs from its request.'}
+            $pendingStatus=$result.status
+        }
+    }
+    @{taskState=[string]$state;executorProcesses=$processes;submissionLock=$lock;pendingStatus=$pendingStatus}
+}
 ```
 
 The other procedures don't use the executor. They share
 `apps\solution-deploy\state\common-controller.lock`, so two of them can't run at
 once.
+
+Go only when `submissionLock` is `Free` as well. The controller holds native
+exclusive file locks on the host through live SSH connections for the entire
+submission, including its bounded wait. An unresolved pending request is never
+replaced or submitted again.
+
+## Maintenance transport
+
+`scripts\Update-HostExecutor.ps1 -HostName jimbrownhome1` and
+`scripts\Set-PostgresPasswordFile.ps1` use the same SSH helpers. Host-local
+installers and task maintenance scripts run inside `Invoke-DeploymentSsh`, for
+example after their existing review and approval:
+
+```powershell
+Invoke-DeploymentSsh jimbrownhome1 {
+    & C:\Files\Dev\main\solution-deploy\scripts\Set-DeploymentPowerShellTasks.ps1 -WhatIf
+}
+```
+
+Keep every installer's existing identity, digest and approval arguments. SSH
+changes the transport, not its authorization. `jimbrownhome` remains explicitly
+legacy LAN SMB/DCOM until its SSH configuration is approved. The PostgreSQL
+off-host backup share on that older host remains unchanged.
+
+### SSH smoke check
+
+After server setup and independent host-key verification, run these read-only
+checks from the controller checkout:
+
+```powershell
+Import-Module .\src\SshTransport.psm1 -Force -DisableNameChecking
+Invoke-DeploymentSsh jimbrownhome1 {
+    @{
+        host=$env:COMPUTERNAME
+        identity=(Get-CimInstance Win32_ComputerSystemProduct).UUID
+        user=[Security.Principal.WindowsIdentity]::GetCurrent().Name
+        powerShell=$PSVersionTable.PSVersion.ToString()
+    }
+}
+$path=Get-DeploymentRemotePath jimbrownhome1 'C:\ProgramData\SolutionDeploy\control\installation.json'
+Get-FileHash -LiteralPath $path
+Get-Content -LiteralPath $path -Raw
+$session=New-DeploymentSession jimbrownhome1
+try{
+    Get-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-Executor
+}finally{Close-DeploymentSession $session}
+```
+
+Expect `jimbrownhome1`, hardware identity
+`4B3D9000-B6D0-11EA-91A7-1B5B997B1500`, the local `sd-maintenance` account and
+PowerShell 7. The `-CimSession` parameter above belongs to the shared transport
+proxy; it runs a host-local task query through SSH. It never opens DCOM on this
+host.
+
+### Protected framework update
+
+For the initial transport update, use `scripts\Update-Host.ps1` from a reviewed
+staging tree. It checks the host identity, installed code baseline and new code
+digest, takes submission and execution locks, retains rollback files and writes
+a protected update result.
+
+1. Run the executor check above. Wait for active work and inspect any unresolved
+   pending operation before copying or updating.
+2. Build the sorted `path`/`sha256` inventory of reviewed `.ps1`, `.psm1`, `.py`
+   and `.json` files under `src`, `scripts` and `schemas`. Compute its digest with
+   `Get-Sha256Text (ConvertTo-CanonicalJson $inventory)`, as the update script does.
+   Capture the current protected `installation.json` code digest and task
+   account/actions.
+3. Through `Copy-DeploymentItem -Recurse`, stage those 3 directories beneath one
+   unique `C:\ProgramData\SolutionDeploy\control\transport-updates\<id>` directory.
+   Verify every staged file hash against the reviewed inventory. This is a
+   staging tree, never an app runtime directory.
+4. Through `Invoke-DeploymentSsh`, run that tree's `scripts\Update-Host.ps1` with
+   the already approved values:
+
+```powershell
+Invoke-DeploymentSsh jimbrownhome1 {
+    param($script,$identity,$installedDigest,$newDigest)
+    & $script -Root 'C:\ProgramData\SolutionDeploy' `
+        -ExpectedHostIdentity $identity `
+        -ExpectedInstalledCodeSHA256 $installedDigest `
+        -ExpectedCodeSHA256 $newDigest -ApproveUpdate -Confirm:$false
+} @($stagedScript,$approvedIdentity,$approvedInstalledDigest,$approvedNewDigest)
+```
+
+5. Verify the updated protected inventory and every installed file hash, task
+   account/actions and successful update receipt. Keep its rollback backup.
+   Remove the staging tree after confirming no live task depends on it.
+   Rerun the SSH smoke check and the executor check. This updates deployment
+   code without deploying or restarting an application.
 
 ## When it gets stuck
 

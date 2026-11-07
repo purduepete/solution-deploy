@@ -17,6 +17,7 @@ function ConvertTo-PostgresPasswordField {
 $framework=Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $framework 'src\Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $framework 'src\PostgreSQL.psm1') -DisableNameChecking
+Import-Module (Join-Path $framework 'src\SshTransport.psm1') -DisableNameChecking
 $plan=Read-DeploymentJson $PlanPath
 if($plan.schemaVersion -ne 2 -or $plan.planHash -ne (Get-PlanDigest $plan)){throw 'Use the unchanged, host-aware deployment plan.'}
 Assert-PostgresName $UserName
@@ -26,7 +27,7 @@ $target=@{}+$plan.target
 foreach($field in @('host','address','root')){$target[$field]=$plan.databaseTarget[$field]}
 $observed=Get-HostSnapshot $target
 if($observed.identity -ne $policy.DatabaseHostIdentity){throw 'Database host identity changed. No password was requested or stored.'}
-$directory='\\'+$policy.DatabaseHost+'\C$\ProgramData\JimlerTech\PostgreSQL'
+$directory=Get-DeploymentRemotePath $policy.DatabaseHost 'C:\ProgramData\JimlerTech\PostgreSQL'
 $path=Join-Path $directory ($UserName+'.pgpass')
 if((Test-Path -LiteralPath $path) -and -not $Replace){throw 'Password file already exists. Use -Replace only to intentionally replace it.'}
 if(-not $PSCmdlet.ShouldProcess("$($policy.DatabaseHost) / $UserName",'Save a private PostgreSQL password file; no database changes')){return}
@@ -42,7 +43,7 @@ $parent=Split-Path -Parent $directory
 if((Test-Path -LiteralPath $parent) -and ((Get-Item -LiteralPath $parent -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){
     throw 'Credential parent cannot be a reparse point.'
 }
-[IO.Directory]::CreateDirectory($directory)|Out-Null
+Invoke-DeploymentFileOperation CreateDirectory @($directory)|Out-Null
 $acl=[Security.AccessControl.DirectorySecurity]::new()
 $acl.SetAccessRuleProtection($true,$false)
 foreach($sid in @('S-1-5-18','S-1-5-32-544')){
@@ -61,10 +62,18 @@ try{
     $escaped=ConvertTo-PostgresPasswordField $plain
     $line="127.0.0.1:$($policy.Port):*:${UserName}:$escaped`n"
     $bytes=[Text.Encoding]::UTF8.GetBytes($line)
-    $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    try{$stream.Write($bytes);$stream.Flush($true)}finally{$stream.Dispose()}
+    $remote=Resolve-DeploymentSshPath $temporary
+    if($remote){
+        Invoke-DeploymentSsh $remote.hostName {param($path,$bytes)
+            $stream=[IO.File]::Open($path,'CreateNew','Write','None')
+            try{$stream.Write([byte[]]$bytes);$stream.Flush($true)}finally{$stream.Dispose()}
+        } @($remote.path,$bytes)
+    }else{
+        $stream=[IO.File]::Open($temporary,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+        try{$stream.Write($bytes);$stream.Flush($true)}finally{$stream.Dispose()}
+    }
     Assert-PostgresProtectedFile -Path $temporary -Purpose 'password file' -DenyBroadRead
-    [IO.File]::Move($temporary,$path,[bool]$Replace)
+    Invoke-DeploymentFileOperation Move @($temporary,$path,[bool]$Replace)
     Assert-PostgresProtectedFile -Path $path -Purpose 'password file' -DenyBroadRead
     [pscustomobject]@{
         Status='Saved';DatabaseHost=$policy.DatabaseHost;UserName=$UserName
@@ -76,5 +85,5 @@ try{
     if($bytes){[Array]::Clear($bytes,0,$bytes.Length)}
     $plain=$null;$escaped=$null;$line=$null
     if($password){$password.Dispose()}
-    if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}
+    if(Test-Path -LiteralPath $temporary){Invoke-DeploymentFileOperation Delete @($temporary)}
 }

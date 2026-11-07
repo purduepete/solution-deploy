@@ -4,9 +4,10 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Release.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'CommonRelease.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 $script:HostAppRoot='C:\ProgramData\SolutionDeploy\apps'
-$script:HostShareRoot='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps'
+$script:HostShareRoot=Get-DeploymentRemotePath jimbrownhome1 $script:HostAppRoot
 
 function Invoke-ReleaseTool {
     param([Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][string[]]$Arguments,
@@ -88,7 +89,7 @@ $script:Builds=@{
 
 function Get-NormalizedFileDigest {
     param([Parameter(Mandatory)][string]$Path)
-    Get-Sha256Text ([IO.File]::ReadAllText($Path).Replace("`r`n","`n"))
+    Get-Sha256Text ((Invoke-DeploymentFileOperation ReadAllText @($Path)).Replace("`r`n","`n"))
 }
 
 function Assert-HandPlacedDatabaseInputs {
@@ -229,7 +230,7 @@ function Invoke-HandPlacedRelease {
     $access=Get-SiteAccess $App
     $remote=Join-Path $script:HostShareRoot $App
     $appRoot=Join-Path $script:HostAppRoot $App
-    [IO.Directory]::CreateDirectory((Join-Path $remote 'state'))|Out-Null
+    Invoke-DeploymentFileOperation CreateDirectory @((Join-Path $remote 'state'))|Out-Null
     $lock=Get-DeploymentLock (Join-Path $remote 'state\common-controller.lock')
     $session=$null
     $id=[guid]::NewGuid().ToString('N')
@@ -238,7 +239,7 @@ function Invoke-HandPlacedRelease {
     $receiptPath=Join-Path $directory 'release.json'
     $receipt=@{app=$App;sourceCommit=$commitId;status='Preparing';components=@{web='NotAttempted'};startedLocal=$startedLocal
         externalAcceptance='Pending';phases=@();reason=$ApprovalReason}
-    $worktree=Join-Path ([IO.Path]::GetTempPath()) ("sd-$App-"+$id.Substring(0,8))
+    $worktree=Join-Path $directory 'worktree'
     try{
         $link=Get-Item -LiteralPath (Join-Path $remote 'current') -Force
         $legacyDirectory=$link.LinkType -ne 'Junction'
@@ -279,10 +280,11 @@ function Invoke-HandPlacedRelease {
         $releaseId=$commitId.Substring(0,12)+'-'+$id.Substring(0,8)
         $operation=Join-Path $remote ('state\routine\'+$id)
         $remoteOperation=Join-Path $appRoot ('state\routine\'+$id)
-        [IO.Directory]::CreateDirectory($operation)|Out-Null
+        Assert-DeploymentLease @($lock)
+        Invoke-DeploymentFileOperation CreateDirectory @($operation)|Out-Null
         Copy-Item -LiteralPath $payload -Destination (Join-Path $operation 'payload.zip')
         Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Invoke-HandPlacedRelease.ps1') -Destination (Join-Path $operation 'runner.ps1')
-        $session=New-CimSession -ComputerName jimbrownhome1.local -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 30
+        $session=New-DeploymentSession -ComputerName jimbrownhome1.local -OperationTimeoutSec 30
         $identity=(Get-CimInstance -CimSession $session -ClassName Win32_ComputerSystemProduct).UUID
         $request=@{id=$id;app=$App;sourceCommit=$commitId;releaseId=$releaseId;previousRelease=$previous;legacyDirectory=$legacyDirectory
             task=$Entry.task;originPort=[int]$Entry.originPort;stop=$Entry.stop;hostInstall=$Entry['hostInstall']
@@ -297,6 +299,7 @@ function Invoke-HandPlacedRelease {
         $receipt.operation=$remoteOperation;$receipt.requestSHA256=$requestHash;$receipt.releaseId=$releaseId;$receipt.previousRelease=$previous
         Write-DeploymentJson $receiptPath $receipt
         $receipt.phases+=@(Invoke-ReleaseHostPhase $session $App $operation $remoteOperation $requestHash Prepare $TimeoutSeconds)
+        Assert-DeploymentLease @($lock)
         $receipt.phases+=@(Invoke-ReleaseHostPhase $session $App $operation $remoteOperation $requestHash Activate $TimeoutSeconds)
         $receipt.components.web='RuntimeStarted'
         Write-DeploymentJson $receiptPath $receipt
@@ -314,7 +317,7 @@ function Invoke-HandPlacedRelease {
         Remove-ReleaseWorktree $Repository $worktree
         $built=Join-Path $directory 'build'
         if(Test-Path -LiteralPath $built){Remove-Item -LiteralPath $built -Recurse -Force -ErrorAction SilentlyContinue}
-        if($session){Remove-CimSession $session}
+        if($session){Close-DeploymentSession $session}
         $lock.Dispose()
     }
 }

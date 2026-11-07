@@ -1,6 +1,7 @@
 #requires -Version 7.5
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 $script:FrameworkRoot = Split-Path -Parent $PSScriptRoot
 $script:DeploymentProgressPath = $null
 
@@ -17,6 +18,22 @@ function Read-DeploymentJson {
 
 function Write-DeploymentJson {
     param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)]$Value,[switch]$CreateNew)
+    $remote=Resolve-DeploymentSshPath $Path
+    if($remote){
+        Invoke-DeploymentSsh $remote.hostName {
+            param($path,$value,$createNew)
+            $parent=Split-Path -Parent $path
+            [IO.Directory]::CreateDirectory($parent)|Out-Null
+            $temporary=Join-Path $parent ('.write-'+[guid]::NewGuid().ToString('N'))
+            try{
+                $bytes=[Text.Encoding]::UTF8.GetBytes(($value|ConvertTo-Json -Depth 40))
+                $stream=[IO.File]::Open($temporary,'CreateNew','Write','None')
+                try{$stream.Write($bytes);$stream.Flush($true)}finally{$stream.Dispose()}
+                [IO.File]::Move($temporary,$path,-not $createNew)
+            }finally{if([IO.File]::Exists($temporary)){[IO.File]::Delete($temporary)}}
+        } @($remote.path,$Value,[bool]$CreateNew)
+        return
+    }
     $parent = Split-Path -Parent ([IO.Path]::GetFullPath($Path))
     [IO.Directory]::CreateDirectory($parent) | Out-Null
     $temporary = Join-Path $parent ('.write-' + [guid]::NewGuid().ToString('N'))
@@ -99,10 +116,13 @@ function Get-DeploymentLock {
         [ValidateRange(0.1,60)][double]$RetryIntervalSeconds=5,
         [string]$HolderRoot
     )
-    [IO.Directory]::CreateDirectory((Split-Path -Parent $Path)) | Out-Null
+    Invoke-DeploymentFileOperation CreateDirectory @((Split-Path -Parent $Path)) | Out-Null
     $clock=[Diagnostics.Stopwatch]::StartNew()
     while($true){
-        try { return [IO.File]::Open($Path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None) }
+        try {
+            if(Resolve-DeploymentSshPath $Path){return Open-DeploymentSshLock $Path}
+            return [IO.File]::Open($Path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        }
         catch [IO.IOException] {
             if(-not (Test-DeploymentLockSharingViolation $_.Exception)){throw}
             if($WaitTimeoutSeconds -eq 0){throw 'Another operation holds the deployment lock.'}
@@ -270,7 +290,7 @@ function Get-HostSnapshot {
     param([Parameter(Mandatory)][hashtable]$Environment)
     $session = $null
     try {
-        $session = New-CimSession -ComputerName $Environment.host -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
+        $session = New-DeploymentSession -ComputerName $Environment.host -OperationTimeoutSec 20
         $os = Get-CimInstance -CimSession $session -ClassName Win32_OperatingSystem -Property CSName,OSArchitecture -OperationTimeoutSec 20
         $product = Get-CimInstance -CimSession $session -ClassName Win32_ComputerSystemProduct -Property UUID -OperationTimeoutSec 20
         $ips = @(Get-CimInstance -CimSession $session -ClassName Win32_NetworkAdapterConfiguration -Filter 'IPEnabled=True' -Property IPAddress -OperationTimeoutSec 20 | ForEach-Object { $_.IPAddress })
@@ -285,7 +305,7 @@ function Get-HostSnapshot {
             architecture=$os.OSArchitecture; freeBytes=[long]$disk.FreeSpace; listeners=$listeners
             collectedLocal=(Get-Date).ToString('o'); verified=$true
         }
-    } finally { if ($session) { Remove-CimSession $session } }
+    } finally { if ($session) { Close-DeploymentSession $session } }
 }
 
 function Test-SameDeploymentHost {
@@ -416,10 +436,10 @@ function New-DeploymentPlan {
     $authority=$null
     if (-not $Offline) {
         # This is a bounded controller-side read; no production directory is created by Plan.
-        $activeShare = '\\' + $env.host + '\' + $env.root.Substring(0,1) + '$' + $env.root.Substring(2) + "\apps\$App\state\active.json"
+        $activeShare = Get-DeploymentRemotePath $env.host ($env.root + "\apps\$App\state\active.json")
         $active=Read-OptionalRemoteRecord $activeShare
         $authorityTarget=$configuration.databaseTarget
-        $authorityPath='\\'+$authorityTarget.host+'\'+$authorityTarget.root.Substring(0,1)+'$'+$authorityTarget.root.Substring(2)+"\control\placements\$Environment\$App.json"
+        $authorityPath=Get-DeploymentRemotePath $authorityTarget.host ($authorityTarget.root+"\control\placements\$Environment\$App.json")
         $authority=Read-OptionalRemoteRecord $authorityPath
         if($authority){
             if($authority.status -ne 'Active' -or -not $configuration.hosts.ContainsKey($authority.host)){throw 'Application transition authority is unresolved or names an unregistered host. Inspect it before planning.'}

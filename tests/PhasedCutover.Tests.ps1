@@ -204,7 +204,7 @@ Describe 'Full batched fences and owned snapshot child exclusion' {
 }
 
 Describe 'Original source hash continuity without database connections' {
-    It 'keeps the measured SMB content-check budget bounded to 300 seconds' {
+    It 'keeps the source content-check budget bounded to 300 seconds' {
         InModuleScope Placement {$script:SourceContentTimeoutSeconds|Should Be 300}
     }
     BeforeEach {
@@ -218,7 +218,7 @@ Describe 'Original source hash continuity without database connections' {
             kind='sqlite';target='backups\source\capture.db'
             sourceHashes=@{main=('a'*64);'-wal'=$null;'-shm'=$null;'-journal'=$null}
         })}
-        $global:SyntheticOriginalHashes=@{'\\synthetic\C$\synthetic-source\capture.db'=('a'*64)}
+        $global:SyntheticOriginalHashes=@{'\\synthetic.local\C$\synthetic-source\capture.db'=('a'*64)}
         Mock Test-Path -ModuleName Placement {param([string]$LiteralPath) $global:SyntheticOriginalHashes.ContainsKey($LiteralPath)}
         Mock Get-FileHash -ModuleName Placement {param([string]$LiteralPath) @{Hash=$global:SyntheticOriginalHashes[$LiteralPath]}}
     }
@@ -228,11 +228,11 @@ Describe 'Original source hash continuity without database connections' {
         Assert-MockCalled Get-FileHash -ModuleName Placement -Times 1 -Exactly -Scope It
     }
     It 'rejects changed source content even when a writer already exited' {
-        $global:SyntheticOriginalHashes['\\synthetic\C$\synthetic-source\capture.db']=('b'*64)
+        $global:SyntheticOriginalHashes['\\synthetic.local\C$\synthetic-source\capture.db']=('b'*64)
         Assert-PhaseThrows {Test-FrozenSourceContent $script:sourcePlan $script:sourceProof}
     }
     It 'rejects newly appearing sidecars and old exports without source baselines' {
-        $global:SyntheticOriginalHashes['\\synthetic\C$\synthetic-source\capture.db-wal']=('c'*64)
+        $global:SyntheticOriginalHashes['\\synthetic.local\C$\synthetic-source\capture.db-wal']=('c'*64)
         Assert-PhaseThrows {Test-FrozenSourceContent $script:sourcePlan $script:sourceProof}
         $script:sourceProof.files[0].Remove('sourceHashes')
         Assert-PhaseThrows {Test-FrozenSourceContent $script:sourcePlan $script:sourceProof}

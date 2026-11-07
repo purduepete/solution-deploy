@@ -3,9 +3,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Release.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 # The directory serves these as each solution's last release; its LOCAL SERVICE account can read data\.
-$script:ReleaseRecords='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\solution-deploy\data\releases'
+$script:ReleaseRecords=Get-DeploymentRemotePath jimbrownhome1 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\data\releases'
 
 # Releases that restart Web Options or Web Portfolio wait for the US market close unless overridden.
 $script:MarketHoursApps=@('web-options','web-portfolio')
@@ -46,7 +47,7 @@ function Write-CommonReleaseRecords {
     param([Parameter(Mandatory)][string]$App,[AllowNull()][object[]]$Result,[string]$Directory=$script:ReleaseRecords)
     foreach($record in Get-CommonReleaseRecords $App $Result){
         try{
-            [IO.Directory]::CreateDirectory($Directory)|Out-Null
+            Invoke-DeploymentFileOperation CreateDirectory @($Directory)|Out-Null
             Write-DeploymentJson (Join-Path $Directory "$App--$($record.component).json") $record
         }catch{Write-Warning "The release succeeded, but its directory record was not written: $($_.Exception.Message)"}
     }

@@ -3,11 +3,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Controller.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 function Get-ReleaseToolHash {
     param([hashtable]$Plan,[string]$Path)
     if($Path -notmatch '^[A-Za-z]:\\' -or $Path -match '(?i)\\current\\|\\shims\\'){throw 'Routine release tools require fixed absolute installation paths.'}
-    $share='\\'+$Plan.target.host+'.local\'+$Path.Substring(0,1)+'$'+$Path.Substring(2)
+    $share=Get-DeploymentRemotePath $Plan.target.host $Path
     (Get-FileHash -LiteralPath $share -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
@@ -17,7 +18,7 @@ function Get-RoutineReleaseContext {
         -not $Plan.currentRelease -or $Plan.observedHost -ine $Plan.target.host){
         throw 'Release supports only an existing managed deployment on the same host.'
     }
-    $remote=Get-AdminSharePath $Plan.target
+    $remote=Get-RemoteDeploymentRoot $Plan.target
     $installation=Read-DeploymentJson (Join-Path $remote 'control\installation.json')
     if($installation.identity -ne $Plan.hostSnapshot.identity -or $installation.root -ne $Plan.target.root){
         throw 'Installed executor identity/root differs from the plan.'
@@ -159,7 +160,7 @@ function Assert-ReleaseTools {
         if((Get-ReleaseToolHash $Plan $Context.npmPath) -ne $Context.npmSHA256 -or
             (Get-ReleaseToolHash $Plan (Join-Path (Split-Path -Parent $Context.runtimePath) 'node_modules\npm\bin\npm-cli.js')) -ne $Context.npmCliSHA256){throw 'npm changed after release consent.'}
     }
-    $installation=Join-Path (Get-AdminSharePath $Plan.target) 'control\installation.json'
+    $installation=Join-Path (Get-RemoteDeploymentRoot $Plan.target) 'control\installation.json'
     if((Get-FileHash -LiteralPath $installation).Hash.ToLowerInvariant() -ne $Context.installationSHA256){throw 'Executor installation changed after release consent.'}
 }
 
@@ -178,11 +179,11 @@ function Assert-ReleaseClocks {
     foreach($hostName in @($Plan.target.host,$Plan.databaseTarget.host)|Sort-Object -Unique){
         $session=$null
         try{
-            $session=New-CimSession -ComputerName ($hostName+'.local') -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
+            $session=New-DeploymentSession -ComputerName ($hostName+'.local') -OperationTimeoutSec 20
             $clock=Get-CimInstance -CimSession $session -ClassName Win32_UTCTime -OperationTimeoutSec 20
             $remote=[DateTimeOffset]::new([int]$clock.Year,[int]$clock.Month,[int]$clock.Day,[int]$clock.Hour,[int]$clock.Minute,[int]$clock.Second,[TimeSpan]::Zero)
             if([Math]::Abs(([DateTimeOffset]::UtcNow-$remote).TotalSeconds) -gt 30){throw 'Controller and protected host clocks differ by more than 30 seconds.'}
-        }finally{if($session){Remove-CimSession $session}}
+        }finally{if($session){Close-DeploymentSession $session}}
     }
 }
 

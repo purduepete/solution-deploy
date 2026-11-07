@@ -1,6 +1,7 @@
 $root=Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $root 'src\Deployment.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $root 'src\PostgreSQL.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $root 'src\SshTransport.psm1') -DisableNameChecking
 $script:credentialScript=Join-Path $root 'scripts\Set-PostgresPasswordFile.ps1'
 $tokens=$null;$parseErrors=$null
 $script:credentialAst=[Management.Automation.Language.Parser]::ParseFile($script:credentialScript,[ref]$tokens,[ref]$parseErrors)

@@ -2,12 +2,13 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 $script:SourceContentTimeoutSeconds=300
 
 function Get-PlacementRoot {
     param([Parameter(Mandatory)][hashtable]$Plan)
     $server=$Plan.databaseTarget
-    '\\'+$server.host+'\'+$server.root.Substring(0,1)+'$'+$server.root.Substring(2)+'\control'
+    Get-DeploymentRemotePath $server.host ($server.root+'\control')
 }
 
 function Get-PlacementLease {
@@ -76,7 +77,7 @@ function Test-RemoteSourceFence {
         throw 'Continuity verification requires the bound transfer proof and exact transfer and import-receipt hashes.'
     }
     if($checkingContent){Invoke-FrozenSourceContentCheck $Plan $TransferProof}
-    $session=New-CimSession -ComputerName $Plan.observedHost -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
+    $session=New-DeploymentSession -ComputerName $Plan.observedHost -OperationTimeoutSec 20
     try{
         $product=Get-CimInstance -CimSession $session -ClassName Win32_ComputerSystemProduct -Property UUID -OperationTimeoutSec 20
         if(-not $Plan.sourceHostSnapshot.verified -or $product.UUID -ne $Plan.sourceHostSnapshot.identity){throw 'Source hardware identity differs from the reviewed plan.'}
@@ -84,7 +85,7 @@ function Test-RemoteSourceFence {
             $sourceHost=$Plan.target.hosts[$Plan.observedHost]
             if(-not $Plan.placementAuthority.ContainsKey('hostIdentity') -or $product.UUID -ne $Plan.placementAuthority.hostIdentity){throw 'Managed source hardware identity differs from placement authority.'}
             $appRoot=$sourceHost.root+"\apps\$($Plan.app)"
-            $share='\\'+$sourceHost.host+'\'+$appRoot.Substring(0,1)+'$'+$appRoot.Substring(2)
+            $share=Get-DeploymentRemotePath $sourceHost.host $appRoot
             if(-not (Test-Path -LiteralPath (Join-Path $share 'state\maintenance.json'))){throw 'Managed source must remain in durable maintenance.'}
             $active=Read-DeploymentJson (Join-Path $share 'state\active.json')
             if($active.planHash -ne $Plan.placementAuthority.planHash -or $active.releaseId -ne $Plan.placementAuthority.releaseId){throw 'Managed source release differs from central authority.'}
@@ -116,7 +117,7 @@ function Test-RemoteSourceFence {
             $result.transferSHA256=$TransferSHA256;$result.sourceContentVerified=$true
         }
         $result
-    }finally{Remove-CimSession $session}
+    }finally{Close-DeploymentSession $session}
 }
 
 function Test-FrozenSourceContent {
@@ -147,7 +148,7 @@ function Test-FrozenSourceContent {
         $declaration=$declarations[0]
         $source=if([IO.Path]::IsPathFullyQualified($declaration.source)){$declaration.source}else{Resolve-OwnedPath $Plan.transferManifest.source.root $declaration.source}
         if($declaration.kind -eq 'directory'){$source=Resolve-OwnedPath $source $file.target.Substring($declaration.target.Length+1)}
-        $share='\\'+$Plan.observedHost+'\'+$source.Substring(0,1)+'$'+$source.Substring(2)
+        $share=Get-DeploymentRemotePath $Plan.observedHost $source
         if($file.kind -eq 'sqlite'){
             if(-not $file.ContainsKey('sourceHashes')){throw 'Source snapshot lacks original database/sidecar hashes. A new reviewed export is required.'}
             foreach($key in @('main','-wal','-shm','-journal')){

@@ -4,11 +4,12 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Release.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'CommonRelease.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 function Get-FitTrackSourceDigest {
     param([Parameter(Mandatory)][string]$Path)
     # Git checkouts and the original copied watcher use different line endings.
-    Get-Sha256Text ([IO.File]::ReadAllText($Path).Replace("`r`n","`n"))
+    Get-Sha256Text ((Invoke-DeploymentFileOperation ReadAllText @($Path)).Replace("`r`n","`n"))
 }
 
 function Assert-FitTrackDatabaseInputs {
@@ -101,16 +102,16 @@ function Update-FitTrackWatcherFiles {
         $old=Join-Path $Installed $file.path
         if(Test-Path -LiteralPath $old){
             $saved=Join-Path $Backup $file.path
-            [IO.Directory]::CreateDirectory((Split-Path -Parent $saved))|Out-Null
-            [IO.File]::Copy($old,$saved,$true)
+            Invoke-DeploymentFileOperation CreateDirectory @((Split-Path -Parent $saved))|Out-Null
+            Invoke-DeploymentFileOperation Copy @($old,$saved,$true)
         }
     }
     foreach($file in $changed){
         # The installed copies use CRLF (wscript needs it for the .vbs); git stores LF.
         $text=[IO.File]::ReadAllText((Join-Path $Source $file.path)).Replace("`r`n","`n").Replace("`n","`r`n")
         $target=Join-Path $Installed $file.path
-        [IO.Directory]::CreateDirectory((Split-Path -Parent $target))|Out-Null
-        [IO.File]::WriteAllBytes($target,[Text.UTF8Encoding]::new($false).GetBytes($text))
+        Invoke-DeploymentFileOperation CreateDirectory @((Split-Path -Parent $target))|Out-Null
+        Invoke-DeploymentFileOperation WriteAllBytes @($target,[Text.UTF8Encoding]::new($false).GetBytes($text))
     }
     @($changed|ForEach-Object {$_.path})
 }
@@ -174,7 +175,7 @@ function Invoke-FitTrackRelease {
     $hostConfig=@{}+$configuration.hosts.jimbrownhome1
     $hostConfig.apps=@{'fit-track'=@{port=8791}}
     $snapshot=Get-HostSnapshot $hostConfig
-    $remote='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\fit-track'
+    $remote=Get-DeploymentRemotePath jimbrownhome1 'C:\ProgramData\SolutionDeploy\apps\fit-track'
     $appRoot='C:\ProgramData\SolutionDeploy\apps\fit-track'
     $lock=Get-DeploymentLock (Join-Path $remote 'state\common-controller.lock')
     $session=$null
@@ -202,7 +203,7 @@ function Invoke-FitTrackRelease {
         $watcherChanged=@($watcherFiles|Where-Object {-not $_.matches}).Count -gt 0
         $watcherSelected=$watcherChanged -and (-not $Component -or 'upload-watcher' -in $Component)
         $receipt.components.'upload-watcher'=if(-not $watcherChanged){'UnchangedSourceVerified'}elseif($watcherSelected){'Pending'}else{'NotSelected'}
-        $session=New-CimSession -ComputerName jimbrownhome1.local -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
+        $session=New-DeploymentSession -ComputerName jimbrownhome1.local -OperationTimeoutSec 20
         $watcherTask=Get-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher
         $watcherTaskHash=Get-Sha256Text (Export-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher)
         $receipt.watcher=@{taskStateBefore=[string]$watcherTask.State;configurationSHA256=$watcherTaskHash;source=$watcherFiles
@@ -224,6 +225,7 @@ function Invoke-FitTrackRelease {
         if(-not $TailscaleUrl){$TailscaleUrl='https://jimbrownhome1.tail8ad282.ts.net:8791/'}
         $receipt.initialAccess=Test-ReleaseAccess $accessPlan $TailscaleUrl
         if($watcherSelected){
+            Assert-DeploymentLease @($lock)
             $receipt.components.'upload-watcher'='Copying'
             Write-DeploymentJson $receiptPath $receipt
             $watcherRoot=Join-Path $remote 'upload-watcher'
@@ -231,6 +233,7 @@ function Invoke-FitTrackRelease {
             if(@(Get-FitTrackWatcherFiles $source $watcherRoot|Where-Object {-not $_.matches}).Count){throw 'Watcher files still differ from the commit after copying.'}
             $receipt.components.'upload-watcher'='Copied'
             Write-DeploymentJson $receiptPath $receipt
+            Assert-DeploymentLease @($lock)
             $receipt.watcher.restart=Restart-FitTrackWatcher $session (Join-Path $watcherRoot 'backend\logs\upload-watcher.log')
             if((Get-Sha256Text (Export-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track-upload-watcher)) -ne $watcherTaskHash){
                 throw 'Fit Track watcher task configuration changed during release.'
@@ -261,7 +264,7 @@ function Invoke-FitTrackRelease {
         Invoke-DeploymentCommand $node @($npmCli,'ci','--ignore-scripts','--no-audit','--no-fund') $frontend -TimeoutSeconds $TimeoutSeconds
         Invoke-DeploymentCommand $node @($npmCli,'run','build') $frontend -TimeoutSeconds $TimeoutSeconds
         $payload=Join-Path $directory 'payload.zip'
-        [IO.File]::Copy($archive,$payload,$false)
+        Invoke-DeploymentFileOperation Copy @($archive,$payload,$false)
         $zip=[IO.Compression.ZipFile]::Open($payload,[IO.Compression.ZipArchiveMode]::Update)
         try{
             foreach($file in Get-ChildItem -LiteralPath (Join-Path $frontend 'dist') -File -Recurse){
@@ -272,11 +275,12 @@ function Invoke-FitTrackRelease {
         $prior=Read-DeploymentJson (Join-Path $current 'release.json')
         $runtime=[string]$prior.runtimePath
         if($runtime -notmatch '^[A-Za-z]:\\' -or $runtime -match '(?i)\\current\\|\\shims\\'){throw 'Existing Fit Track build runtime must be a fixed installation.'}
-        $runtimeShare='\\jimbrownhome1.local\'+$runtime.Substring(0,1)+'$'+$runtime.Substring(2)
+        $runtimeShare=Get-DeploymentRemotePath jimbrownhome1 $runtime
         if((Get-FileHash -LiteralPath $runtimeShare).Hash -ine $prior.runtimeSHA256){throw 'Fit Track build runtime differs from installed metadata.'}
         $operation=Join-Path $remote ('state\routine\'+$id)
         $remoteOperation=Join-Path $appRoot ('state\routine\'+$id)
-        [IO.Directory]::CreateDirectory($operation)|Out-Null
+        Assert-DeploymentLease @($lock)
+        Invoke-DeploymentFileOperation CreateDirectory @($operation)|Out-Null
         Copy-Item -LiteralPath $payload -Destination (Join-Path $operation 'payload.zip')
         Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Invoke-FitTrackRelease.ps1') -Destination (Join-Path $operation 'runner.ps1')
         $plan=@{id=$id;app=$App;sourceCommit=$commitId;releaseId=('routine-'+$commitId.Substring(0,12)+'-'+$id.Substring(0,8))
@@ -296,6 +300,7 @@ function Invoke-FitTrackRelease {
         $receipt.phases+=@(Invoke-FitTrackHostPhase $session $operation $remoteOperation $requestHash Prepare $TimeoutSeconds)
         $receipt.components.web='Prepared'
         Write-DeploymentJson $receiptPath $receipt
+        Assert-DeploymentLease @($lock)
         $receipt.phases+=@(Invoke-FitTrackHostPhase $session $operation $remoteOperation $requestHash Activate $TimeoutSeconds)
         $receipt.components.web='RuntimeVerified'
         Write-DeploymentJson $receiptPath $receipt
@@ -313,7 +318,7 @@ function Invoke-FitTrackRelease {
         Write-DeploymentJson $receiptPath $receipt
         throw
     }finally{
-        if($session){Remove-CimSession $session}
+        if($session){Close-DeploymentSession $session}
         $lock.Dispose()
     }
 }

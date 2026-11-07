@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 function Get-StateInventory {
     param([Parameter(Mandatory)][hashtable]$Manifest, [string]$SourceRoot=$Manifest.source.root,
@@ -13,7 +14,7 @@ function Get-StateInventory {
         $source = if ([IO.Path]::IsPathFullyQualified($state.source)) { $state.source } else { Resolve-OwnedPath $SourceRoot $state.source }
         if($SourceHost){
             if($SourceHost -notmatch '^[a-zA-Z0-9-]+$' -or $source -notmatch '^[A-Z]:\\'){throw 'Remote source inventory requires an explicit host and a local source drive path.'}
-            $source='\\'+$SourceHost+'\'+$source.Substring(0,1)+'$'+$source.Substring(2)
+            $source=Get-DeploymentRemotePath $SourceHost $source
         }
         if (-not (Test-Path -LiteralPath $source)) {
             if ($state.required) { $missing.Add($state.target) }

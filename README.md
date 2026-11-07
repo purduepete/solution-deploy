@@ -89,7 +89,8 @@ below remain requirements for future operations, not proof of a new deployment.
 Lifecycle listener ownership checks cover loopback and wildcard bindings. A Tailscale HTTPS listener on its own interface can use the same port as the loopback origin without blocking app startup.
 
 - `src\Deployment.psm1`: manifest/environment validation, plan hashing, locks, staged releases, inventory checks, stopped junction switching, reports.
-- `src\Controller.psm1`: protected SMB submission and CIM/DCOM fixed-task invocation. Requires separately provisioned host executor.
+- `src\Controller.psm1`: protected SSH submission and fixed-task invocation. Requires separately provisioned host executor.
+- `src\SshTransport.psm1`: key-only LAN SSH commands, SFTP file copies and host-held file locks. Keeps host-local operations local and the older `jimbrownhome` transport explicitly legacy. See [SSH requirements](docs/ReleaseCommands.md#before-you-run-anything).
 - `src\Lifecycle.psm1`: limited-account launcher/watchdog, readiness, process identity checks, maintenance, graceful stop.
 - `src\Transfer.psm1`: source state inventory, writer fencing, consistent SQLite/file export, hashed transfer provenance, and non-overwriting frozen-file import. Each application's separate importer converts its reviewed SQLite/JSON export into PostgreSQL.
 - `src\PostgreSQL.psm1`: database/role SQL plans, independently reviewed action execution, schema/role evidence, custom-format backup, and isolated restore. See [PostgreSQL contract](docs/PostgreSQL.md).
@@ -116,7 +117,7 @@ PowerShell 7.5 or newer for the complete host lifecycle:
 .\Deploy.ps1 -Action Plan -App ferry-tracker -Environment production -Target jimbrownhome -Offline -OpenReport
 ```
 
-This writes a local plan and HTML report, without accessing or modifying production. An online Plan additionally reads host identity/current placement through authenticated CIM/DCOM and SMB; it does not provision anything.
+This writes a local plan and HTML report, without accessing or modifying production. An online Plan additionally reads host identity/current placement through key-only LAN SSH on `jimbrownhome1`; it does not provision anything. The older `jimbrownhome` retains its legacy transport until separately configured.
 
 A plan is tied to manifest/environment hashes and a pinned commit. Uncommitted app adapters cannot be staged as a trusted release. Commit and push require separate operator instruction.
 

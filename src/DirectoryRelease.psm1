@@ -4,10 +4,12 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'CommonRelease.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'HandPlacedRelease.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
-$script:HostClone='\\jimbrownhome1.local\c$\Files\Dev\main\solution-deploy'
-$script:Installed='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\solution-deploy'
-$script:HostTemp='\\jimbrownhome1.local\c$\Windows\Temp'
+$script:HostClone=Get-DeploymentRemotePath jimbrownhome1 'C:\Files\Dev\main\solution-deploy'
+$script:Installed=Get-DeploymentRemotePath jimbrownhome1 'C:\ProgramData\SolutionDeploy\apps\solution-deploy'
+$script:HostOperationRoot='C:\ProgramData\SolutionDeploy\control\directory-releases'
+$script:HostTemp=Get-DeploymentRemotePath jimbrownhome1 $script:HostOperationRoot
 # Install-Directory.ps1 installs both components, so a successful release records both.
 $script:DirectoryComponents=@('directory','collector-status')
 
@@ -33,8 +35,14 @@ function Compare-DirectoryInstall {
 
 function Invoke-HostGit {
     param([Parameter(Mandatory)][string[]]$Arguments,[Parameter(Mandatory)][string]$Repository,[switch]$Capture)
-    $git=(Get-Command git -CommandType Application).Source
-    Invoke-DeploymentCommand $git (@('-c','safe.directory=*','-C',$script:HostClone)+$Arguments) $Repository -Capture:$Capture
+    Invoke-DeploymentSsh jimbrownhome1 {
+        param($arguments,$capture)
+        $env:GCM_INTERACTIVE='Never'
+        $env:GIT_SSH_COMMAND='ssh -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes'
+        $out=& git -c safe.directory=C:\Files\Dev\main\solution-deploy -C C:\Files\Dev\main\solution-deploy @arguments
+        if($LASTEXITCODE -ne 0){throw 'Host Git failed.'}
+        if($capture){($out -join "`n").TrimEnd("`r","`n")}
+    } @($Arguments,[bool]$Capture) -TimeoutSeconds 120
 }
 
 function Complete-DirectoryRelease {
@@ -51,7 +59,8 @@ function Invoke-DirectoryRelease {
     $commitId=Resolve-CommonReleaseSource $Repository $Commit
     $access=Get-SiteAccess 'solution-deploy'
     $readiness=@{path='health';expected=@{status='ok'}}
-    [IO.Directory]::CreateDirectory((Join-Path $script:Installed 'state'))|Out-Null
+    Invoke-DeploymentFileOperation CreateDirectory @((Join-Path $script:Installed 'state'))|Out-Null
+    Invoke-DeploymentFileOperation CreateDirectory @($script:HostTemp)|Out-Null
     $lock=Get-DeploymentLock (Join-Path $script:Installed 'state\common-controller.lock')
     $id=[guid]::NewGuid().ToString('N')
     $directory=Join-Path ([IO.Path]::GetFullPath($OutputDirectory)) "releases\solution-deploy-directory-$id"
@@ -69,6 +78,7 @@ function Invoke-DirectoryRelease {
         catch{throw "The host clone at $($receipt.previousCommit) is not an ancestor of $commitId. Release a newer commit."}
         $stale=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
         if($stale.Count -and $receipt.previousCommit -cne $commitId){throw "The installed directory differs from the host clone at $($receipt.previousCommit): $($stale -join ', '). Reinstall by hand before releasing."}
+        Assert-DeploymentLease @($lock)
         Invoke-HostGit @('merge','--ff-only','--quiet',$commitId) $Repository
         if((Invoke-HostGit @('rev-parse','HEAD') $Repository -Capture) -cne $commitId){throw 'The host clone did not move to the release commit.'}
         $changed=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
@@ -81,20 +91,21 @@ function Invoke-DirectoryRelease {
         $receipt.changed=$changed
         Set-Content -LiteralPath $script -Encoding utf8 -Value @"
 `$ErrorActionPreference='Stop'
-try{`$out=& 'C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1';@{status='Succeeded';sites=`$out.Sites;privateStatus=`$out.PrivateStatus;pid=`$out.Pid}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,'C:\Windows\Temp'))'}
-catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,'C:\Windows\Temp'))'}
+try{`$out=& 'C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1';@{status='Succeeded';sites=`$out.Sites;privateStatus=`$out.PrivateStatus;pid=`$out.Pid}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
+catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
 "@
-        $session=New-CimSession -ComputerName jimbrownhome1.local -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 30
-        $command='"C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe" -NoProfile -NonInteractive -WindowStyle Hidden -File "'+$script.Replace($script:HostTemp,'C:\Windows\Temp')+'"'
+        $session=New-DeploymentSession -ComputerName jimbrownhome1.local -OperationTimeoutSec 30
+        $command='"C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe" -NoProfile -NonInteractive -WindowStyle Hidden -File "'+$script.Replace($script:HostTemp,$script:HostOperationRoot)+'"'
         $receipt.status='Installing'
         Write-DeploymentJson $receiptPath $receipt
+        Assert-DeploymentLease @($lock)
         $created=Invoke-CimMethod -CimSession $session -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$command}
         if($created.ReturnValue -ne 0){throw "Could not start the directory installer (Windows result $($created.ReturnValue))."}
         $clock=[Diagnostics.Stopwatch]::StartNew()
         while(-not (Test-Path -LiteralPath $result)){
             if($clock.Elapsed.TotalSeconds -gt $TimeoutSeconds){throw "The directory installer ran past $TimeoutSeconds s (host PID $($created.ProcessId))."}
             if(-not (Get-CimInstance -CimSession $session -ClassName Win32_Process -Filter "ProcessId=$($created.ProcessId)")){
-                # SMB caches a missing file for several seconds, so allow the result to appear after the exit.
+                # Allow a result writer finishing at process exit to close its file.
                 $exited=[Diagnostics.Stopwatch]::StartNew()
                 while(-not (Test-Path -LiteralPath $result) -and $exited.Elapsed.TotalSeconds -lt 20){Start-Sleep -Seconds 2}
                 if(-not (Test-Path -LiteralPath $result)){throw 'The directory installer exited without a result.'}
@@ -110,6 +121,7 @@ catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content 
         $left=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
         if($left.Count){throw "Installed files still differ from $commitId after install: $($left -join ', ')."}
         $receipt.access=Test-HandPlacedReadiness $access $readiness
+        Assert-DeploymentLease @($lock)
         Complete-DirectoryRelease $receipt $script:Installed $receiptPath
         $receipt
     }catch{
@@ -118,7 +130,7 @@ catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content 
         throw
     }finally{
         foreach($path in $script,$result){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue}}
-        if($session){Remove-CimSession $session}
+        if($session){Close-DeploymentSession $session}
         $lock.Dispose()
     }
 }

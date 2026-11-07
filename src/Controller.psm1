@@ -5,10 +5,11 @@ Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Placement.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Transfer.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'OperationSafety.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
-function Get-AdminSharePath {
+function Get-RemoteDeploymentRoot {
     param([Parameter(Mandatory)][hashtable]$Target,[string]$RelativePath='')
-    $base = '\\' + $Target.host + '\' + $Target.root.Substring(0,1) + '$' + $Target.root.Substring(2)
+    $base = Get-DeploymentRemotePath $Target.host $Target.root
     if ($RelativePath) { Join-Path $base $RelativePath } else { $base }
 }
 
@@ -16,7 +17,7 @@ function Get-RemoteDeploymentStatus {
     param([Parameter(Mandatory)][hashtable]$Plan,[switch]$Verify)
     $observed = Get-HostSnapshot $Plan.target
     if ($observed.identity -ne $Plan.hostSnapshot.identity) { throw 'Destination identity drifted; prepare a new plan.' }
-    $root = Get-AdminSharePath $Plan.target
+    $root = Get-RemoteDeploymentRoot $Plan.target
     $activePath = Join-Path $root ("apps\"+$Plan.app+'\state\active.json')
     $active = if (Test-Path -LiteralPath $activePath) { Read-DeploymentJson $activePath } else { $null }
     if ($Verify) {
@@ -97,6 +98,15 @@ function Wait-ForDeploymentExecutor {
 function Copy-ApprovedTransferArchive {
     param([Parameter(Mandatory)][string]$Source,[Parameter(Mandatory)][string]$Destination,
         [Parameter(Mandatory)][string]$ApprovedArchiveSHA256)
+    if(Resolve-DeploymentSshPath $Destination){
+        $reader=[IO.File]::Open($Source,'Open','Read','Read')
+        try{
+            if((Get-FileHash -LiteralPath $Source).Hash.ToLowerInvariant() -ne $ApprovedArchiveSHA256){throw 'Transfer archive differs from approval.'}
+            Copy-DeploymentItem -LiteralPath $Source -Destination $Destination -CreateNew
+            if((Get-FileHash -LiteralPath $Destination).Hash.ToLowerInvariant() -ne $ApprovedArchiveSHA256){throw 'Transfer archive changed while copying.'}
+        }finally{$reader.Dispose()}
+        return
+    }
     $hasher=[Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
     $reader=[IO.File]::Open($Source,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
     try{
@@ -120,7 +130,7 @@ function Copy-ApprovedTransferArchive {
 
 function Get-OperationActivity {
     param([Parameter(Mandatory)][string]$OperationDirectory)
-    # Remote reads can race the executor's atomic replace over SMB; treat any failure as no new activity.
+    # Informational reads can race an atomic replace; treat failures as no new activity.
     $phase = $null; $progress = $null
     try { $path = Join-Path $OperationDirectory 'phase.json'; if (Test-Path -LiteralPath $path) { $phase = Read-DeploymentJson $path } } catch { $phase = $null }
     try { $path = Join-Path $OperationDirectory 'progress.json'; if (Test-Path -LiteralPath $path) { $progress = Read-DeploymentJson $path } } catch { $progress = $null }
@@ -158,7 +168,7 @@ function Submit-DeploymentOperation {
     if($databaseObserved.identity -ne $Plan.databaseHostSnapshot.identity){throw 'Database/authority host identity drifted.'}
     if ($observed.identity -ne $Plan.hostSnapshot.identity) { throw 'Destination identity drifted.' }
     Write-Host ("Controller: {0} host identity checked, elapsed {1:n1}s" -f $Action,$submitClock.Elapsed.TotalSeconds)
-    $remote = Get-AdminSharePath $Plan.target
+    $remote = Get-RemoteDeploymentRoot $Plan.target
     $installPath = Join-Path $remote 'control\installation.json'
     if (-not (Test-Path -LiteralPath $installPath)) { throw 'Protected host executor is not provisioned. Review and approve Install-Host.ps1 before staging.' }
     $installation = Read-DeploymentJson $installPath
@@ -179,7 +189,7 @@ function Submit-DeploymentOperation {
         if($remainingWait -le 0){throw "Submission wait exceeded $SubmissionWaitTimeoutSeconds seconds before acquiring the executor lock. No request was submitted."}
         $lock=Get-DeploymentLock (Join-Path $remote 'control\submission.lock') -WaitTimeoutSeconds $remainingWait -RetryIntervalSeconds $PollIntervalSeconds `
             -HolderRoot $remote
-        $session = New-CimSession -ComputerName $Plan.target.host -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 20
+        $session = New-DeploymentSession -ComputerName $Plan.target.host -OperationTimeoutSec 20
         $remainingWait=[int][Math]::Floor($SubmissionWaitTimeoutSeconds-$submissionWaitClock.Elapsed.TotalSeconds)
         if($remainingWait -le 0){throw "Submission wait exceeded $SubmissionWaitTimeoutSeconds seconds before inspecting the executor. No request was submitted."}
         Wait-ForDeploymentExecutor -Session $session -RemoteRoot $remote -TimeoutSeconds $remainingWait -PollIntervalSeconds $PollIntervalSeconds
@@ -206,7 +216,7 @@ function Submit-DeploymentOperation {
             }
             throw 'Operation already exists without a completed success result. Inspect its journal before retrying; do not repeat unknown side effects.'
         }
-        [IO.Directory]::CreateDirectory($operation) | Out-Null
+        Invoke-DeploymentFileOperation CreateDirectory @($operation) | Out-Null
         $package = @{
             operationId=$operationId; action=$Action; plan=$Plan
             approval=(Read-DeploymentJson $ApprovalPath); runtimePath=$RuntimePath; npmPath=$NpmPath
@@ -221,7 +231,11 @@ function Submit-DeploymentOperation {
             $dirty = Invoke-DeploymentCommand $git @('--no-optional-locks','status','--porcelain','--untracked-files=normal') $repository -Capture
             if ($dirty) { throw 'Source is not clean and committed. Review the manifest/adapters before staging.' }
             $archive = Join-Path $operation 'source.zip'
-            Invoke-DeploymentCommand $git @('archive','--format=zip',('-o'+$archive),$Plan.sourceCommit) $repository
+            $localArchive=Join-Path (Split-Path -Parent ([IO.Path]::GetFullPath($ApprovalPath))) ($operationId+'-source.zip')
+            try{
+                Invoke-DeploymentCommand $git @('archive','--format=zip',('-o'+$localArchive),$Plan.sourceCommit) $repository
+                Copy-DeploymentItem -LiteralPath $localArchive -Destination $archive
+            }finally{if([IO.File]::Exists($localArchive)){[IO.File]::Delete($localArchive)}}
             $package.sourceArchiveSHA256=(Get-FileHash -LiteralPath $archive).Hash.ToLowerInvariant()
             if (-not $approval.ContainsKey('sourceArchiveSHA256') -or $approval.sourceArchiveSHA256 -ne $package.sourceArchiveSHA256) {
                 throw 'Source archive digest must be reviewed and included in approval before submission.'
@@ -254,28 +268,30 @@ function Submit-DeploymentOperation {
             if ((Get-FileHash -LiteralPath $proof).Hash.ToLowerInvariant() -ne $approval.transferSHA256) { throw 'Transfer proof differs from approval.' }
             $package.transferSHA256 = $approval.transferSHA256
             $destination = Join-Path $operation 'transfer'
-            [IO.Directory]::CreateDirectory($destination) | Out-Null
+            Invoke-DeploymentFileOperation CreateDirectory @($destination) | Out-Null
             $transfer = Read-DeploymentJson $proof
             foreach ($file in $transfer.files) {
                 $from = Resolve-OwnedPath $TransferDirectory $file.target
                 $to = Resolve-OwnedPath $destination $file.target
                 if ((Get-FileHash -LiteralPath $from).Hash.ToLowerInvariant() -ne $file.sha256) { throw 'Transfer payload differs from proof.' }
-                [IO.Directory]::CreateDirectory((Split-Path -Parent $to)) | Out-Null
-                [IO.File]::Copy($from,$to,$false)
+                Invoke-DeploymentFileOperation CreateDirectory @((Split-Path -Parent $to)) | Out-Null
+                Invoke-DeploymentFileOperation Copy @($from,$to,$false)
             }
-            [IO.File]::Copy($proof,(Join-Path $destination 'transfer.json'),$false)
+            Invoke-DeploymentFileOperation Copy @($proof,(Join-Path $destination 'transfer.json'),$false)
             }
             if($Action -eq 'PrepareCutover'){
                 $package.sourceFenceVerification=Test-RemoteSourceFence $Plan $transfer.fence -TransferContinuity -TransferSHA256 $approval.transferSHA256 -TransferProof $transfer
             }else{$package.sourceFenceVerification=Test-RemoteSourceFence $Plan $transfer.fence}
         }
         if($Action -in @('PrepareCutover','Deploy','Cutover','Rollback')){
+            foreach($lease in @($lock,$placementLock)){if($lease.PSObject.Methods['AssertHeld']){$lease.AssertHeld()}}
             Set-PlacementTransition $Plan Pending
             $transitionStarted=$true
         }
         $request = Join-Path $operation 'request.json'
         Write-DeploymentJson $request $package
         $requestHash = (Get-FileHash -LiteralPath $request).Hash.ToLowerInvariant()
+        foreach($lease in @($lock,$placementLock)){if($lease.PSObject.Methods['AssertHeld']){$lease.AssertHeld()}}
         Write-DeploymentJson (Join-Path $remote 'control\pending.json') @{operationId=$operationId;requestSHA256=$requestHash}
         $task = Get-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName 'SolutionDeploy-Executor' -ErrorAction Stop
         if (-not $task) { throw 'Fixed protected executor task is missing.' }
@@ -288,6 +304,7 @@ function Submit-DeploymentOperation {
         $resultPath = Join-Path $operation 'result.json'
         # Deadlines are evaluated only after the result and activity are re-read, so a result written during a sleep is never discarded.
         while ($true) {
+            Assert-DeploymentLease @($lock,$placementLock)
             if (Test-Path -LiteralPath $resultPath) {
                 $result = Read-DeploymentJson $resultPath
                 if ($result.operationId -ne $operationId -or $result.planHash -ne $Plan.planHash) { throw 'Executor result does not match the submitted operation.' }
@@ -328,9 +345,9 @@ function Submit-DeploymentOperation {
         }
         throw "Executor deadline exceeded. Outcome is unknown for operation $operationId; do not resubmit. Inspect its result and source/target authority before resuming."
     } finally {
-        try{if($transitionStarted){Set-PlacementTransition $Plan Unknown}}
+        try{if($transitionStarted){Assert-DeploymentLease @($lock,$placementLock);Set-PlacementTransition $Plan Unknown}}
         finally{
-            try{if($session){Remove-CimSession $session}}
+            try{if($session){Close-DeploymentSession $session}}
             finally{
                 try{if($lock){$lock.Dispose()}}finally{$placementLock.Dispose()}
             }
@@ -346,7 +363,10 @@ function Restore-VerifiedPlacement {
     try {
         $deadline=[DateTimeOffset]::Now.AddSeconds(10)
         while(-not $executionLock){
-            try{$executionLock=[IO.File]::Open((Join-Path $RemoteRoot 'control\execution.lock'),'OpenOrCreate','ReadWrite','None')}
+            try{
+                $executionLockPath=Join-Path $RemoteRoot 'control\execution.lock'
+                $executionLock=if(Resolve-DeploymentSshPath $executionLockPath){Open-DeploymentSshLock $executionLockPath}else{[IO.File]::Open($executionLockPath,'OpenOrCreate','ReadWrite','None')}
+            }
             catch [IO.IOException]{
                 if([DateTimeOffset]::Now -ge $deadline){throw 'Executor is still active; placement reconciliation deferred.'}
                 Start-Sleep -Milliseconds 200
@@ -388,4 +408,4 @@ function Restore-VerifiedPlacement {
     }
 }
 
-Export-ModuleMember -Function Get-AdminSharePath,Get-RemoteDeploymentStatus,Submit-DeploymentOperation
+Export-ModuleMember -Function Get-RemoteDeploymentRoot,Get-RemoteDeploymentStatus,Submit-DeploymentOperation

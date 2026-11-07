@@ -2,6 +2,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
 function Assert-PostgresName {
     param([Parameter(Mandatory)][string]$Name)
@@ -137,6 +138,16 @@ function Assert-PostgresRuntimeConnectionString {
 
 function Assert-PostgresProtectedFile {
     param([Parameter(Mandatory)][string]$Path,[Parameter(Mandatory)][string]$Purpose,[switch]$DenyBroadRead)
+    $remote=Resolve-DeploymentSshPath $Path
+    if($remote){
+        $definition=${function:Assert-PostgresProtectedFile}.ToString()
+        Invoke-DeploymentSsh $remote.hostName {param($definition,$path,$purpose,$deny)
+            Set-Item Function:Assert-PostgresProtectedFile ([scriptblock]::Create($definition))
+            function Resolve-DeploymentSshPath {param($Path) $null}
+            Assert-PostgresProtectedFile $path $purpose -DenyBroadRead:$deny
+        } @($definition,$remote.path,$Purpose,[bool]$DenyBroadRead)
+        return
+    }
     if(-not [IO.Path]::IsPathFullyQualified($Path) -or -not (Test-Path -LiteralPath $Path -PathType Leaf)){throw "PostgreSQL $Purpose must be an existing absolute file path."}
     $item=Get-Item -LiteralPath $Path -Force
     if($item.Attributes -band [IO.FileAttributes]::ReparsePoint){throw "PostgreSQL $Purpose cannot be a reparse point."}

@@ -25,16 +25,15 @@ Describe 'Protected submission and central placement with no remote writes' {
         Write-DeploymentJson $script:approval @{purpose='synthetic no-remote test'}
         Mock Assert-DeploymentApproval -ModuleName Controller {@{}}
         Mock Get-HostSnapshot -ModuleName Controller {@{identity='synthetic-uuid'}}
-        Mock Get-AdminSharePath -ModuleName Controller {$global:SyntheticControllerRoot}
+        Mock Get-RemoteDeploymentRoot -ModuleName Controller {$global:SyntheticControllerRoot}
         Mock Get-PlacementLease -ModuleName Controller {$global:SyntheticPlacementLease}
         Mock Assert-PlacementUnchanged -ModuleName Controller {}
         Mock Set-PlacementTransition -ModuleName Controller {
             param($Plan,$Status)
             $global:SyntheticPlacementStates.Add($Status)
         }
-        Mock New-CimSessionOption -ModuleName Controller {}
-        Mock New-CimSession -ModuleName Controller {$global:SyntheticCimSession}
-        Mock Remove-CimSession -ModuleName Controller {}
+        Mock New-DeploymentSession -ModuleName Controller {$global:SyntheticCimSession}
+        Mock Close-DeploymentSession -ModuleName Controller {}
         Mock Get-ScheduledTask -ModuleName Controller {[pscustomobject]@{State='Ready'}}
         Mock Get-CimInstance -ModuleName Controller {@()}
         Mock Start-Sleep -ModuleName Controller {}

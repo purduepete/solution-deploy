@@ -4,9 +4,10 @@ $ErrorActionPreference='Stop'
 Import-Module (Join-Path $PSScriptRoot 'Deployment.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'CommonRelease.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'HandPlacedRelease.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'SshTransport.psm1') -DisableNameChecking
 
-$script:Share='\\jimbrownhome1.local\c$'
-$script:Lock='\\jimbrownhome1.local\c$\ProgramData\SolutionDeploy\apps\solution-deploy\state\common-controller.lock'
+$script:Share=(Get-DeploymentRemotePath jimbrownhome1 'C:\').TrimEnd('\')
+$script:Lock=Get-DeploymentRemotePath jimbrownhome1 'C:\ProgramData\SolutionDeploy\apps\solution-deploy\state\common-controller.lock'
 $script:Target='^C:\\ProgramData\\(SolutionDeploy|JimlerTech\\PostgreSQL)(\\[A-Za-z0-9_.-]+)+$'
 $script:LanProxy='C:\ProgramData\SolutionDeploy\apps\lan-proxy'
 
@@ -125,7 +126,7 @@ function Invoke-FileSetRelease {
             Write-DeploymentJson $receiptPath $receipt
             return $receipt
         }
-        $session=New-CimSession -ComputerName jimbrownhome1.local -SessionOption (New-CimSessionOption -Protocol Dcom) -OperationTimeoutSec 30
+        $session=New-DeploymentSession -ComputerName jimbrownhome1.local -OperationTimeoutSec 30
         # Keep the replaced files with the receipt; copy them back by hand to roll back.
         $previous=Join-Path $directory 'previous'
         [IO.Directory]::CreateDirectory($previous)|Out-Null
@@ -139,7 +140,7 @@ function Invoke-FileSetRelease {
         Write-DeploymentJson $receiptPath $receipt
         $copied=Get-Date
         # Writing in place keeps each installed file's existing ACL.
-        foreach($file in $changed){[IO.File]::WriteAllBytes($file.share,[IO.File]::ReadAllBytes((Join-Path $source $file.source)))}
+        foreach($file in $changed){Assert-DeploymentLease @($lock);Invoke-DeploymentFileOperation WriteAllBytes @($file.share,[IO.File]::ReadAllBytes((Join-Path $source $file.source)))}
         $left=@(foreach($plan in $plans){Compare-FileSet $plan.files $source})
         if($left.Count){throw "Installed files still differ from $commitId after the copy: $(@($left|ForEach-Object {$_.target}) -join ', ')."}
         $receipt.status='Checking'
@@ -151,11 +152,12 @@ function Invoke-FileSetRelease {
             $checks[$plan.component]=switch($plan.after.type){
                 'none'{@{result='copied; runs at its next schedule'}}
                 'next-run'{Wait-FileSetNextRun $session $plan.after.task $copied}
-                'lan-proxy'{Restart-FileSetLanProxy $session}
+                'lan-proxy'{Assert-DeploymentLease @($lock);Restart-FileSetLanProxy $session}
                 'restart-apps'{
                     $apps=@{}
                     foreach($app in @($plan.after.apps)){
                         Write-Host "Restarting $app on the new launcher."
+                        Assert-DeploymentLease @($lock)
                         $apps[$app]=Restart-FileSetApp $session $app $inventory[$app]
                     }
                     $apps
@@ -171,7 +173,7 @@ function Invoke-FileSetRelease {
         Write-DeploymentJson $receiptPath $receipt
         throw
     }finally{
-        if($session){Remove-CimSession $session}
+        if($session){Close-DeploymentSession $session}
         $lock.Dispose()
     }
 }

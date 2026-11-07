@@ -193,7 +193,7 @@ comparison and access checks only; it is not a fresh runtime attestation.
 ```
 
 `src\HandPlacedRelease.psm1` resolves the pushed commit, then builds it in a
-temporary `git worktree` using the app's documented build. Every `*.sql` file in
+release-operation `git worktree` using the app's documented build. Every `*.sql` file in
 the build must match the installed release (line endings ignored); any added,
 changed or removed SQL file blocks the release, because this procedure never
 runs migrations. The one exception is a file listed in the app's
@@ -201,7 +201,8 @@ runs migrations. The one exception is a file listed in the app's
 digest. Add an entry only after a read-only check shows the migration is already
 live; Web Options 005, 006 and 007 were checked that way on 10/24/2026. The
 payload and `scripts\Invoke-HandPlacedRelease.ps1` are
-copied to `apps\<id>\state\routine\<op>` and run on the host through CIM.
+copied through SFTP to `apps\<id>\state\routine\<op>` and run through key-only
+LAN SSH. The remote commands use the managed PowerShell 7 executable.
 
 Prepare expands the payload into `releases\<sha12>-<op8>` with the previous
 release's ACL, runs `npm ci --omit=dev` on the host (Web Options at the release
@@ -282,7 +283,7 @@ the source paths and the pinned Python runtime. The release:
 3. Returns `NoChanges` when the job paths did not change. Stops when
    `requirements.txt` changed since the runtime was built, because the runtime
    needs a rebuild first. Applies the same SQL gate as the web release.
-4. Builds `<prefix><sha>` over the admin share, copies the old folder's
+4. Copies the built `<prefix><sha>` through SFTP, copies the old folder's
    explicit `LOCAL SERVICE` read ACE, and verifies the tree. The installed
    access entry point loads the hash-verified staged module and checks the
    candidate release, runtime, config and writable paths using an actual
@@ -618,7 +619,21 @@ All created tasks belong under **Task Scheduler Library > JimlerTech**:
 
 Installers create the folder when needed and report failures. Executor dispatch, app startup, read-back validation, and managed-source fencing use this exact task path. Existing legacy tasks keep their original recorded paths until approved retirement.
 
-The controller starts the executor with `Start-ScheduledTask -CimSession` and the exact folder/name. `MSFT_ScheduledTask` has no callable `Start` CIM method.
+The controller starts the executor with host-local `Start-ScheduledTask` through
+SSH and the exact folder/name. `MSFT_ScheduledTask` has no callable `Start` CIM
+method. Every adapter, source-fence check, runtime hash, placement record and
+Directory receipt uses the same shared SSH transport. Logical paths under
+`C:\.solution-deploy-ssh` are addresses handled by the shared file helpers;
+they are never local directories, mounted drives or SMB connections.
+
+The SSH account is a local maintenance administrator, separate from the app
+accounts and executor task principal. SSH changes no app task accounts,
+triggers, approval flags or database gates. The submission and placement
+locks remain exclusive native file handles held on the host until the SSH
+connection is closed. Strict host-key checks and public-key-only authentication
+fail closed. Connection/command deadlines report unknown outcomes and never
+retry a submitted operation. See [the master commands](ReleaseCommands.md)
+for setup, the read-only executor check and maintenance invocation.
 
 Application tasks use a short launcher that redirects both output streams and exits. The long-running Node or Python process runs without a drawn console. Tasks use Password logon, Limited privilege, startup/retry triggers, and no execution-time limit. Start applications through their registered task. Running a launcher manually from an interactive terminal is outside the supported startup path.
 
@@ -688,7 +703,7 @@ separately reviewed recovery. Deleting a receipt or retrying blindly is forbidde
 ### Optional compressed transfer archive
 
 The default transport is unchanged: `-TransferDirectory` copies each declared
-file over SMB. For large frozen exports, an approved single ZIP can replace it
+file through SFTP on `jimbrownhome1`. For large frozen exports, an approved single ZIP can replace it
 for `PrepareCutover` or an unprepared `Cutover`.
 
 1. On the source, after export, run `scripts\New-TransferArchive.ps1` with the
