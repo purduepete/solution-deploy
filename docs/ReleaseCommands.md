@@ -23,9 +23,15 @@ before running any command. Helpers require `BatchMode=yes`,
 new host key or fall back to passwords, SMB or DCOM.
 
 The remote shell is `C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe`.
-The SSH command passes the destination and command as separate arguments and
-invokes that executable with PowerShell's `&` call operator. Windows OpenSSH's
-configured default shell is PowerShell 7.
+Remote commands run in one PowerShell session over SSH per host, opened on first
+use and reused for the rest of the process, so each call takes about 0.1 s
+instead of a new 3 to 10 s connection. The host's `sshd_config` needs
+`Subsystem powershell C:/ProgramData/SolutionDeploy/runtime/powershell/7/pwsh.exe -sshs -NoLogo -NoProfile`.
+A broken session is reopened before the next command. A session that ends while
+a command runs is reported as an unknown outcome and never retried automatically.
+Deployment locks keep their own SSH process for the life of the lease; it passes
+the destination and command as separate arguments and invokes PowerShell 7 with
+the `&` call operator, because Windows OpenSSH's default shell is PowerShell 7.
 SCP uses SFTP with each Windows drive path passed as one argument, including
 spaces. The release commands and consent flags below are unchanged.
 

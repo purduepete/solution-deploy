@@ -102,40 +102,88 @@ function New-DeploymentCopyProcess {
     $process
 }
 
+$script:Sessions=@{}
+
+# Runs inside the reused remote session. Modules a command imports are removed afterwards so later commands start clean.
+$script:RemoteRunner=@'
+param($payload)
+$ErrorActionPreference='Stop'
+$modules=@(Get-Module)
+try{
+    $inputData=[Management.Automation.PSSerializer]::Deserialize($payload)
+    $arguments=$inputData.arguments
+    $result=@(& ([scriptblock]::Create($inputData.script)) @arguments 3>$null 4>$null 5>$null 6>$null)
+    'OK:'+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([Management.Automation.PSSerializer]::Serialize($result,40)))
+}catch{
+    'FAIL'
+}finally{
+    Get-Module|Where-Object {$_ -notin $modules}|Remove-Module -Force -ErrorAction SilentlyContinue
+}
+'@
+
+function Close-DeploymentPSSession {
+    param([Parameter(Mandatory)]$Session)
+    Remove-PSSession -Session $Session -ErrorAction SilentlyContinue
+}
+
+function Get-DeploymentPSSession {
+    param([Parameter(Mandatory)][string]$HostName)
+    $configuration=Get-DeploymentSshConfiguration $HostName
+    $session=$script:Sessions[$configuration.hostName]
+    if($session -and $session.State -eq 'Opened' -and $session.Availability -eq 'Available'){return $session}
+    if($session){Close-DeploymentPSSession $session}
+    $options=@{BatchMode='yes';StrictHostKeyChecking='yes';PreferredAuthentications='publickey';PasswordAuthentication='no'
+        KbdInteractiveAuthentication='no';ConnectTimeout='10';ServerAliveInterval='10';ServerAliveCountMax='3'}
+    $parameters=@{HostName=$configuration.hostName;UserName=$configuration.user;Subsystem='powershell';Options=$options
+        ConnectingTimeout=20000;ErrorAction='Stop'}
+    if($env:SOLUTION_DEPLOY_SSH_KEY){$parameters.KeyFilePath=$env:SOLUTION_DEPLOY_SSH_KEY;$options.IdentitiesOnly='yes'}
+    try{$session=New-PSSession @parameters}
+    catch{throw 'SSH session could not be opened. Check key-only access, the trusted host key and the PowerShell subsystem.'}
+    $script:Sessions[$configuration.hostName]=$session
+    $session
+}
+
+function Reset-DeploymentPSSession {
+    param([Parameter(Mandatory)][string]$HostName)
+    $name=(Get-DeploymentSshConfiguration $HostName).hostName
+    $session=$script:Sessions[$name]
+    $script:Sessions.Remove($name)
+    if($session){Close-DeploymentPSSession $session}
+}
+
+function Start-DeploymentRemoteJob {
+    param([Parameter(Mandatory)][string]$HostName,[Parameter(Mandatory)][string]$Payload)
+    Invoke-Command -Session (Get-DeploymentPSSession $HostName) -ScriptBlock ([scriptblock]::Create($script:RemoteRunner)) `
+        -ArgumentList $Payload -AsJob
+}
+
 function Invoke-DeploymentSsh {
     param([Parameter(Mandatory)][string]$HostName,[Parameter(Mandatory)][scriptblock]$ScriptBlock,
         [object[]]$ArgumentList=@(),[int]$TimeoutSeconds=30)
-    # Input travels over the encrypted channel, never in the command line (it may contain credentials).
-    $script=@'
-$ErrorActionPreference='Stop'
-try{
-    $inputData=[Management.Automation.PSSerializer]::Deserialize([Console]::In.ReadToEnd())
-    $arguments=$inputData.arguments
-    $result=@(& ([scriptblock]::Create($inputData.script)) @arguments 3>$null 4>$null 5>$null 6>$null)
-    [Console]::Out.Write([Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([Management.Automation.PSSerializer]::Serialize($result,40))))
-}catch{
-    [Console]::Error.Write('Remote command failed. Inspect the protected operation record.')
-    exit 1
-}
-'@
-    $process=New-DeploymentSshProcess $HostName $script
+    # Input travels inside the encrypted session as a payload, never on a command line (it may contain credentials).
+    $payload=[Management.Automation.PSSerializer]::Serialize(@{script=$ScriptBlock.ToString();arguments=$ArgumentList},40)
+    $job=Start-DeploymentRemoteJob $HostName $payload
     try{
-        $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
-        $process.StandardInput.Write([Management.Automation.PSSerializer]::Serialize(@{script=$ScriptBlock.ToString();arguments=$ArgumentList},40))
-        $process.StandardInput.Close()
         $clock=[Diagnostics.Stopwatch]::StartNew();$next=10
-        while(-not $process.WaitForExit(1000)){
+        while(-not (Wait-Job $job -Timeout 1)){
             if($clock.Elapsed.TotalSeconds -ge $TimeoutSeconds){
-                $process.Kill($true);$process.WaitForExit()
+                Stop-Job $job
+                Reset-DeploymentPSSession $HostName
                 throw "SSH deadline exceeded after $TimeoutSeconds seconds. Outcome unknown; do not resubmit."
             }
             if($clock.Elapsed.TotalSeconds -ge $next){Write-Host ("SSH command: elapsed {0:n0}s" -f $clock.Elapsed.TotalSeconds);$next+=10}
         }
-        if($process.ExitCode -ne 0){throw "SSH failed with exit code $($process.ExitCode). Check key-only access and the trusted host key; remote output withheld."}
-        $text=$stdout.GetAwaiter().GetResult().Trim()
-        if(-not $text){return}
+        $reply=@(Receive-Job $job -ErrorAction SilentlyContinue -ErrorVariable transportErrors)
+        if($job.State -ne 'Completed' -or $transportErrors.Count -or $reply.Count -ne 1 -or $reply[0] -isnot [string]){
+            # A dropped session may have run the command; never repeat it automatically.
+            Reset-DeploymentPSSession $HostName
+            throw 'SSH failed: the session ended before a result arrived. Outcome unknown; do not resubmit.'
+        }
+        if($reply[0] -eq 'FAIL'){throw 'SSH failed: the remote command reported an error; remote output withheld.'}
+        if(-not $reply[0].StartsWith('OK:')){throw 'SSH failed: unexpected remote reply.'}
+        $text=$reply[0].Substring(3)
         [Management.Automation.PSSerializer]::Deserialize([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($text)))
-    }finally{$process.Dispose()}
+    }finally{Remove-Job $job -Force -ErrorAction SilentlyContinue}
 }
 
 function ConvertTo-DeploymentNativeArguments {

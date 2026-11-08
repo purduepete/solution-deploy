@@ -58,6 +58,12 @@ Describe 'SSH transport addressing and authentication' {
 
 Describe 'Encrypted command protocol using a host-local process substitute' {
     BeforeEach {
+        Mock Start-DeploymentRemoteJob -ModuleName SshTransport {
+            param($HostName,$Payload)
+            Start-Job -ScriptBlock ([scriptblock]::Create($script:RemoteRunner)) -ArgumentList $Payload
+        }
+        Mock Reset-DeploymentPSSession -ModuleName SshTransport {}
+        # Deployment locks still hold their own SSH process for the life of the lease.
         Mock New-DeploymentSshProcess -ModuleName SshTransport {
             param($HostName,$Script)
             $start=[Diagnostics.ProcessStartInfo]::new()
@@ -220,6 +226,46 @@ Describe 'Remote filesystem and task routing without a network connection' {
             $text=[IO.File]::ReadAllText((Join-Path $root "src\$name.psm1"))
             $text|Should Not Match 'New-CimSession|Protocol Dcom|\\\\jimbrownhome1(?:\.local)?\\'
             $text|Should Match 'SshTransport.psm1'
+        }
+    }
+}
+
+Describe 'Reused SSH session' {
+    It 'reports an unknown outcome and drops the session when it ends before replying' {
+        Mock Start-DeploymentRemoteJob -ModuleName SshTransport {Start-Job -ScriptBlock {throw 'transport closed'}}
+        Mock Reset-DeploymentPSSession -ModuleName SshTransport {}
+        $message=''
+        try{Invoke-DeploymentSsh jimbrownhome1 {'never'}|Out-Null}catch{$message=$_.Exception.Message}
+        $message|Should Match 'Outcome unknown.*do not resubmit'
+        Assert-MockCalled Reset-DeploymentPSSession -ModuleName SshTransport -Times 1 -Exactly -Scope It
+    }
+    It 'reuses an open session and replaces a broken one' {
+        InModuleScope SshTransport {
+            $script:Sessions=@{}
+            $global:SessionOpens=0
+            Mock New-PSSession {$global:SessionOpens++;[pscustomobject]@{State='Opened';Availability='Available';Id=$global:SessionOpens}}
+            Mock Close-DeploymentPSSession {}
+            $first=Get-DeploymentPSSession jimbrownhome1
+            (Get-DeploymentPSSession jimbrownhome1).Id|Should Be $first.Id
+            $global:SessionOpens|Should Be 1
+            $first.State='Broken'
+            (Get-DeploymentPSSession jimbrownhome1).Id|Should Be 2
+            Assert-MockCalled New-PSSession -Times 2 -Exactly -Scope It -ParameterFilter {
+                $HostName -eq 'jimbrownhome1.local' -and $Subsystem -eq 'powershell' -and
+                $Options.BatchMode -eq 'yes' -and $Options.StrictHostKeyChecking -eq 'yes' -and $Options.PasswordAuthentication -eq 'no'
+            }
+            $script:Sessions=@{}
+            Remove-Variable SessionOpens -Scope Global
+        }
+    }
+    It 'removes modules a command imported so the next command starts clean' {
+        InModuleScope SshTransport {
+            $module=Join-Path $TestDrive 'Leaky.psm1'
+            Set-Content -LiteralPath $module -Value 'function Get-Leak {1}'
+            $payload=[Management.Automation.PSSerializer]::Serialize(@{script='param($m) Import-Module $m; Get-Leak';arguments=@($module)},40)
+            $reply=& ([scriptblock]::Create($script:RemoteRunner)) $payload
+            $reply|Should Match '^OK:'
+            Get-Module Leaky|Should BeNullOrEmpty
         }
     }
 }
