@@ -378,7 +378,8 @@ function Read-OptionalRemoteRecord {
         Read-OptionalDeploymentText $File
     } -ArgumentList $Path,(Join-Path $PSScriptRoot 'Deployment.psm1')
     try{
-        if(-not (Wait-Job $job -Timeout 20)){throw 'Remote deployment record read timed out.'}
+        # Each SSH call has its own 30-second deadline; a record read makes up to 3 of them.
+        if(-not (Wait-Job $job -Timeout 60)){throw 'Remote deployment record read timed out.'}
         $raw=Receive-Job $job -ErrorAction Stop
         if($null -ne $raw){
             $record=$raw|ConvertFrom-Json -AsHashtable -DateKind String

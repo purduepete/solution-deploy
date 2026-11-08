@@ -102,6 +102,18 @@ Describe 'Encrypted command protocol using a host-local process substitute' {
         try{Invoke-DeploymentSsh jimbrownhome1 {Start-Sleep -Seconds 10} -TimeoutSeconds 1|Out-Null}catch{$message=$_.Exception.Message}
         $message|Should Match 'deadline.*Outcome unknown.*do not resubmit'
     }
+    It 'returns compact file items from a remote Get-Item with logical paths' {
+        $file=Join-Path $TestDrive 'remote item.json'
+        Set-Content -LiteralPath $file -Value '{"ok":true}' -NoNewline
+        $logical=Get-DeploymentRemotePath jimbrownhome1 $file
+        $clock=[Diagnostics.Stopwatch]::StartNew()
+        $item=Get-Item -LiteralPath $logical -Force
+        $clock.Elapsed.TotalSeconds|Should BeLessThan 20
+        $item.FullName|Should Be $logical
+        $item.Length|Should Be 11
+        $item.PSIsContainer|Should Be $false
+        $item.PSObject.Properties['Directory']|Should BeNullOrEmpty
+    }
     It 'writes local JSON with create-new semantics and reads it back unchanged' {
         $path=Join-Path $TestDrive 'record.json'
         Write-DeploymentJson $path @{status='Succeeded';nested=@{count=2}} -CreateNew

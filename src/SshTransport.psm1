@@ -215,7 +215,21 @@ function Invoke-DeploymentTransportCommand {
                 $parameters.Remove('InputObject')|Out-Null
             }
         }
-        & (Get-Command $name -CommandType Cmdlet,Function|Select-Object -First 1) @parameters
+        $output=& (Get-Command $name -CommandType Cmdlet,Function|Select-Object -First 1) @parameters
+        if($name -in @('Get-Item','Get-ChildItem','New-Item')){
+            # Deep serialization of FileInfo/DirectoryInfo walks the whole drive graph; return the properties callers use.
+            return @($output|ForEach-Object {
+                $container=[bool]$_.PSIsContainer
+                [pscustomobject]@{
+                    Name=$_.Name;FullName=$_.FullName;PSPath=$_.FullName;PSIsContainer=$container
+                    Length=if($container){$null}else{$_.Length};Attributes=$_.Attributes;Mode=$_.Mode
+                    Extension=$_.Extension;BaseName=$_.BaseName;Exists=$_.Exists
+                    CreationTime=$_.CreationTime;LastWriteTime=$_.LastWriteTime;LastWriteTimeUtc=$_.LastWriteTimeUtc
+                    LinkType=$_.LinkType;Target=@($_.Target|ForEach-Object {[string]$_})
+                }
+            })
+        }
+        $output
     } @($Name,$native) -TimeoutSeconds $(if($session){$session.OperationTimeoutSec}elseif($Name -eq 'Get-FileHash'){300}else{30})
     foreach($item in @($result)){
         if($null -eq $item){continue}
