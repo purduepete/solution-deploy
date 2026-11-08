@@ -26,9 +26,25 @@ function Get-RoutineReleaseContext {
     if('src\RoutineRelease.psm1' -notin @($installation.files.path)){
         throw 'Installed executor does not support routine releases. Apply the reviewed host update first.'
     }
-    foreach($file in $installation.files){
-        $path=Resolve-OwnedPath (Join-Path $remote 'control\framework') $file.path
-        if((Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant() -ne $file.sha256){throw 'Installed executor file differs from its protected inventory.'}
+    # Over SSH, scan on the host in one call each; per-file round trips took hours for 800 operations.
+    $sshRoot=Resolve-DeploymentSshPath $remote
+    if($sshRoot){
+        $badFiles=@(Invoke-DeploymentSsh $sshRoot.hostName {
+            param($root,$files)
+            $base=[IO.Path]::GetFullPath((Join-Path $root 'control\framework'))
+            @(foreach($file in $files){
+                $path=[IO.Path]::GetFullPath((Join-Path $base $file.path))
+                if(-not $path.StartsWith($base+'\',[StringComparison]::OrdinalIgnoreCase) -or
+                    -not (Test-Path -LiteralPath $path -PathType Leaf) -or
+                    (Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant() -ne $file.sha256){[string]$file.path}
+            })
+        } @($sshRoot.path,@($installation.files)) -TimeoutSeconds 120)
+        if($badFiles.Count){throw 'Installed executor file differs from its protected inventory.'}
+    }else{
+        foreach($file in $installation.files){
+            $path=Resolve-OwnedPath (Join-Path $remote 'control\framework') $file.path
+            if((Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant() -ne $file.sha256){throw 'Installed executor file differs from its protected inventory.'}
+        }
     }
     $appRoot=Join-Path $remote ('apps\'+$Plan.app)
     $active=Read-DeploymentJson (Join-Path $appRoot 'state\active.json')
@@ -44,7 +60,23 @@ function Get-RoutineReleaseContext {
         $release.sourceCommit -ne $Plan.currentRelease.sourceCommit){
         throw 'Prior protected release metadata belongs to another plan or commit.'
     }
-    $matches=@(foreach($directory in Get-ChildItem -LiteralPath (Join-Path $remote 'operations') -Directory){
+    $operationDirectories=if($sshRoot){
+        # The host returns only folders the loop below would not skip; unreadable requests are kept so they fail there.
+        @(Invoke-DeploymentSsh $sshRoot.hostName {
+            param($operations,$planHash)
+            @(foreach($directory in Get-ChildItem -LiteralPath $operations -Directory){
+                if(-not (Test-Path -LiteralPath (Join-Path $directory.FullName 'request.json') -PathType Leaf) -or
+                    -not (Test-Path -LiteralPath (Join-Path $directory.FullName 'result.json') -PathType Leaf)){continue}
+                try{$request=Get-Content -LiteralPath (Join-Path $directory.FullName 'request.json') -Raw|ConvertFrom-Json -AsHashtable -DateKind String}
+                catch{[string]$directory.FullName;continue}
+                if($request -isnot [Collections.IDictionary] -or $request['plan'] -isnot [Collections.IDictionary] -or
+                    ($request['plan']['planHash'] -eq $planHash -and $request['action'] -in @('Deploy','Cutover'))){[string]$directory.FullName}
+            })
+        } @((Join-Path $sshRoot.path 'operations'),$active.planHash) -TimeoutSeconds 120|ForEach-Object {
+            [pscustomobject]@{FullName=(Get-DeploymentRemotePath $Plan.target.host $_)}
+        })
+    }else{@(Get-ChildItem -LiteralPath (Join-Path $remote 'operations') -Directory)}
+    $matches=@(foreach($directory in $operationDirectories){
         $requestPath=Join-Path $directory.FullName 'request.json'
         $resultPath=Join-Path $directory.FullName 'result.json'
         if(-not (Test-Path -LiteralPath $requestPath) -or -not (Test-Path -LiteralPath $resultPath)){continue}

@@ -318,4 +318,20 @@ Describe 'Routine Release prior approval context' {
         Mock Test-Path -ModuleName Release {$LiteralPath -notlike '*operator-reconciliation.json'}
         Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
     }
+    It 'scans an SSH host in one call each and keeps the same checks' {
+        Mock Resolve-DeploymentSshPath -ModuleName Release {if($Path -eq 'C:\synthetic'){@{hostName='jimbrownhome1.local';path='C:\host'}}}
+        Mock Get-DeploymentRemotePath -ModuleName Release {"C:\synthetic\operations\$(Split-Path -Leaf $Path)"}
+        $global:ReleaseContextBadFiles=@()
+        Mock Invoke-DeploymentSsh -ModuleName Release {
+            if([string]$ArgumentList[0] -like '*operations'){@('C:\host\operations\prior-deploy')}else{$global:ReleaseContextBadFiles}
+        }
+        (Get-RoutineReleaseContext $global:ReleaseContextPlan).runtimePath|Should Be 'C:\fixed\node.exe'
+        Assert-MockCalled Invoke-DeploymentSsh -ModuleName Release -Times 2 -Exactly -Scope It
+        Assert-MockCalled Get-ChildItem -ModuleName Release -Times 0 -Scope It
+        $global:ReleaseContextBadFiles=@('src\RoutineRelease.psm1')
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
+        $global:ReleaseContextBadFiles=@()
+        Mock Invoke-DeploymentSsh -ModuleName Release {if([string]$ArgumentList[0] -like '*operations'){@()}else{@()}}
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
+    }
 }
