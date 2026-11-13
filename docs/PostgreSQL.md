@@ -159,6 +159,30 @@ These are libpq semantics. libpq connects to `hostaddr` without DNS and verifies
 
 Drivers that are not libpq may differ. node-postgres (`pg`) ignores `hostaddr`, so it would resolve `<serverName>` through DNS and the address pin would be lost. Its `sslmode` handling also differs from libpq. A remote app on such a driver must set the driver's own TLS options explicitly: connect to the approved address, verify the certificate chain against the approved root file, and check the certificate name against `serverName`. Until that driver configuration is reviewed for the app, treat remote activation for that app as blocked. The psql-based evidence checks only the verifier's own session, not the app's connection.
 
+## After a PostgreSQL update
+
+A PostgreSQL update (for example 18.6 to 18.7) can re-register the
+`postgresql-x64-18` service with the installer's default data folder,
+`C:\Program Files\PostgreSQL\18\data`. On November 13, 2026 that started an
+empty October cluster, and every app's runtime login failed until the service
+was pointed back at the live cluster.
+
+After every update, before releasing anything:
+
+1. Check the service command line ends with `-D "D:\data\postgres" -w`:
+   `(Get-CimInstance Win32_Service -Filter "Name='postgresql-x64-18'").PathName`.
+2. If it names another folder, stop the service, set the `ImagePath` value under
+   `HKLM:\SYSTEM\CurrentControlSet\Services\postgresql-x64-18` to the live
+   folder (registry, not `sc.exe`, which mangles the quotes), confirm port 5432 is
+   free, then start it. This changes how the live server runs, so it needs the
+   independent review first.
+3. Confirm the PostgreSQL event log shows no `password authentication failed`
+   after the restart and each app's health check passes.
+4. The first release of each controller app then fails with
+   `PostgreSQL verifier changed since activation` and prints the new
+   `psql.exe` hash. Rerun it with `-ApprovedPsqlSHA256 <hash>`; the release
+   records the hash and later releases of that app need no flag.
+
 ## Data authority and rollback
 
 Keep original writers and their restart/backup paths disabled before final export/import. Do not run two Home Automation instances against real devices.

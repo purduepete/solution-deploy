@@ -13,7 +13,7 @@ function Get-ReleaseToolHash {
 }
 
 function Get-RoutineReleaseContext {
-    param([hashtable]$Plan,[string]$ApprovedManifestSHA256)
+    param([hashtable]$Plan,[string]$ApprovedManifestSHA256,[string]$ApprovedPsqlSHA256)
     if($Plan.transitionKind -ne 'ManagedDeploy' -or $Plan.operation -ne 'Deploy' -or
         -not $Plan.currentRelease -or $Plan.observedHost -ine $Plan.target.host){
         throw 'Release supports only an existing managed deployment on the same host.'
@@ -120,7 +120,15 @@ function Get-RoutineReleaseContext {
     if($fields.expectedSchemaFingerprint -notmatch '^[a-f0-9]{64}$'){throw 'Prior verified database schema fingerprint is missing.'}
     $runtimeHash=Get-ReleaseToolHash $Plan $release.runtimePath
     if($runtimeHash -ne $release.runtimeSHA256){throw 'Installed runtime differs from prior sealed bytes.'}
-    if((Get-ReleaseToolHash $Plan $fields.psqlPath) -ne $fields.psqlSHA256){throw 'PostgreSQL verifier changed since activation.'}
+    $psqlHash=Get-ReleaseToolHash $Plan $fields.psqlPath
+    if($psqlHash -ne $fields.psqlSHA256){
+        # A PostgreSQL update replaces psql.exe. The operator names the exact new hash; the release then records it,
+        # so later releases of this app compare against the updated tool.
+        if($ApprovedPsqlSHA256 -cnotmatch '^[a-f0-9]{64}$' -or $ApprovedPsqlSHA256 -cne $psqlHash){
+            throw "PostgreSQL verifier changed since activation. After a reviewed PostgreSQL update, rerun with -ApprovedPsqlSHA256 $psqlHash."
+        }
+        $fields.psqlSHA256=$psqlHash
+    }elseif($ApprovedPsqlSHA256){throw '-ApprovedPsqlSHA256 was given but psql.exe is unchanged.'}
     if($fields.ContainsKey('postgresSslRootCert') -and
         (Get-ReleaseToolHash $Plan $fields.postgresSslRootCert) -ne $fields.postgresSslRootCertSHA256){throw 'PostgreSQL certificate changed since activation.'}
     $npmPath=$null;$npmSHA256=$null;$npmCliSHA256=$null
@@ -254,7 +262,7 @@ function Invoke-RoutineRelease {
         [switch]$ApproveRelease,[Parameter(Mandatory)][string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
         [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
-        [ValidateRange(60,1800)][int]$TimeoutSeconds=1800,[string]$ApprovedManifestSHA256)
+        [ValidateRange(60,1800)][int]$TimeoutSeconds=1800,[string]$ApprovedManifestSHA256,[string]$ApprovedPsqlSHA256)
     if(-not $ApproveRelease -or -not $DatabaseChangesReviewed -or [string]::IsNullOrWhiteSpace($ApprovalReason)){
         throw 'Release requires -ApproveRelease, a non-empty -ApprovalReason and -DatabaseChangesReviewed.'
     }
@@ -264,7 +272,7 @@ function Invoke-RoutineRelease {
     Write-Host 'Release: preparing the exact deployment plan.'
     $plan=New-DeploymentPlan -App $App -Environment $Environment -Target $Target -Commit $Commit
     Write-Host 'Release: checking active metadata and pinned tools. Full release hashes are checked on the protected host before downtime.'
-    $context=Get-RoutineReleaseContext $plan -ApprovedManifestSHA256 $ApprovedManifestSHA256
+    $context=Get-RoutineReleaseContext $plan -ApprovedManifestSHA256 $ApprovedManifestSHA256 -ApprovedPsqlSHA256 $ApprovedPsqlSHA256
     Assert-ReleaseClocks $plan
     $configuration=Get-DeploymentEnvironment $Environment
     $framework=Split-Path -Parent $PSScriptRoot
@@ -307,6 +315,7 @@ function Invoke-RoutineRelease {
         tailscaleUrl=$TailscaleUrl;initialAccessSHA256=(Get-Sha256Text (ConvertTo-CanonicalJson $initialAccess))
     }
     if($ApprovedManifestSHA256){$plan.routineConsent.approvedManifestSHA256=$ApprovedManifestSHA256}
+    if($ApprovedPsqlSHA256){$plan.routineConsent.approvedPsqlSHA256=$ApprovedPsqlSHA256}
     $plan.planHash=Get-PlanDigest $plan
     $consentHash=Get-Sha256Text (ConvertTo-CanonicalJson $plan.routineConsent)
     Write-DeploymentJson (Join-Path $directory 'plan.json') $plan -CreateNew

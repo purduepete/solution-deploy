@@ -297,6 +297,17 @@ Describe 'Routine Release prior approval context' {
         Mock Get-ReleaseToolHash -ModuleName Release {('c'*64)}
         Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
     }
+    Context 'updated psql.exe' {
+        It 'accepts an updated psql.exe only with its exact approved hash and records the new hash' {
+            Mock Get-ReleaseToolHash -ModuleName Release {('d'*64)} -ParameterFilter {$Path -like '*psql.exe'}
+            Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan}
+            Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan -ApprovedPsqlSHA256 ('e'*64)}
+            (Get-RoutineReleaseContext $global:ReleaseContextPlan -ApprovedPsqlSHA256 ('d'*64)).approvalFields.psqlSHA256|Should Be ('d'*64)
+        }
+    }
+    It 'rejects an approved psql hash when psql.exe is unchanged' {
+        Assert-ReleaseThrows {Get-RoutineReleaseContext $global:ReleaseContextPlan -ApprovedPsqlSHA256 ('b'*64)}
+    }
     It 'accepts a failed deploy only with a matching operator reconciliation receipt' {
         $global:ReleaseContextReceipt=@{planHash='prior';operationId='prior-deploy';verification=@{releaseId='old';status='RuntimeVerified'}}
         Mock Read-DeploymentJson -ModuleName Release {

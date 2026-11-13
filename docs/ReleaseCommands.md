@@ -107,6 +107,10 @@ Rules the table encodes:
 - `-ApprovedManifestSHA256 <hash>` is for controller apps only, when a commit
   changes the `build` key of `deploy\application.json`. See "Slim Node releases"
   in [Production deployments](Deployment.md).
+- `-ApprovedPsqlSHA256 <hash>` is for controller apps only, on the first release of
+  each app after a PostgreSQL update replaces `psql.exe`. The release error prints the
+  new hash. That release records it, so later releases need no flag. Follow
+  "After a PostgreSQL update" in [PostgreSQL](PostgreSQL.md) first.
 - Use 3 times the expected time as the abort threshold.
 
 ## Pass criteria
@@ -277,17 +281,18 @@ Invoke-DeploymentSsh jimbrownhome1 {
 
 ## Errors caused by the wrong flags
 
-| Message starts with                                               | Fix                                                                          |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `Controller releases retain their complete managed scope`         | Remove `-Component`.                                                         |
-| `Manifest does not identify one private HTTPS origin`             | Add `-TailscaleUrl` from the table.                                          |
-| `Shared host jobs require explicit -Component selection`          | Add `-Component` for `solution-deploy`.                                      |
-| `Unknown component`                                               | Use a component name from the table.                                         |
-| `... has a separate release procedure`                            | Tampermonkey: use `Publish.ps1` in the web-bookmarks repo.                   |
-| `Release requires -ApproveRelease, a non-empty -ApprovalReason`   | Add all 3 consent flags.                                                     |
-| `Release requires a clean committed source checkout`              | Commit or stash in `C:\Files\Dev\main\<app>`.                                |
-| `Release commit is not reachable from a fetched origin branch`    | Push first.                                                                  |
-| `Non-controller releases support only the existing jimbrownhome1` | Use `-Target jimbrownhome1`.                                                 |
-| `-ApprovedManifestSHA256 applies only to framework-managed apps`  | Remove it; it is for controller apps only.                                   |
-| `... releases are blocked during US market hours`                 | Wait for 16:00 Eastern, or add `-AllowMarketHours` if the user asked for it. |
-| `Release consent must expire within 1 hour`                       | Drop `-ExpiresLocal` or set it within the next hour.                         |
+| Message starts with                                               | Fix                                                                              |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `Controller releases retain their complete managed scope`         | Remove `-Component`.                                                             |
+| `Manifest does not identify one private HTTPS origin`             | Add `-TailscaleUrl` from the table.                                              |
+| `Shared host jobs require explicit -Component selection`          | Add `-Component` for `solution-deploy`.                                          |
+| `Unknown component`                                               | Use a component name from the table.                                             |
+| `... has a separate release procedure`                            | Tampermonkey: use `Publish.ps1` in the web-bookmarks repo.                       |
+| `Release requires -ApproveRelease, a non-empty -ApprovalReason`   | Add all 3 consent flags.                                                         |
+| `Release requires a clean committed source checkout`              | Commit or stash in `C:\Files\Dev\main\<app>`.                                    |
+| `Release commit is not reachable from a fetched origin branch`    | Push first.                                                                      |
+| `Non-controller releases support only the existing jimbrownhome1` | Use `-Target jimbrownhome1`.                                                     |
+| `-ApprovedManifestSHA256 applies only to framework-managed apps`  | Remove it; it is for controller apps only.                                       |
+| `PostgreSQL verifier changed since activation`                    | After a checked PostgreSQL update, rerun with the printed `-ApprovedPsqlSHA256`. |
+| `... releases are blocked during US market hours`                 | Wait for 16:00 Eastern, or add `-AllowMarketHours` if the user asked for it.     |
+| `Release consent must expire within 1 hour`                       | Drop `-ExpiresLocal` or set it within the next hour.                             |

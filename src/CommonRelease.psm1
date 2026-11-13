@@ -141,10 +141,11 @@ function Invoke-CommonRelease {
         [switch]$ApproveRelease,[Parameter(Mandatory)][string]$ApprovalReason,[switch]$DatabaseChangesReviewed,
         [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)),[string]$TailscaleUrl,
         [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),
-        [ValidateRange(60,1800)][int]$TimeoutSeconds=300,[string]$ApprovedManifestSHA256,[switch]$AllowMarketHours)
+        [ValidateRange(60,1800)][int]$TimeoutSeconds=300,[string]$ApprovedManifestSHA256,[string]$ApprovedPsqlSHA256,[switch]$AllowMarketHours)
     $route=Get-CommonReleaseRoute -App $App -Component $Component -Environment $Environment -Target $Target
     Assert-CommonReleaseWindow -App $App -Component $Component -AllowMarketHours:$AllowMarketHours
     if($ApprovedManifestSHA256 -and $route.procedure -ne 'controller'){throw '-ApprovedManifestSHA256 applies only to framework-managed apps.'}
+    if($ApprovedPsqlSHA256 -and $route.procedure -ne 'controller'){throw '-ApprovedPsqlSHA256 applies only to framework-managed apps.'}
     $arguments=@{}+$PSBoundParameters
     [void]$arguments.Remove('Component')
     [void]$arguments.Remove('AllowMarketHours')
