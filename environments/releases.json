@@ -71,7 +71,8 @@
       "appliedDatabaseInputs": {
         "deploy/postgresql/002_elevation.sql": "df96a6b4188944564b5f5f531c39dd5493a1f27d2a8ff1cef6729eb58eb696b0",
         "deploy/postgresql/003_point_exclusions.sql": "e04b807278be39222fd795ee9e5ec63cc540d8b4892054bd73d6a3941faffcff",
-        "deploy/application.json": "7526c3d07c089c682ed5b8bfc6eab4d817238a12b824d5d487e2e9b7cecf1e64"
+        "deploy/postgresql/004_power_cadence_weight.sql": "7baad3991db93c2da0ed3b6a26cebdfaef24721c1d2a08893c6a07e5f4bfee50",
+        "deploy/application.json": "819f42548f38f4cfa2a8c69c9b47deefd5ebcc1e738533232f5f74e8f795dd16"
       },
       "componentNote": "The upload watcher is a logon task because it reads the per-user Google Drive G: drive. A release copies changed watcher scripts in place and restarts it; a changed Register-UploadWatcherTask.ps1 stops the release for a manual task re-registration.",
       "readiness": "/api/ready"

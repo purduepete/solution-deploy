@@ -164,7 +164,8 @@ current installation. It executes no importer, schema migration or data-fix
 script. The one exception is a manifest or migration file listed in the Fit Track
 `appliedDatabaseInputs` in `environments\releases.json`, at exactly its recorded
 LF-normalized digest; add an entry only after a read-only check shows the
-migration is live (Fit Track 002 was applied and checked that way on 10/29/2026).
+migration is live (Fit Track 002 was applied and checked that way on 10/29/2026,
+and 004 on 11/13/2026).
 The existing app's normal background writes resume when its watchdog
 starts it.
 
