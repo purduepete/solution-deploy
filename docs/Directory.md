@@ -70,7 +70,7 @@ firewall rule. The private path relies on Tailscale access controls.
   five-minute recovery check.
 - Launcher: a short hidden-process launcher with both output streams redirected.
 - Logs and PID: `...\solution-deploy\logs\stdout.log`, `stderr.log`, `server.pid`.
-- Node: `C:\Files\ScoopApps\apps\nodejs\current\node.exe`.
+- Node: `C:\Program Files\nodejs\node.exe`.
 - Server: Node built-ins only, no packages, fixed read-only asset routes.
 
 Dark/light themes follow the system until toggled, then retain the selected theme.

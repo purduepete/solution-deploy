@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$SourcePath=(Split-Path -Parent $PSScriptRoot),
-    [string]$NodePath='C:\Files\ScoopApps\apps\nodejs\current\node.exe',
+    [string]$NodePath='C:\Program Files\nodejs\node.exe',
     [string]$PowerShellPath='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
 )
 $ErrorActionPreference='Stop'

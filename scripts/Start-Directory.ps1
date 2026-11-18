@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$Root='C:\ProgramData\SolutionDeploy\apps\solution-deploy',
-    [string]$NodePath='C:\Files\ScoopApps\apps\nodejs\current\node.exe'
+    [string]$NodePath='C:\Program Files\nodejs\node.exe'
 )
 $ErrorActionPreference='Stop'
 $entry=Join-Path $Root 'site\server.mjs'

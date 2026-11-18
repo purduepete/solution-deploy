@@ -121,7 +121,7 @@ try{
         }
         $result.carried=$carry
         if($request.hostInstall -eq 'npm-production'){
-            $node=[string](Get-Item -LiteralPath 'C:\Files\ScoopApps\apps\nodejs\current').Target
+            $node='C:\Program Files\nodejs'
             $exe=Join-Path $node 'node.exe'
             $cli=Join-Path $node 'node_modules\npm\bin\npm-cli.js'
             Invoke-DeploymentCommand $exe @($cli,'ci','--omit=dev','--ignore-scripts','--no-audit','--no-fund') $(if($installPath){Join-Path $release $installPath}else{$release}) -TimeoutSeconds $request.timeoutSeconds

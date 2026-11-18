@@ -429,7 +429,7 @@ Describe 'Hand-placed release boundaries' {
             $pwsh='"C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe" -NoProfile -File '
             @(
                 [pscustomobject]@{ProcessId=1;ExecutablePath='';CommandLine=$pwsh+'"C:\ProgramData\SolutionDeploy\apps\web-options\shared\Start-Service.ps1" -Application web-options'}
-                [pscustomobject]@{ProcessId=2;ExecutablePath='';CommandLine='"C:\Files\ScoopApps\apps\nodejs\current\node.exe" C:\ProgramData\SolutionDeploy\apps\web-options\current\backend\dist\server.js'}
+                [pscustomobject]@{ProcessId=2;ExecutablePath='';CommandLine='"C:\Program Files\nodejs\node.exe" C:\ProgramData\SolutionDeploy\apps\web-options\current\backend\dist\server.js'}
                 [pscustomobject]@{ProcessId=3;ExecutablePath='';CommandLine='python.exe C:\ProgramData\SolutionDeploy\apps\web-options\releases\collector-68f9512\collector\run.py'}
                 [pscustomobject]@{ProcessId=4;ExecutablePath='';CommandLine=$pwsh+'"C:\ProgramData\SolutionDeploy\apps\web-options\shared\Start-Service.ps1" -Application web-options-collector'}
                 [pscustomobject]@{ProcessId=5;ExecutablePath='';CommandLine=$pwsh+'"C:\ProgramData\SolutionDeploy\apps\work-log\current\deploy\Start-WorkLogService.ps1"'}
