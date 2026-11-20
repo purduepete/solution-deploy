@@ -5,6 +5,16 @@
   "accessInventory": "site\\sites.json",
   "taskFolder": "\\JimlerTech\\",
   "apps": {
+    "blank-page": {
+      "procedure": "shared",
+      "source": ".",
+      "components": ["directory"],
+      "componentProcedures": { "directory": "directory" },
+      "releaseRecordApp": "solution-deploy",
+      "versionEvidence": "Static pages are included in the Solution Directory release and use its release record.",
+      "componentNote": "Released together with the Solution Directory and collector status publisher.",
+      "repository": "https://github.com/purduepete/solution-deploy"
+    },
     "ferry-tracker": {
       "procedure": "controller",
       "source": "..\\ferry-tracker",

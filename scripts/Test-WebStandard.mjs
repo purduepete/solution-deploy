@@ -26,6 +26,7 @@ const profileDir = join(process.env.LOCALAPPDATA ?? repo, 'JimlerTech', 'Solutio
 // frame: false marks apps that Site Dock does not embed. stubWrites answers listed write paths
 // locally so an app's harmless preference saves neither reach the server nor fail the run.
 const apps = {
+    'blank-page': { key: null, excluded: true },
     'ferry-tracker': { key: 'ferry-tracker-theme' },
     'home-automation': { key: 'smart-devices-theme' },
     'site-dock': { key: 'sitedock.theme', frame: false, stubWrites: ['/api/preferences'] },

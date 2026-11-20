@@ -19,6 +19,13 @@ const files = new Map([
     ['/favicon-light.svg', ['favicon-light.svg', 'image/svg+xml']],
     ['/apple-touch-icon.png', ['apple-touch-icon.png', 'image/png']],
 ]);
+const blankPages = new Map([
+    ['/', 'blank-page-index.html'],
+    ['/index.html', 'blank-page-index.html'],
+    ['/business.html', 'blank-page-business.html'],
+    ['/personal.html', 'blank-page-personal.html'],
+    ['/work.html', 'blank-page-work.html'],
+]);
 
 // Written every 5 minutes by scripts/Update-CollectorStatus.ps1, so it is read per request, never cached.
 const defaultStatusPath = fileURLToPath(new URL('../data/collector-status.json', import.meta.url));
@@ -121,7 +128,11 @@ export function withReleaseRecords(deployments, records) {
         ...deployments,
         solutions: deployments.solutions.map((solution) => {
             const releases = records
-                .filter((record) => record.app === solution.id)
+                .filter(
+                    (record) =>
+                        record.app === (solution.releaseRecordApp || solution.id) &&
+                        (!solution.releaseRecordApp || solution.components.includes(record.component))
+                )
                 // A controller release records the whole app as 'app'; it releases every listed component.
                 .flatMap((record) =>
                     (record.component === 'app' ? solution.components : [record.component]).map((component) => ({
@@ -186,6 +197,7 @@ export function publicDeployments(releases, inventory) {
                 blocker: entry.blocker || null,
                 componentNote: entry.watcherBlocker || entry.componentNote || null,
                 explicitComponents: entry.explicitComponents === true,
+                ...(entry.releaseRecordApp ? { releaseRecordApp: entry.releaseRecordApp } : {}),
                 privateOnly: entry.privateOnly === true,
                 repository: entry.procedure === 'manual' ? null : repository,
                 procedureUrl:
@@ -272,6 +284,12 @@ export function createServer({
     const content = new Map(
         [...files].map(([url, [name, type]]) => [url, { body: readFileSync(new URL(name, import.meta.url)), type }])
     );
+    const blankContent = new Map(
+        [...blankPages].map(([url, name]) => [
+            url,
+            { body: readFileSync(new URL(name, import.meta.url)), type: 'text/html; charset=utf-8' },
+        ])
+    );
     const inventory = JSON.parse(content.get('/sites.json').body);
     if (!Array.isArray(inventory.sites) || !inventory.sites.length) throw new Error('Inventory has no sites.');
     const deployments = publicDeployments(JSON.parse(readFileSync(releaseInventoryPath, 'utf8')), inventory);
@@ -291,6 +309,20 @@ export function createServer({
             return;
         }
         const url = req.url.split('?')[0];
+        const blankHost = [req.headers.host, req.headers['x-forwarded-host']].some((host) =>
+            /^(?:blank-page\.jimlertech\.com(?::443)?|jimbrownhome1\.tail8ad282\.ts\.net:8803)$/i.test(host || '')
+        );
+        if (blankHost || url === '/blank-page' || url.startsWith('/blank-page/')) {
+            const page = blankHost ? url : url.slice('/blank-page'.length) || '/';
+            const file = blankContent.get(page);
+            if (!file) {
+                res.writeHead(404).end('Not found');
+                return;
+            }
+            res.writeHead(200, { 'Content-Type': file.type, 'Content-Length': file.body.length });
+            res.end(req.method === 'HEAD' ? undefined : file.body);
+            return;
+        }
         if (url === '/idea-counts.json') {
             try {
                 const site = inventory.sites.find(({ id }) => id === 'the-workbench');

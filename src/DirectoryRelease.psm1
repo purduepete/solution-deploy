@@ -91,7 +91,7 @@ function Invoke-DirectoryRelease {
         $receipt.changed=$changed
         Set-Content -LiteralPath $script -Encoding utf8 -Value @"
 `$ErrorActionPreference='Stop'
-try{`$out=& 'C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1';@{status='Succeeded';sites=`$out.Sites;privateStatus=`$out.PrivateStatus;pid=`$out.Pid}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
+try{`$out=& 'C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1' -PreserveTailscaleRoute;@{status='Succeeded';sites=`$out.Sites;privateStatus=`$out.PrivateStatus;pid=`$out.Pid}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
 catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
 "@
         $session=New-DeploymentSession -ComputerName jimbrownhome1.local -OperationTimeoutSec 30

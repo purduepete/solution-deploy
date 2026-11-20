@@ -2,7 +2,8 @@
 param(
     [string]$SourcePath=(Split-Path -Parent $PSScriptRoot),
     [string]$NodePath='C:\Program Files\nodejs\node.exe',
-    [string]$PowerShellPath='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe'
+    [string]$PowerShellPath='C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe',
+    [switch]$PreserveTailscaleRoute
 )
 $ErrorActionPreference='Stop'
 $root='C:\ProgramData\SolutionDeploy\apps\solution-deploy'
@@ -10,6 +11,10 @@ $entry="$root\site\server.mjs"
 if(-not(Test-Path "$SourcePath\site\sites.json") -or -not(Test-Path "$SourcePath\environments\releases.json") -or -not(Test-Path $NodePath) -or -not(Test-Path -LiteralPath $PowerShellPath -PathType Leaf)){throw 'Source site/release inventory, Node executable or managed PowerShell runtime is missing.'}
 $inventory=Get-Content "$SourcePath\site\sites.json" -Raw|ConvertFrom-Json
 if($inventory.host -ne $env:COMPUTERNAME.ToLowerInvariant()){throw 'Install on the inventory host only.'}
+if($PreserveTailscaleRoute){
+    $current=Invoke-RestMethod 'https://jimbrownhome1.tail8ad282.ts.net:8798/health' -TimeoutSec 10
+    if($current.status -ne 'ok'){throw 'Existing directory Tailscale route is not ready.'}
+}
 $pidFile="$root\logs\server.pid"
 $taskName='SolutionDeploy-directory'
 $task=Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $taskName -ErrorAction SilentlyContinue
@@ -77,8 +82,10 @@ $health=Invoke-RestMethod 'http://127.0.0.1:18798/health' -TimeoutSec 10
 if($health.status -ne 'ok'){throw 'Directory readiness failed.'}
 $actual=Invoke-RestMethod 'http://127.0.0.1:18798/sites.json' -TimeoutSec 10
 if(($actual|ConvertTo-Json -Depth 10 -Compress) -cne ($inventory|ConvertTo-Json -Depth 10 -Compress)){throw 'Served inventory differs from source.'}
-& 'C:\Program Files\Tailscale\tailscale.exe' serve --bg --https=8798 http://127.0.0.1:18798
-if($LASTEXITCODE){throw 'Directory Tailscale route failed.'}
+if(-not $PreserveTailscaleRoute){
+    & 'C:\Program Files\Tailscale\tailscale.exe' serve --bg --https=8798 http://127.0.0.1:18798
+    if($LASTEXITCODE){throw 'Directory Tailscale route failed.'}
+}
 $response=Invoke-WebRequest 'https://jimbrownhome1.tail8ad282.ts.net:8798/' -TimeoutSec 20
 if($response.StatusCode -ne 200){throw 'Private directory URL failed.'}
 for($attempt=0;$attempt -lt 60 -and (Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $statusTask).State -eq 'Running';$attempt++){Start-Sleep -Seconds 1}

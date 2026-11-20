@@ -173,7 +173,8 @@ function Invoke-CommonRelease {
                 -ApprovalReason $ApprovalReason -OutputDirectory $OutputDirectory -TimeoutSeconds $TimeoutSeconds)
         }
     }
-    Write-CommonReleaseRecords $App $results
+    $recordApp=if($route.entry.ContainsKey('releaseRecordApp')){$route.entry.releaseRecordApp}else{$App}
+    Write-CommonReleaseRecords $recordApp $results
     if($results.Count -eq 1){return $results[0]}
     $status=if(@($results|Where-Object {$_.status -ne 'NoChanges'}).Count){'Succeeded'}else{'NoChanges'}
     @{app=$App;status=$status;releases=$results}

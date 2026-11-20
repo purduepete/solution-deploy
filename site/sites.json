@@ -3,6 +3,18 @@
   "updated": "2026-10-30",
   "sites": [
     {
+      "id": "blank-page",
+      "name": "Blank Page",
+      "purpose": "Blank home page and simple Business, Personal and Work pages.",
+      "faviconPath": null,
+      "localUrl": "http://192.168.2.14/blank-page/",
+      "cloudflareUrl": "https://blank-page.jimlertech.com/",
+      "tailscaleUrl": "https://jimbrownhome1.tail8ad282.ts.net:8803/",
+      "database": "None. Static pages served by Solution Directory.",
+      "sourceDatabase": "No database. Pages copied from the blank_page GitHub repository.",
+      "notes": "Released with Solution Directory. Changes to the original repository must be copied into solution-deploy."
+    },
+    {
       "id": "ferry-tracker",
       "name": "Ferry Tracker",
       "purpose": "Washington ferry arrivals, departures, crossing history and catch-a-ferry requests.",

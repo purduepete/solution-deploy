@@ -1,8 +1,8 @@
 $script:hostnamesScript=Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts\Set-CloudflareHostnames.ps1'
 Describe 'Google sign-in on allowlisted applications' {
     BeforeEach {
-        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options',        'solution-deploy','team-scoreboard','the-workbench')
-                $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798,8801,8802)
+        $global:cfTest_names=@('ferry-tracker','home-automation','site-dock','fit-track','web-bookmarks','plex','work-log','web-inventory','web-portfolio','web-options','solution-deploy','team-scoreboard','the-workbench','blank-page')
+        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,18798,8801,8802,18798)
         $global:cfTest_owner=@{
             id='owner';name='Owner';decision='allow';precedence=1
             include=@(@{email=@{email='owner@example.com'}})
@@ -98,7 +98,7 @@ Describe 'Google sign-in on allowlisted applications' {
         foreach($app in $global:cfTest_fakeApps|Where-Object id -ne 'catch'){$app.policies+=,$google}
         $before=$global:cfTest_fakeApps|ConvertTo-Json -Depth 30 -Compress
         $preview=& $script:hostnamesScript -AddGoogleEmail 'guest@gmail.com'|ConvertFrom-Json
-        $preview.applications.Count|Should Be 13
+        $preview.applications.Count|Should Be 14
         $global:cfTest_writes|Should Be 0
         $result=& $script:hostnamesScript -AddGoogleEmail 'guest@gmail.com' -Apply|ConvertFrom-Json
         $result.added|Should Be $true
@@ -115,9 +115,9 @@ Describe 'Google sign-in on allowlisted applications' {
         $rejected|Should Be $true
         $global:cfTest_writes|Should Be 0
     }
-    It 'previews all thirteen applications without writing' {
+    It 'previews all allowlisted applications without writing' {
         $report=& $script:hostnamesScript -EnableGoogleSignIn|ConvertFrom-Json
-        $report.googleSignIn.Count|Should Be 13
+        $report.googleSignIn.Count|Should Be 14
         $global:cfTest_writes|Should Be 0
     }
     It 'previews WorkLog publication without writing' {
@@ -144,7 +144,7 @@ Describe 'Google sign-in on allowlisted applications' {
     }
     It 'previews directory publication without requiring its existing route' {
         $global:cfTest_names=@($global:cfTest_names|Where-Object {$_ -ne 'solution-deploy'})
-        $global:cfTest_ports=@($global:cfTest_ports|Where-Object {$_ -ne 18798})
+        $global:cfTest_ports=@(8787,8788,8790,8791,8792,18793,18794,18795,18796,18797,8801,8802,18798)
         $report=& $script:hostnamesScript -PublishDirectory|ConvertFrom-Json
         $report.publish|Should Be 'solution-deploy.jimlertech.com'
         $global:cfTest_writes|Should Be 0
@@ -156,11 +156,24 @@ Describe 'Google sign-in on allowlisted applications' {
         $report.publish|Should Be 'solution-deploy.jimlertech.com'
         $global:cfTest_writes|Should Be $before
     }
+    It 'publishes Blank Page without deleting unrelated routes' {
+        $global:cfTest_dns+=@{id='other';name='other.jimlertech.com';type='CNAME';content='209bf0e7-20c1-45b9-bba9-fca92fc58344.cfargotunnel.com';proxied=$true}
+        $global:cfTest_config.ingress=@($global:cfTest_config.ingress[0..($global:cfTest_config.ingress.Count-2)])+@(
+            @{hostname='other.jimlertech.com';service='http://127.0.0.1:9999'},@{service='http_status:404'})
+        $report=& $script:hostnamesScript -PublishBlankPage -Apply|ConvertFrom-Json
+        $report.publish|Should Be 'blank-page.jimlertech.com'
+        $global:cfTest_writes|Should Be 0
+        @($global:cfTest_dns|Where-Object name -eq 'other.jimlertech.com').Count|Should Be 1
+        @($global:cfTest_config.ingress|Where-Object hostname -eq 'other.jimlertech.com').Count|Should Be 1
+    }
     It 'rejects simultaneous publication requests' {
         $thrown=$false
         try{& $script:hostnamesScript -PublishWebPortfolio -PublishWebOptions|Out-Null}catch{$thrown=$true}
         $thrown|Should Be $true
         $global:cfTest_writes|Should Be 0
+        $thrown=$false
+        try{& $script:hostnamesScript -PublishBlankPage -EnableGoogleSignIn|Out-Null}catch{$thrown=$true}
+        $thrown|Should Be $true
     }
     It 'preserves an already published WebInventory route without writes' {
         $null=& $script:hostnamesScript -EnableGoogleSignIn -Apply

@@ -14,6 +14,53 @@ import {
 } from '../site/server.mjs';
 import { runInNewContext } from 'node:vm';
 
+test('Blank Page serves its four pages on both hosts without exposing directory routes', async () => {
+    const server = createServer();
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const root = `http://127.0.0.1:${server.address().port}`;
+    try {
+        const get = (path, headers) =>
+            new Promise((resolve, reject) => {
+                const req = request(root + path, { headers }, (res) => {
+                    let body = '';
+                    res.setEncoding('utf8');
+                    res.on('data', (chunk) => (body += chunk));
+                    res.on('end', () => resolve({ status: res.statusCode, body }));
+                });
+                req.on('error', reject);
+                req.end();
+            });
+        for (const headers of [
+            { host: 'blank-page.jimlertech.com' },
+            { host: 'jimbrownhome1.tail8ad282.ts.net:8803' },
+            { 'x-forwarded-host': 'jimbrownhome1.tail8ad282.ts.net:8803' },
+        ]) {
+            for (const [path, name] of [
+                ['/', 'index'],
+                ['/business.html', 'business'],
+                ['/personal.html', 'personal'],
+                ['/work.html', 'work'],
+            ]) {
+                const response = await get(path, headers);
+                assert.equal(response.status, 200);
+                assert.equal(
+                    response.body,
+                    readFileSync(new URL(`../site/blank-page-${name}.html`, import.meta.url), 'utf8')
+                );
+            }
+            assert.equal((await get('/sites.json', headers)).status, 404);
+        }
+        assert.equal(
+            await (await fetch(`${root}/blank-page/business.html`)).text(),
+            readFileSync(new URL('../site/blank-page-business.html', import.meta.url), 'utf8')
+        );
+        assert.equal((await fetch(`${root}/sites.json`)).status, 200);
+    } finally {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+    }
+});
+
 test('Workbench counts match solution ids and exclude archived, unassigned and unknown ideas', () => {
     const inventory = { sites: [{ id: 'one' }, { id: 'empty' }] };
     const idea = (status, extra = {}) => ({ solution: 'one', status, archived: false, ...extra });
@@ -276,7 +323,7 @@ test('deployment information covers every solution and exposes only public field
     releases.apps.pgweb.connectionString = 'PRIVATE_SENTINEL';
     releases.apps.pgweb.taskAction = 'PRIVATE_SENTINEL';
     const result = publicDeployments(releases, inventory);
-    assert.equal(result.solutions.length, 15);
+    assert.equal(result.solutions.length, 16);
     assert.deepEqual(result.solutions.map((entry) => entry.id).sort(), inventory.sites.map((entry) => entry.id).sort());
     assert.match(result.scope, /not a live deployment check/);
     assert(!JSON.stringify(result).includes('PRIVATE_SENTINEL'));
@@ -291,6 +338,7 @@ test('deployment information covers every solution and exposes only public field
             'method',
             'privateOnly',
             'procedureUrl',
+            ...(entry.id === 'blank-page' ? ['releaseRecordApp'] : []),
             'repository',
             'support',
             'versionEvidence',
@@ -611,6 +659,24 @@ test('Web Bookmarks tracks userscript publication separately without changing th
         component: 'tampermonkey',
         commit: '66fb61d',
         completed: '2026-10-30T19:20:53.000Z',
+    });
+
+    test('Blank Page reports the shared directory release without the collector status record', () => {
+        const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
+        const releases = JSON.parse(readFileSync(new URL('../environments/releases.json', import.meta.url)));
+        const records = ['directory', 'collector-status'].map((component) => ({
+            app: 'solution-deploy',
+            component,
+            sourceCommit: 'a'.repeat(40),
+            completedLocal: '2026-10-30T12:20:53-07:00',
+        }));
+        const result = withReleaseRecords(publicDeployments(releases, inventory), records).solutions.find(
+            ({ id }) => id === 'blank-page'
+        );
+        assert.deepEqual(
+            result.releases.map(({ component }) => component),
+            ['directory']
+        );
     });
     assert.deepEqual(
         result.releases.find((entry) => entry.component === 'web'),
@@ -1058,7 +1124,7 @@ test('monitoring information opens, dismisses and restores trigger focus without
 test('inventory describes every published host and its data source', () => {
     const inventory = JSON.parse(readFileSync(new URL('../site/sites.json', import.meta.url)));
     assert.equal(inventory.host, 'jimbrownhome1');
-    assert.equal(inventory.sites.length, 15);
+    assert.equal(inventory.sites.length, 16);
     const page = readFileSync(new URL('../site/index.html', import.meta.url), 'utf8');
     assert.match(page, /192\.168\.2\.0\/24/);
     assert(!page.includes('Local URLs use loopback'));
@@ -1089,8 +1155,10 @@ test('inventory describes every published host and its data source', () => {
         assert.equal(localUrl.hostname, '192.168.2.14');
         assert.equal(privateUrl.hostname, 'jimbrownhome1.tail8ad282.ts.net');
         assert.equal(privateUrl.protocol, 'https:');
-        assert(!local.has(localUrl.port));
-        local.add(localUrl.port);
+        if (site.id !== 'blank-page') {
+            assert(!local.has(localUrl.port));
+            local.add(localUrl.port);
+        }
         assert(!privateUrls.has(privateUrl.port));
         privateUrls.add(privateUrl.port);
         if (!site.cloudflareUrl) {
@@ -1109,9 +1177,10 @@ test('inventory describes every published host and its data source', () => {
                 'web-portfolio': '18796',
                 'web-options': '18797',
                 'solution-deploy': '18798',
+                'blank-page': '18798',
             }[site.id] ?? localUrl.port;
         assert(routing.includes(`'${publicUrl.hostname}'=${originPort}`), `Route mismatch for ${site.id}`);
-        assert.equal(localUrl.port, site.id === 'solution-deploy' ? '' : privateUrl.port);
+        assert.equal(localUrl.port, ['solution-deploy', 'blank-page'].includes(site.id) ? '' : privateUrl.port);
     }
     for (const id of ['web-portfolio', 'web-options']) {
         const site = inventory.sites.find((entry) => entry.id === id);

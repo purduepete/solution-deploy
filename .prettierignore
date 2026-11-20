@@ -4,3 +4,4 @@ package-lock.json
 reports/
 artifacts/
 .local/
+blank-page-*.html

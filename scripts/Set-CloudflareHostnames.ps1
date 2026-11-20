@@ -1,21 +1,24 @@
 [CmdletBinding()]
 param([switch]$Apply, [switch]$EnableGoogleSignIn, [switch]$PublishWorkLog, [switch]$PublishWebInventory,
-    [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory, [switch]$PublishTeamScoreboard,
+    [switch]$PublishWebPortfolio, [switch]$PublishWebOptions, [switch]$PublishDirectory, [switch]$PublishTeamScoreboard, [switch]$PublishBlankPage,
     [switch]$RemoveRetiredFerryHeaderRule, [switch]$PublishFitTrackOAuthPages, [switch]$PublishTeamScoreboardCalendar, [string]$AddGoogleEmail)
 # Enforces the complete public hostname allowlist for the jimbrownhome1 tunnel: exactly one name per app.
 # Without -Apply it only reports drift. Adding an app means adding one line to $allowed.
 $ErrorActionPreference='Stop'
+if($PublishBlankPage -and @($PSBoundParameters.Keys|Where-Object {$_ -notin 'PublishBlankPage','Apply'}).Count){
+    throw 'Publish Blank Page separately from other changes.'
+}
 if($PSBoundParameters.ContainsKey('AddGoogleEmail')){
     if($AddGoogleEmail -notmatch '^[^@\s*]+@[^@\s*]+\.[^@\s*]+$'){throw 'AddGoogleEmail requires an exact email address.'}
     if(@($PSBoundParameters.Keys|Where-Object {$_ -notin 'AddGoogleEmail','Apply'}).Count){throw 'Add a Google email separately from other changes.'}
 }
-if($PublishFitTrackOAuthPages -and ($RemoveRetiredFerryHeaderRule -or $EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory -or $PublishTeamScoreboard -or $PublishTeamScoreboardCalendar)){
+if($PublishFitTrackOAuthPages -and ($RemoveRetiredFerryHeaderRule -or $EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory -or $PublishTeamScoreboard -or $PublishTeamScoreboardCalendar -or $PublishBlankPage)){
     throw 'Publish the Fit Track OAuth pages separately from other changes.'
 }
-if($PublishTeamScoreboardCalendar -and ($RemoveRetiredFerryHeaderRule -or $EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory -or $PublishTeamScoreboard)){
+if($PublishTeamScoreboardCalendar -and ($RemoveRetiredFerryHeaderRule -or $EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory -or $PublishTeamScoreboard -or $PublishBlankPage)){
     throw 'Publish the Team Scoreboard calendar feed separately from other changes.'
 }
-if($RemoveRetiredFerryHeaderRule -and ($EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory)){
+if($RemoveRetiredFerryHeaderRule -and ($EnableGoogleSignIn -or $PublishWorkLog -or $PublishWebInventory -or $PublishWebPortfolio -or $PublishWebOptions -or $PublishDirectory -or $PublishBlankPage)){
     throw 'Remove the retired Ferry header rule separately from other changes.'
 }
 $allowed=[ordered]@{
@@ -32,9 +35,10 @@ $allowed=[ordered]@{
     'solution-deploy.jimlertech.com'=18798
     'team-scoreboard.jimlertech.com'=8801
     'the-workbench.jimlertech.com'=8802
+    'blank-page.jimlertech.com'=18798
 }
-if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory,$PublishTeamScoreboard)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
-$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}elseif($PublishTeamScoreboard){'team-scoreboard.jimlertech.com'}else{''}
+if(@(@($PublishWorkLog,$PublishWebInventory,$PublishWebPortfolio,$PublishWebOptions,$PublishDirectory,$PublishTeamScoreboard,$PublishBlankPage)|Where-Object {[bool]$_}).Count -gt 1){throw 'Publish one application at a time.'}
+$publishName=if($PublishWorkLog){'work-log.jimlertech.com'}elseif($PublishWebInventory){'web-inventory.jimlertech.com'}elseif($PublishWebPortfolio){'web-portfolio.jimlertech.com'}elseif($PublishWebOptions){'web-options.jimlertech.com'}elseif($PublishDirectory){'solution-deploy.jimlertech.com'}elseif($PublishTeamScoreboard){'team-scoreboard.jimlertech.com'}elseif($PublishBlankPage){'blank-page.jimlertech.com'}else{''}
 $catchHosts=@('ferry-tracker.jimlertech.com/api/catch','fit-track.jimlertech.com/oauth/*','team-scoreboard.jimlertech.com/calendar/*')
 $account='/accounts/ec74856ed4fe9f15833c5419011f2507'
 $zone='/zones/84715a1ddfee0e7c6e92fdc39a3085d2'
@@ -207,6 +211,7 @@ try{
         $dnsAll=@(Api Get "$zone/dns_records?type=CNAME&content=$tunnelId.cfargotunnel.com&per_page=100" $null)
         $apps=@(Api Get "$account/access/apps?per_page=100" $null)
         $report.publish=$name
+        if($PublishBlankPage){return}
     }
     $extraDns=@($dnsAll|Where-Object {$_.name -notin $allowed.Keys})
     $extraIngress=@($config.ingress|Where-Object {$_.hostname -and $_.hostname -notin $allowed.Keys})

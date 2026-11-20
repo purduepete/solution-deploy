@@ -15,7 +15,7 @@ Describe 'Common release inventory and routing' {
     It 'covers every site exactly once without changing placement authority' {
         $inventory=Read-DeploymentJson (Join-Path $root 'environments\releases.json')
         $sites=Read-DeploymentJson (Join-Path $root 'site\sites.json')
-        $inventory.apps.Count|Should Be 15
+        $inventory.apps.Count|Should Be 16
         (@($inventory.apps.Keys|Sort-Object) -join ',')|Should Be (@($sites.sites.id|Sort-Object) -join ',')
         foreach($entry in $inventory.apps.Values){
             @($entry.components).Count|Should BeGreaterThan 0
@@ -57,6 +57,9 @@ Describe 'Common release inventory and routing' {
         Assert-CommonThrows {Get-CommonReleaseRoute -App web-bookmarks -Target jimbrownhome1 -Component web,tampermonkey} '*Publish.ps1*'
     }
     It 'releases the directory and its status publisher together and routes the other shared components to file sets' {
+        $blank=Get-CommonReleaseRoute -App blank-page -Target jimbrownhome1 -Component directory
+        $blank.procedure|Should Be directory
+        $blank.entry.releaseRecordApp|Should Be 'solution-deploy'
         foreach($name in 'directory','collector-status'){
             (Get-CommonReleaseRoute -App solution-deploy -Target jimbrownhome1 -Component $name).procedure|Should Be directory
         }
@@ -649,5 +652,17 @@ Describe 'Directory release boundaries' {
         $active.previousCommit|Should Be $saved.previousCommit
         $active.completedLocal|Should Be $saved.completedLocal
         ([DateTimeOffset]::Parse($record.completedLocal)).ToUnixTimeMilliseconds()|Should Be ([DateTimeOffset]::Parse($saved.completedLocal)).ToUnixTimeMilliseconds()
+    }
+    It 'checks the existing Tailscale route before touching the directory task' {
+        Mock Test-Path { $true }
+        Mock Get-Content { '{"host":"jimbrownhome1"}' }
+        Mock Invoke-RestMethod { throw 'Tailscale check failed' }
+        Mock Get-ScheduledTask { throw 'Directory task must not be touched' }
+        $previous=$env:COMPUTERNAME
+        try {
+            $env:COMPUTERNAME='JIMBROWNHOME1'
+            { & (Join-Path $root 'scripts\Install-Directory.ps1') -SourcePath $TestDrive -PreserveTailscaleRoute } | Should Throw 'Tailscale check failed'
+            Assert-MockCalled Get-ScheduledTask -Times 0
+        } finally { $env:COMPUTERNAME=$previous }
     }
 }

@@ -63,6 +63,7 @@ on its own: run it as written, with no prefix and no consent flags.
 
 | App               | Component             | Add these flags                                                                         | Procedure   | Expected time             | Downtime                       |
 | ----------------- | --------------------- | --------------------------------------------------------------------------------------- | ----------- | ------------------------- | ------------------------------ |
+| `blank-page`      | directory             | `-App blank-page -Component directory`                                                  | directory   | under 1 min               | about 10 s                     |
 | `ferry-tracker`   | all (web, capture)    | `-App ferry-tracker -TailscaleUrl https://jimbrownhome1.tail8ad282.ts.net:8787`         | controller  | 9 to 13 min               | about 2 min                    |
 | `home-automation` | all (web, automation) | `-App home-automation -TailscaleUrl https://jimbrownhome1.tail8ad282.ts.net:8788`       | controller  | 9 to 13 min               | about 2 min                    |
 | `site-dock`       | all (web)             | `-App site-dock`                                                                        | controller  | 9 to 10 min               | about 2 min                    |
@@ -101,6 +102,8 @@ Rules the table encodes:
   `-AllowMarketHours` only when the user explicitly asks to deploy during market
   hours. Market holidays are still blocked; use the override then too.
 - `solution-deploy` always needs `-Component`.
+- Blank Page is part of the Solution Directory release; both use the same release record.
+- Directory releases verify and preserve the existing Tailscale route before restarting the service.
 - Fit Track without `-Component` releases whichever of web and upload-watcher
   changed. A changed `Register-UploadWatcherTask.ps1` stops the release for a
   manual re-registration.

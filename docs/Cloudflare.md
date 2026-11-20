@@ -62,6 +62,9 @@ only, the Options hostname may still be pending. A normal final verification
 requires all eleven hostnames. The read-only solution directory uses
 `-PublishDirectory -Apply`, origin `127.0.0.1:18798` and private Tailscale HTTPS
 port `8798`. Its public hostname is `solution-deploy.jimlertech.com`.
+Blank Page shares that origin and uses private Tailscale HTTPS port `8803`.
+Publish its hostname with `-PublishBlankPage -Apply`. Its source pages are copied
+into the directory release; update those copies when the original repository changes.
 
 ## Route API contract
 
