@@ -169,6 +169,13 @@ export function publicDeployments(releases, inventory) {
                 (['blocked', 'manual'].includes(entry.procedure) && !entry.blocker?.trim())
             )
                 throw new Error(`Deployment inventory is incomplete for ${id}.`);
+            const repository = entry.repository ?? `https://github.com/purduepete/${id}`;
+            if (
+                entry.procedure !== 'manual' &&
+                (typeof repository !== 'string' ||
+                    !/^https:\/\/github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9_.-]+$/.test(repository))
+            )
+                throw new Error(`Repository URL is invalid for ${id}.`);
             // Explicit public fields only. Never publish internal paths, secrets, task actions or release requests.
             return {
                 id,
@@ -180,7 +187,7 @@ export function publicDeployments(releases, inventory) {
                 componentNote: entry.watcherBlocker || entry.componentNote || null,
                 explicitComponents: entry.explicitComponents === true,
                 privateOnly: entry.privateOnly === true,
-                repository: entry.procedure === 'manual' ? null : `https://github.com/purduepete/${id}`,
+                repository: entry.procedure === 'manual' ? null : repository,
                 procedureUrl:
                     'https://github.com/purduepete/solution-deploy/blob/main/docs/Deployment.md#one-entry-point-existing-procedures',
             };

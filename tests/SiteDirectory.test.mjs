@@ -300,6 +300,14 @@ test('deployment information covers every solution and exposes only public field
     }
     assert.equal(result.solutions.find((entry) => entry.id === 'team-scoreboard').support, 'Controller Release');
     assert.equal(result.solutions.find((entry) => entry.id === 'fit-track').support, 'Fit Track Release');
+    assert.equal(
+        result.solutions.find((entry) => entry.id === 'web-bookmarks').repository,
+        'https://github.com/jimlertech/web-bookmarks'
+    );
+    assert.equal(
+        result.solutions.find((entry) => entry.id === 'ferry-tracker').repository,
+        'https://github.com/purduepete/ferry-tracker'
+    );
     for (const id of ['web-bookmarks', 'work-log', 'web-inventory', 'plex', 'web-options', 'web-portfolio'])
         assert.equal(result.solutions.find((entry) => entry.id === id).support, 'Release Folder Swap');
     assert.match(result.solutions.find((entry) => entry.id === 'web-options').componentNote, /pinned-job/);
@@ -312,6 +320,9 @@ test('deployment information covers every solution and exposes only public field
         assert.equal(entry.privateOnly, true);
         assert.equal(entry.repository, null);
     }
+    releases.apps['web-bookmarks'].repository = 'javascript:alert(1)';
+    assert.throws(() => publicDeployments(releases, inventory), /Repository URL is invalid for web-bookmarks/);
+    releases.apps['web-bookmarks'].repository = 'https://github.com/jimlertech/web-bookmarks';
     delete releases.apps.plex;
     assert.throws(() => publicDeployments(releases, inventory), /incomplete for plex/);
 });
@@ -609,7 +620,7 @@ test('Web Bookmarks tracks userscript publication separately without changing th
             completed: '2026-10-30T01:35:27.000Z',
         }
     );
-    assert.match(result.componentNote, /Gist.*Publish\.ps1/);
+    assert.match(result.componentNote, /GitHub Release.*Publish\.ps1/);
     assert.match(inventory.sites.find((entry) => entry.id === 'web-bookmarks').notes, /Cloudflare Access/);
 });
 

@@ -82,11 +82,12 @@
       "source": "..\\web-bookmarks",
       "components": ["web", "tampermonkey"],
       "defaultComponents": ["web"],
+      "repository": "https://github.com/jimlertech/web-bookmarks",
       "externalComponents": {
-        "tampermonkey": "Use web-bookmarks\\tampermonkey\\Publish.ps1 to publish and verify the Gist and record its actual publication time."
+        "tampermonkey": "Use web-bookmarks\\tampermonkey\\Publish.ps1 to publish and verify the GitHub Release and record its actual publication time."
       },
-      "componentNote": "Web uses a release folder swap. Tampermonkey is published separately to its Gist with tampermonkey\\Publish.ps1; it never restarts the hosted app.",
-      "versionEvidence": "Hosted web: state\\common-release.json. Tampermonkey: verified Gist revision, userscript version and source commit in data\\releases\\web-bookmarks--tampermonkey.json.",
+      "componentNote": "Web uses a release folder swap. Tampermonkey is published separately as a GitHub Release with tampermonkey\\Publish.ps1; it never restarts the hosted app.",
+      "versionEvidence": "Hosted web: state\\common-release.json. Tampermonkey: verified release tag, userscript version and source commit in data\\releases\\web-bookmarks--tampermonkey.json.",
       "tasks": ["SolutionDeploy-web-bookmarks"],
       "task": "SolutionDeploy-web-bookmarks",
       "stop": "managed",

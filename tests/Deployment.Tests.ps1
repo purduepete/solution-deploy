@@ -381,6 +381,11 @@ Describe 'Source and runtime secret separation' {
         Write-DeploymentJson $script:manifestPath $script:manifest
         (Get-Manifest $script:manifestPath).launch.secretFile|Should Be 'app.env'
     }
+    It 'accepts repositories owned by GitHub organizations' {
+        $script:manifest.repository='https://github.com/jimlertech/web-bookmarks'
+        Write-DeploymentJson $script:manifestPath $script:manifest
+        (Get-Manifest $script:manifestPath).repository|Should Be 'https://github.com/jimlertech/web-bookmarks'
+    }
     It 'rejects a source file mapped onto prepared runtime secrets' {
         $script:manifest.state[0].target='secrets\app.env'
         Write-DeploymentJson $script:manifestPath $script:manifest
