@@ -176,12 +176,23 @@ After every update, before releasing anything:
    folder (registry, not `sc.exe`, which mangles the quotes), confirm port 5432 is
    free, then start it. This changes how the live server runs, so it needs the
    independent review first.
-3. Confirm the PostgreSQL event log shows no `password authentication failed`
-   after the restart and each app's health check passes.
-4. The first release of each controller app then fails with
-   `PostgreSQL verifier changed since activation` and prints the new
-   `psql.exe` hash. Rerun it with `-ApprovedPsqlSHA256 <hash>`; the release
-   records the hash and later releases of that app need no flag.
+3. Check the PostgreSQL event log for `password authentication failed` after
+   the update or repair. Verify each PostgreSQL-backed app's health and, where
+   available, a read-only database-backed operation. Use
+   [the site inventory](../site/sites.json) to identify the apps; Web Options
+   and Web Portfolio also use PostgreSQL for their collectors. Check collector
+   status without forcing a run.
+4. Check the backup task's last result, latest successful backup and next run
+   using [the backup procedure](PostgreSQLBackups.md#check-or-run-a-backup).
+   Report whether a successful backup after the update is still pending. Starting
+   a backup requires independent review because it creates and removes restore
+   validation databases.
+5. Record the installed `psql.exe` version and SHA-256. At each controller app's
+   next requested release, if the verifier differs from the app's recorded
+   hash, the release prints `PostgreSQL verifier changed since activation` and
+   the new hash. After the update is checked, rerun with
+   `-ApprovedPsqlSHA256 <hash>`; that release records the hash. Do not release
+   apps solely to update the hash.
 
 ## Data authority and rollback
 
