@@ -82,7 +82,8 @@ function Invoke-DirectoryRelease {
         # Checked under the lock, so two callers cannot both pass it.
         if(Test-Path -LiteralPath $script:DirectoryUnknownMarker -PathType Leaf){
             $unknown=Read-DeploymentJson $script:DirectoryUnknownMarker
-            throw "A previous directory release ended with an unknown outcome (operation $($unknown.operationId), host PID $($unknown.hostPid), started $($unknown.startedLocal)). Verify on jimbrownhome1 that PID $($unknown.hostPid) has exited and that the installed directory matches $($unknown.sourceCommit), then remove $($script:DirectoryUnknownMarker) before retrying."
+            $pidText=if($unknown.Contains('hostPid') -and $unknown['hostPid']){$unknown['hostPid']}else{'not yet recorded'}
+            throw "A previous directory release ended with an unknown outcome (operation $($unknown['operationId']), host PID $pidText, started $($unknown['startedLocal'])). Verify on jimbrownhome1 that PID $pidText has exited and that the installed directory matches $($unknown['sourceCommit']), then remove $($script:DirectoryUnknownMarker) before retrying."
         }
         if(Invoke-HostGit @('status','--porcelain','--untracked-files=normal') $Repository -Capture){throw 'The host clone has uncommitted files; the installer would copy them.'}
         Invoke-HostGit @('-c','credential.interactive=false','fetch','--quiet','origin') $Repository
