@@ -249,11 +249,12 @@ function Invoke-FileSetRelease {
                 throw "PostgreSQL cluster ID pin at C:\ProgramData\JimlerTech\PostgreSQL\cluster-id.txt is malformed ('$pinnedId')."
             }
             $liveId=[string](Invoke-DeploymentSsh jimbrownhome1 {
-                $env:PGPASSFILE='C:\ProgramData\JimlerTech\PostgreSQL\postgres.pgpass'
+                param($passFile)
+                $env:PGPASSFILE=$passFile
                 $out=& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' -X -qAt -w -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT system_identifier FROM pg_control_system();'
                 if($LASTEXITCODE -ne 0){throw 'Could not query live PostgreSQL system_identifier.'}
                 ($out -join "`n").Trim()
-            } @() -TimeoutSeconds 30)
+            } @('C:\ProgramData\JimlerTech\PostgreSQL\postgres.pgpass') -TimeoutSeconds 30)
             if($liveId -cne $pinnedId){
                 throw "PostgreSQL cluster ID pin '$pinnedId' does not match live cluster '$liveId'."
             }
