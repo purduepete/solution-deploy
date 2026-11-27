@@ -127,4 +127,124 @@ Describe 'Signed runtime launch' {
         Set-Content $file 'unsigned'
         { Test-ManagedPowerShell -Executable $file -Version '7.6.7' } | Should Throw 'signature'
     }
+    It 'rejects a runtime that reports a different version' {
+        { Test-ManagedPowerShell -Executable (Join-Path $PSHOME 'pwsh.exe') -Version '7.0.0' } | Should Throw 'verification failed'
+    }
 }
+
+Describe 'Expanded runtime smoke checks' {
+    function Invoke-SmokeScript([string]$Script) {
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Script))
+        $output = & (Join-Path $PSHOME 'pwsh.exe') -NoLogo -NoProfile -NonInteractive -EncodedCommand $encoded 2>$null
+        [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = [string]::Join('', @($output)) }
+    }
+    It 'prints the exact runtime version from the smoke script' {
+        $result = Invoke-SmokeScript (Get-ManagedPowerShellSmokeScript)
+        $result.ExitCode | Should Be 0
+        $result.Output | Should Be $PSVersionTable.PSVersion.ToString()
+    }
+    It 'fails when ScheduledTasks cannot be imported' {
+        $script = (Get-ManagedPowerShellSmokeScript).Replace('Import-Module ScheduledTasks', 'Import-Module NoSuchModule.Fixture')
+        (Invoke-SmokeScript $script).ExitCode | Should Not Be 0
+    }
+    It 'fails when CimCmdlets cannot be imported' {
+        $script = (Get-ManagedPowerShellSmokeScript).Replace('Import-Module CimCmdlets', 'Import-Module NoSuchModule.Fixture')
+        (Invoke-SmokeScript $script).ExitCode | Should Not Be 0
+    }
+    It 'keeps the exact JSON timestamp string check in the script' {
+        Get-ManagedPowerShellSmokeScript | Should Match 'ConvertFrom-Json .*-DateKind String'
+        Get-ManagedPowerShellSmokeScript | Should Match '2026-10-31T01:28:20\.1839545-07:00'
+    }
+}
+
+Describe 'Runtime switch lock and market-hours fencing' {
+    BeforeEach {
+        $lockFolder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory $lockFolder | Out-Null
+        $lockPath = Join-Path $lockFolder 'deployment.lock'
+        # 2026-11-28 is a Saturday; 2026-11-24 is a Tuesday (EST); 2026-07-14 is a Tuesday (EDT).
+        $saturdayAfternoon = [datetime]'2026-11-28T15:00:00Z'
+    }
+    It 'allows a switch when no lock file exists and the market is closed' {
+        { Test-ManagedPowerShellLockSafety -LockPath @($lockPath) -UtcNow $saturdayAfternoon } | Should Not Throw
+    }
+    It 'refuses a switch while a deployment lock is held exclusively' {
+        Set-Content -LiteralPath $lockPath 'held'
+        $held = [IO.File]::Open($lockPath, 'Open', 'ReadWrite', 'None')
+        try {
+            { Test-ManagedPowerShellLockSafety -LockPath @($lockPath) -UtcNow $saturdayAfternoon } | Should Throw 'lock is held'
+        } finally { $held.Dispose() }
+        { Test-ManagedPowerShellLockSafety -LockPath @($lockPath) -UtcNow $saturdayAfternoon } | Should Not Throw
+    }
+    It 'refuses a switch during Eastern market hours on a weekday' {
+        { Test-ManagedPowerShellLockSafety -LockPath @() -UtcNow ([datetime]'2026-11-24T14:30:00Z') } | Should Throw 'market hours'
+        { Test-ManagedPowerShellLockSafety -LockPath @() -UtcNow ([datetime]'2026-07-14T13:30:00Z') } | Should Throw 'market hours'
+    }
+    It 'uses the Eastern boundaries from 09:30 inclusive to 16:00 exclusive' {
+        { Test-ManagedPowerShellLockSafety -LockPath @() -UtcNow ([datetime]'2026-11-24T14:29:00Z') } | Should Not Throw
+        { Test-ManagedPowerShellLockSafety -LockPath @() -UtcNow ([datetime]'2026-11-24T21:00:00Z') } | Should Not Throw
+    }
+    It 'allows a switch on weekends and during market hours when -AllowMarketHours is given' {
+        { Test-ManagedPowerShellLockSafety -LockPath @() -UtcNow $saturdayAfternoon } | Should Not Throw
+        { Test-ManagedPowerShellLockSafety -LockPath @() -UtcNow ([datetime]'2026-11-24T15:00:00Z') -AllowMarketHours } | Should Not Throw
+    }
+}
+
+Describe 'Runtime switch lock fence' {
+    # Returns $true when another open of the path is refused. Pester's Should Throw does not catch .NET exceptions thrown in a scriptblock, so this is checked directly.
+    function Test-LockOpenRefused([string]$Path) {
+        try { $handle = [IO.File]::Open($Path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None); $handle.Dispose(); return $false }
+        catch [IO.IOException] { return $true }
+    }
+    BeforeEach {
+        $fenceFolder = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory $fenceFolder | Out-Null
+        $fenceLock = Join-Path $fenceFolder 'deployment.lock'
+        $fenceSaturday = [datetime]'2026-11-28T15:00:00Z'
+    }
+    It 'keeps the lock held until the fence is exited' {
+        $fence = Enter-ManagedPowerShellLockFence -LockPath @($fenceLock) -UtcNow $fenceSaturday
+        try {
+            @($fence).Count | Should Be 1
+            Test-LockOpenRefused $fenceLock | Should Be $true
+            { Test-ManagedPowerShellLockSafety -LockPath @($fenceLock) -UtcNow $fenceSaturday } | Should Throw 'lock is held'
+        } finally { Exit-ManagedPowerShellLockFence -Fence $fence }
+        Test-LockOpenRefused $fenceLock | Should Be $false
+    }
+    It 'creates a missing lock file so a later deployment cannot slip past the fence' {
+        Test-Path -LiteralPath $fenceLock | Should Be $false
+        $fence = Enter-ManagedPowerShellLockFence -LockPath @($fenceLock) -UtcNow $fenceSaturday
+        try {
+            Test-Path -LiteralPath $fenceLock | Should Be $true
+            Test-LockOpenRefused $fenceLock | Should Be $true
+        } finally { Exit-ManagedPowerShellLockFence -Fence $fence }
+    }
+    It 'releases already-acquired locks when a later lock is held' {
+        $second = Join-Path $fenceFolder 'backup.lock'
+        $heldElsewhere = [IO.File]::Open($second, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        try {
+            { Enter-ManagedPowerShellLockFence -LockPath @($fenceLock, $second) -UtcNow $fenceSaturday } | Should Throw 'lock is held'
+        } finally { $heldElsewhere.Dispose() }
+        Test-LockOpenRefused $fenceLock | Should Be $false
+    }
+    It 'fences the host executor lock so a runtime switch waits for active Stage operations' {
+        $paths = & (Get-Module PowerShellRuntime) { param($apps, $backup, $exec) @(Get-DeploymentLockPaths -AppsRoot $apps -BackupLock $backup -ExecutionLock $exec) } (Join-Path $TestDrive 'no-apps') 'backup.lock' 'control\execution.lock'
+        ($paths -contains 'control\execution.lock') | Should Be $true
+        $default = & (Get-Module PowerShellRuntime) { @(Get-DeploymentLockPaths -AppsRoot (Join-Path $TestDrive 'no-apps')) }
+        @($default | Where-Object { $_ -like '*\SolutionDeploy\control\execution.lock' }).Count | Should Be 1
+    }
+    It 'refuses the switch while the execution lock is held by a Stage operation' {
+        $executionLock = Join-Path $fenceFolder 'execution.lock'
+        $held = [IO.File]::Open($executionLock, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        try {
+            { Enter-ManagedPowerShellLockFence -LockPath @($fenceLock, $executionLock) -UtcNow $fenceSaturday } | Should Throw 'lock is held'
+        } finally { $held.Dispose() }
+        Test-LockOpenRefused $fenceLock | Should Be $false
+    }
+
+    It 'refuses during market hours before taking any lock' {
+        { Enter-ManagedPowerShellLockFence -LockPath @($fenceLock) -UtcNow ([datetime]'2026-11-24T15:00:00Z') } | Should Throw 'market hours'
+        Test-Path -LiteralPath $fenceLock | Should Be $false
+    }
+}
+

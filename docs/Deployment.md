@@ -236,8 +236,8 @@ files: `backend` (dist, package files, tsconfigs), `frontend\dist`, `config`,
 `deploy`, `scripts\Run-TelegramPull.ps1` and `telegram_ingest`. The Telegram
 pull runs from `current`, so `config\config.ini`, the `vader.session` sign-in,
 the venv and the pull logs carry forward. A missing carry-forward path stops
-the release in Prepare, before any downtime. The swap stops the site for about
-30 seconds. Release blocks every Web Options and Web Portfolio component, and
+the release in Prepare, before any downtime. The copy runs after the app has
+stopped, and Web Portfolio's Telegram task stays disabled until it finishes. The swap stops the site for about 30 seconds. Release blocks every Web Options and Web Portfolio component, and
 the shared `finance-launcher`, during US market hours (Monday to Friday 9:30 to
 16:00 Eastern) unless `-AllowMarketHours` is passed. See
 [Release commands](ReleaseCommands.md).
@@ -325,8 +325,7 @@ Otherwise it runs `scripts\Install-Directory.ps1` on the host, compares the
 installed files with the commit again, and checks Tailscale `/health` plus the
 Cloudflare Access redirect. The receipt and active metadata use the same completion
 time. The directory is down for about 10 seconds while
-the installer restarts it. A retry of the same commit is allowed after a failed
-install. Files removed from `site` stay installed; delete them by hand.
+the installer restarts it. A retry of the same commit is allowed after a failed install. Files removed from `site` stay installed; delete them by hand. A failed install restores the previous `site` files, `releases.json` and launchers, then restarts the previous task. The controller writes `state\directory-release-unknown.json` (`InFlight`) before the host installer launches, adds the host PID once it starts, and checks the marker under the deployment lock. The marker blocks new directory releases. It is cleared only after the installer is confirmed to have exited. If the installer outlives the wait or the controller loses it after launch, the receipt is `Unknown` and the marker and host scripts stay until an operator confirms the recorded host PID has exited and the installed files match the recorded commit, then removes that marker. The host installer refuses to stop or copy once `-ExpiresLocal` has passed. A failed install's rollback stops the new server before restoring files and waits for port 18798 to clear. It then restarts the task and checks `/health`.
 
 ### File-set release (collector monitor, LAN proxy, PostgreSQL backup, finance launcher)
 
@@ -825,6 +824,19 @@ Phase 1 supports Windows-hosted Node and Python services. A static page needs a 
 9. Stage, approve, activate, verify, and complete external/reboot acceptance before treating it as production.
 
 New solutions still pass the same independent database review and explicit production-action gates. They do not require a previous source installation.
+
+## Host checks around updates
+
+Before and after a PostgreSQL or PowerShell update, run
+`scripts\Test-HostDependencies.ps1` on jimbrownhome1. It is read-only and exits 1
+when any check fails, so it can gate a release window. The PostgreSQL steps are
+in [PostgreSQL](PostgreSQL.md#after-a-postgresql-update) and the runtime steps in
+[PowerShell runtime](PowerShellRuntime.md#verify-the-host-after-an-update).
+
+For Solution Directory recovery, `-AllowUnhealthyCurrent` skips the pre-install
+Tailscale `/health` check, so an installer can replace a directory whose current
+build reports unhealthy. `Invoke-DirectoryRelease` forwards it to the installer
+only when set.
 
 ## Rollback
 

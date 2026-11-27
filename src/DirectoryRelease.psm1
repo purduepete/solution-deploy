@@ -12,6 +12,8 @@ $script:HostOperationRoot='C:\ProgramData\SolutionDeploy\control\directory-relea
 $script:HostTemp=Get-DeploymentRemotePath jimbrownhome1 $script:HostOperationRoot
 # Install-Directory.ps1 installs both components, so a successful release records both.
 $script:DirectoryComponents=@('directory','collector-status')
+# Written when the host installer outlives the wait; blocks new releases until an operator clears it.
+$script:DirectoryUnknownMarker=Join-Path $script:Installed 'state\directory-release-unknown.json'
 
 # Mirrors the copies made by scripts\Install-Directory.ps1.
 function Get-DirectoryInstallMap {
@@ -55,7 +57,9 @@ function Complete-DirectoryRelease {
 function Invoke-DirectoryRelease {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$Repository,[string]$Commit='HEAD',[Parameter(Mandatory)][string]$ApprovalReason,
-        [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),[int]$TimeoutSeconds=300)
+        [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),[int]$TimeoutSeconds=300,
+        [switch]$AllowUnhealthyCurrent,[DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)))
+    Assert-ReleaseConsentCurrent $ExpiresLocal
     $commitId=Resolve-CommonReleaseSource $Repository $Commit
     $access=Get-SiteAccess 'solution-deploy'
     $readiness=@{path='health';expected=@{status='ok'}}
@@ -69,8 +73,17 @@ function Invoke-DirectoryRelease {
     $receipt=@{app='solution-deploy';component=$script:DirectoryComponents;sourceCommit=$commitId;status='Preparing';startedLocal=(Get-Date).ToString('o');reason=$ApprovalReason}
     $script=Join-Path $script:HostTemp "sd-directory-$($id.Substring(0,8)).ps1"
     $result=Join-Path $script:HostTemp "sd-directory-$($id.Substring(0,8)).json"
+    $installerSwitches=if($AllowUnhealthyCurrent){' -AllowUnhealthyCurrent'}else{''}
     $session=$null
+    $keepHostFiles=$false
+    # True from just before the launch until the host installer is confirmed to have exited.
+    $hostMayBeRunning=$false
     try{
+        # Checked under the lock, so two callers cannot both pass it.
+        if(Test-Path -LiteralPath $script:DirectoryUnknownMarker -PathType Leaf){
+            $unknown=Read-DeploymentJson $script:DirectoryUnknownMarker
+            throw "A previous directory release ended with an unknown outcome (operation $($unknown.operationId), host PID $($unknown.hostPid), started $($unknown.startedLocal)). Verify on jimbrownhome1 that PID $($unknown.hostPid) has exited and that the installed directory matches $($unknown.sourceCommit), then remove $($script:DirectoryUnknownMarker) before retrying."
+        }
         if(Invoke-HostGit @('status','--porcelain','--untracked-files=normal') $Repository -Capture){throw 'The host clone has uncommitted files; the installer would copy them.'}
         Invoke-HostGit @('-c','credential.interactive=false','fetch','--quiet','origin') $Repository
         $receipt.previousCommit=Invoke-HostGit @('rev-parse','HEAD') $Repository -Capture
@@ -79,10 +92,11 @@ function Invoke-DirectoryRelease {
         $stale=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
         if($stale.Count -and $receipt.previousCommit -cne $commitId){throw "The installed directory differs from the host clone at $($receipt.previousCommit): $($stale -join ', '). Reinstall by hand before releasing."}
         Assert-DeploymentLease @($lock)
+        Assert-ReleaseConsentCurrent $ExpiresLocal
         Invoke-HostGit @('merge','--ff-only','--quiet',$commitId) $Repository
         if((Invoke-HostGit @('rev-parse','HEAD') $Repository -Capture) -cne $commitId){throw 'The host clone did not move to the release commit.'}
         $changed=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
-        if(-not $changed.Count){
+        if(-not $changed.Count -and -not $AllowUnhealthyCurrent){
             $receipt.access=Test-HandPlacedReadiness $access $readiness
             $receipt.status='NoChanges';$receipt.completedLocal=(Get-Date).ToString('o')
             Write-DeploymentJson $receiptPath $receipt
@@ -91,31 +105,71 @@ function Invoke-DirectoryRelease {
         $receipt.changed=$changed
         Set-Content -LiteralPath $script -Encoding utf8 -Value @"
 `$ErrorActionPreference='Stop'
-try{`$out=& 'C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1' -PreserveTailscaleRoute;@{status='Succeeded';sites=`$out.Sites;privateStatus=`$out.PrivateStatus;pid=`$out.Pid}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
-catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
+try{`$out=& 'C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1' -PreserveTailscaleRoute$installerSwitches -ExpiresLocal '$($ExpiresLocal.ToString('o'))';@{status='Succeeded';sites=`$out.Sites;privateStatus=`$out.PrivateStatus;pid=`$out.Pid}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
+catch{@{status='Failed';error=`$_.Exception.Message;rollbackVerified=(`$_.Exception.Message -notmatch 'Rollback verification failed:')}|ConvertTo-Json|Set-Content '$($result.Replace($script:HostTemp,$script:HostOperationRoot))'}
 "@
         $session=New-DeploymentSession -ComputerName jimbrownhome1.local -OperationTimeoutSec 30
         $command='"C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe" -NoProfile -NonInteractive -WindowStyle Hidden -File "'+$script.Replace($script:HostTemp,$script:HostOperationRoot)+'"'
         $receipt.status='Installing'
         Write-DeploymentJson $receiptPath $receipt
         Assert-DeploymentLease @($lock)
+        Assert-ReleaseConsentCurrent $ExpiresLocal
+        $launchedLocal=(Get-Date).ToString('o')
+        # The marker is on disk before the launch, so an installer that starts and then loses its caller stays marked.
+        $marker=@{operationId=$id;sourceCommit=$commitId;startedLocal=$launchedLocal;status='InFlight'}
+        Write-DeploymentJson $script:DirectoryUnknownMarker $marker
+        $hostMayBeRunning=$true
         $created=Invoke-CimMethod -CimSession $session -ClassName Win32_Process -MethodName Create -Arguments @{CommandLine=$command}
-        if($created.ReturnValue -ne 0){throw "Could not start the directory installer (Windows result $($created.ReturnValue))."}
+        if($created.ReturnValue -ne 0){
+            # Windows reported no launch, so nothing can be running and the marker is cleared.
+            $hostMayBeRunning=$false
+            Invoke-DeploymentFileOperation Delete @($script:DirectoryUnknownMarker)
+            throw "Could not start the directory installer (Windows result $($created.ReturnValue))."
+        }
+        $marker.hostPid=[int]$created.ProcessId
+        Write-DeploymentJson $script:DirectoryUnknownMarker $marker
         $clock=[Diagnostics.Stopwatch]::StartNew()
-        while(-not (Test-Path -LiteralPath $result)){
-            if($clock.Elapsed.TotalSeconds -gt $TimeoutSeconds){throw "The directory installer ran past $TimeoutSeconds s (host PID $($created.ProcessId))."}
-            if(-not (Get-CimInstance -CimSession $session -ClassName Win32_Process -Filter "ProcessId=$($created.ProcessId)")){
-                # Allow a result writer finishing at process exit to close its file.
-                $exited=[Diagnostics.Stopwatch]::StartNew()
-                while(-not (Test-Path -LiteralPath $result) -and $exited.Elapsed.TotalSeconds -lt 20){Start-Sleep -Seconds 2}
-                if(-not (Test-Path -LiteralPath $result)){throw 'The directory installer exited without a result.'}
-                break
+        while(Get-CimInstance -CimSession $session -ClassName Win32_Process -Filter "ProcessId=$($created.ProcessId)"){
+            if($clock.Elapsed.TotalSeconds -gt $TimeoutSeconds){
+                # The host process may still be installing, so its marker, scripts and result stay in place.
+                $receipt.status='Unknown'
+                $marker.status='Unknown';$marker.timedOutLocal=(Get-Date).ToString('o')
+                Write-DeploymentJson $script:DirectoryUnknownMarker $marker
+                throw "The directory installer ran past $TimeoutSeconds s (host PID $($created.ProcessId)); its outcome is unknown."
             }
             Write-Host ("Directory installer: elapsed {0:n0}s." -f $clock.Elapsed.TotalSeconds)
             Start-Sleep -Seconds 3
         }
+        # The process has exited. A result writer may still be closing its file, so allow a short wait for it.
+        $exited=[Diagnostics.Stopwatch]::StartNew()
+        while(-not (Test-Path -LiteralPath $result) -and $exited.Elapsed.TotalSeconds -lt 20){Start-Sleep -Seconds 2}
+        $hostMayBeRunning=$false
+        if(-not (Test-Path -LiteralPath $result)){
+            # A killed installer may have left a mixed installation, so the marker, script and result stay for an operator.
+            $keepHostFiles=$true
+            $receipt.status='Unknown'
+            throw 'The directory installer exited without a result; its outcome is unknown and the installed directory may be mixed.'
+        }
         Start-Sleep -Milliseconds 500
-        $installed=Read-DeploymentJson $result
+        try{$installed=Read-DeploymentJson $result}
+        catch{
+            $keepHostFiles=$true
+            $receipt.status='Unknown'
+            throw "The directory installer result could not be read: $($_.Exception.Message)"
+        }
+        if($installed.status -notin 'Succeeded','Failed'){
+            $keepHostFiles=$true
+            $receipt.status='Unknown'
+            throw "The directory installer result has an unrecognized status '$($installed.status)'."
+        }
+        if($installed.status -eq 'Failed' -and $installed['rollbackVerified'] -ne $true){
+            # Rollback did not verify recovery; retain the marker and host files so retries stay blocked.
+            $keepHostFiles=$true
+            $receipt.status='Unknown'
+            throw "The directory installer failed without verified rollback: $($installed['error'])"
+        }
+        # A structured result with verified success or verified rollback is a known outcome.
+        if(Test-Path -LiteralPath $script:DirectoryUnknownMarker -PathType Leaf){Invoke-DeploymentFileOperation Delete @($script:DirectoryUnknownMarker)}
         if($installed.status -ne 'Succeeded'){throw "The directory installer failed: $($installed['error'])"}
         $receipt.install=$installed
         $left=@(Compare-DirectoryInstall (Get-DirectoryInstallMap $script:HostClone) $script:Installed)
@@ -125,11 +179,18 @@ catch{@{status='Failed';error=`$_.Exception.Message}|ConvertTo-Json|Set-Content 
         Complete-DirectoryRelease $receipt $script:Installed $receiptPath
         $receipt
     }catch{
-        $receipt.status='Failed';$receipt.error=$_.Exception.Message
+        if($hostMayBeRunning){
+            # The installer may still be running, so its marker, scripts and result are kept for the operator.
+            $keepHostFiles=$true
+            $receipt.status='Unknown'
+        }elseif($receipt.status -ne 'Unknown'){$receipt.status='Failed'}
+        $receipt.error=$_.Exception.Message
         Write-DeploymentJson $receiptPath $receipt
         throw
     }finally{
-        foreach($path in $script,$result){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue}}
+        if(-not $keepHostFiles){
+            foreach($path in $script,$result){if(Test-Path -LiteralPath $path){Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue}}
+        }
         if($session){Close-DeploymentSession $session}
         $lock.Dispose()
     }

@@ -203,6 +203,22 @@ Describe 'Remote filesystem and task routing without a network connection' {
             $ArgumentList[1].TaskPath -eq '\JimlerTech\'
         }
     }
+    It 'proxies Disable-ScheduledTask and Enable-ScheduledTask to the SSH host with the exact task path' {
+        Mock Invoke-DeploymentSsh -ModuleName SshTransport {$null}
+        $session=New-DeploymentSession jimbrownhome1
+        Disable-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-lan-proxy|Out-Null
+        Enable-ScheduledTask -CimSession $session -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-lan-proxy|Out-Null
+        Assert-MockCalled Invoke-DeploymentSsh -ModuleName SshTransport -Times 1 -Scope It -ParameterFilter {
+            $HostName -eq 'jimbrownhome1.local' -and $ArgumentList[0] -eq 'Disable-ScheduledTask' -and
+            -not $ArgumentList[1].ContainsKey('CimSession') -and $ArgumentList[1].TaskPath -eq '\JimlerTech\' -and
+            $ArgumentList[1].TaskName -eq 'SolutionDeploy-lan-proxy'
+        }
+        Assert-MockCalled Invoke-DeploymentSsh -ModuleName SshTransport -Times 1 -Scope It -ParameterFilter {
+            $HostName -eq 'jimbrownhome1.local' -and $ArgumentList[0] -eq 'Enable-ScheduledTask' -and
+            -not $ArgumentList[1].ContainsKey('CimSession') -and $ArgumentList[1].TaskPath -eq '\JimlerTech\' -and
+            $ArgumentList[1].TaskName -eq 'SolutionDeploy-lan-proxy'
+        }
+    }
     It 'retains host-local filesystem behavior including binary writes and recursive enumeration' {
         $path=Join-Path $TestDrive 'local\file.bin'
         Invoke-DeploymentFileOperation CreateDirectory @((Split-Path $path))|Out-Null

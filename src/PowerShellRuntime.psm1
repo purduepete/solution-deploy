@@ -24,6 +24,18 @@ function Get-PowerShellReleaseAsset {
     [pscustomobject]@{ Version = $version; Name = $name; Url = $url; SHA256 = $hash }
 }
 
+function Get-ManagedPowerShellSmokeScript {
+    # Runs inside the candidate runtime. The caller compares the printed version with the expected one.
+    @'
+$ErrorActionPreference = 'Stop'
+Import-Module ScheduledTasks -ErrorAction Stop
+Import-Module CimCmdlets -ErrorAction Stop
+$timestamp = (ConvertFrom-Json '{"t":"2026-10-31T01:28:20.1839545-07:00"}' -DateKind String).t
+if ($timestamp -cne '2026-10-31T01:28:20.1839545-07:00') { throw "ConvertFrom-Json changed the timestamp: $timestamp" }
+[Console]::Write($PSVersionTable.PSVersion.ToString())
+'@
+}
+
 function Test-ManagedPowerShell {
     param([Parameter(Mandatory)][string]$Executable, [Parameter(Mandatory)][string]$Version)
     foreach ($file in @($Executable, (Join-Path (Split-Path -Parent $Executable) 'System.Management.Automation.dll'))) {
@@ -32,9 +44,11 @@ function Test-ManagedPowerShell {
             throw "Microsoft signature verification failed: $file"
         }
     }
+    # Encoding the smoke script avoids nested quoting between Windows PowerShell and the candidate runtime.
+    $encodedScript = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes((Get-ManagedPowerShellSmokeScript)))
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $Executable
-    $info.Arguments = '-NoLogo -NoProfile -NonInteractive -Command "Import-Module ScheduledTasks -ErrorAction Stop; [Console]::Write($PSVersionTable.PSVersion.ToString())"'
+    $info.Arguments = "-NoLogo -NoProfile -NonInteractive -EncodedCommand $encodedScript"
     $info.UseShellExecute = $false
     $info.CreateNoWindow = $true
     $info.RedirectStandardOutput = $true
@@ -56,6 +70,85 @@ function Test-ManagedPowerShell {
             throw "PowerShell runtime verification failed (exit $($process.ExitCode)): $output $errorOutput"
         }
     } finally { $process.Dispose() }
+}
+
+function Get-DeploymentLockPaths {
+    param(
+        [string]$AppsRoot = 'C:\ProgramData\SolutionDeploy\apps',
+        [string]$BackupLock = 'C:\ProgramData\JimlerTech\PostgreSQL\backups\backup.lock',
+        # The host executor's global lock, so a runtime switch also waits for active Stage operations.
+        [string]$ExecutionLock = 'C:\ProgramData\SolutionDeploy\control\execution.lock'
+    )
+    $paths = @()
+    if (Test-Path -LiteralPath $AppsRoot -PathType Container) {
+        $apps = @(Get-ChildItem -LiteralPath $AppsRoot -Directory)
+        foreach ($name in 'common-controller.lock', 'deployment.lock', 'directory-install.lock') {
+            $paths += @($apps | ForEach-Object { Join-Path $_.FullName "state\$name" })
+        }
+    }
+    $paths + $BackupLock + $ExecutionLock
+}
+
+function Assert-ManagedPowerShellMarketClosed {
+    param([switch]$AllowMarketHours, [datetime]$UtcNow = [datetime]::UtcNow)
+    if ($AllowMarketHours) { return }
+    $eastern = [TimeZoneInfo]::FindSystemTimeZoneById('Eastern Standard Time')
+    $utc = if ($UtcNow.Kind -eq [DateTimeKind]::Local) { $UtcNow.ToUniversalTime() } else { [datetime]::SpecifyKind($UtcNow, 'Utc') }
+    $local = [TimeZoneInfo]::ConvertTimeFromUtc($utc, $eastern)
+    $weekday = $local.DayOfWeek -notin 'Saturday', 'Sunday'
+    if ($weekday -and $local.TimeOfDay -ge [timespan]'09:30' -and $local.TimeOfDay -lt [timespan]'16:00') {
+        throw "Refusing to switch PowerShell during US market hours (Eastern $($local.ToString('ddd HH:mm'))). Rerun with -AllowMarketHours to override."
+    }
+}
+
+function Enter-ManagedPowerShellLockFence {
+    <#
+    Checks market hours, then opens every deployment and backup lock exclusively and returns the open handles.
+    Missing lock files are created, as Get-DeploymentLock does, so a deployment that starts later cannot
+    slip past the fence. Pass the handles to Exit-ManagedPowerShellLockFence once the switch is done.
+    If any lock is held, the handles already acquired are released before the error is thrown.
+    #>
+    param(
+        [string[]]$LockPath = (Get-DeploymentLockPaths),
+        [switch]$AllowMarketHours,
+        [datetime]$UtcNow = [datetime]::UtcNow
+    )
+    Assert-ManagedPowerShellMarketClosed -AllowMarketHours:$AllowMarketHours -UtcNow $UtcNow
+    $handles = [Collections.Generic.List[IO.FileStream]]::new()
+    try {
+        foreach ($path in $LockPath) {
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $path)) | Out-Null
+            try {
+                $handles.Add([IO.File]::Open($path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None))
+            } catch [IO.IOException] {
+                throw "A deployment or backup lock is held. Wait for it to finish before switching PowerShell: $path"
+            }
+        }
+    } catch {
+        foreach ($handle in $handles) { $handle.Dispose() }
+        throw
+    }
+    , $handles.ToArray()
+}
+
+function Exit-ManagedPowerShellLockFence {
+    param([AllowNull()][IO.FileStream[]]$Fence)
+    foreach ($handle in @($Fence)) { if ($handle) { $handle.Dispose() } }
+}
+
+function Test-ManagedPowerShellLockSafety {
+    <#
+    Point-in-time check: refuses while a deployment or backup holds a lock, or during US market hours
+    (Mon-Fri 09:30-16:00 Eastern) unless -AllowMarketHours is given. Use Enter-ManagedPowerShellLockFence
+    to keep the locks held across a switch.
+    #>
+    param(
+        [string[]]$LockPath = (Get-DeploymentLockPaths),
+        [switch]$AllowMarketHours,
+        [datetime]$UtcNow = [datetime]::UtcNow
+    )
+    $fence = Enter-ManagedPowerShellLockFence -LockPath $LockPath -AllowMarketHours:$AllowMarketHours -UtcNow $UtcNow
+    Exit-ManagedPowerShellLockFence -Fence $fence
 }
 
 function Expand-VerifiedPowerShellArchive {
@@ -123,4 +216,4 @@ function Set-ManagedPowerShellVersion {
     }
 }
 
-Export-ModuleMember -Function Get-ManagedPowerShellPath, Get-PowerShellReleaseAsset, Test-ManagedPowerShell, Expand-VerifiedPowerShellArchive, Set-ManagedPowerShellVersion
+Export-ModuleMember -Function Get-ManagedPowerShellPath, Get-PowerShellReleaseAsset, Get-ManagedPowerShellSmokeScript, Test-ManagedPowerShell, Enter-ManagedPowerShellLockFence, Exit-ManagedPowerShellLockFence, Test-ManagedPowerShellLockSafety, Expand-VerifiedPowerShellArchive, Set-ManagedPowerShellVersion

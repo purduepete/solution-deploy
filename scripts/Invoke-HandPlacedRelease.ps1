@@ -21,7 +21,9 @@ $result=@{phase=$Phase;requestSHA256=$RequestSHA256;status='Running';startedLoca
 $lock=$null
 $stopped=$false
 $switched=$false
-
+# Portfolio's Telegram pull writes carry-forward state; it stays disabled from the stop until the junction switch is done.
+$telegramTask='SolutionDeploy-web-portfolio-telegram'
+$reenableTelegram=$false
 function Assert-RequestCurrent {
     if((Get-FileHash -LiteralPath $RequestPath).Hash.ToLowerInvariant() -ne $RequestSHA256){throw 'Release request changed.'}
     if([DateTimeOffset]::Parse($request.expiresLocal) -le [DateTimeOffset]::Now){throw 'Release consent expired.'}
@@ -110,14 +112,13 @@ try{
         Set-Acl -LiteralPath $release -AclObject (Get-Acl -LiteralPath $aclSource)
         [IO.Compression.ZipFile]::ExtractToDirectory($payload,$release)
         # Untracked runtime files such as sign-in sessions live in the release, so they move with it.
+        # They are copied during Activate, after the app has stopped and its writers are quiet.
         foreach($path in $carry){
             if(-not $previous){throw 'Carry-forward needs a previous release.'}
             $from=Join-Path $previous $path
             $to=Join-Path $release $path
             if(-not (Test-Path -LiteralPath $from)){throw "Carry-forward path missing from the previous release: $path"}
             if(Test-Path -LiteralPath $to){throw "Carry-forward path is also in the payload: $path"}
-            [IO.Directory]::CreateDirectory((Split-Path -Parent $to))|Out-Null
-            Copy-Item -LiteralPath $from -Destination $to -Recurse
         }
         $result.carried=$carry
         if($request.hostInstall -eq 'npm-production'){
@@ -142,8 +143,34 @@ try{
         if($record.sourceCommit -ne $request.sourceCommit -or $record.operationId -ne $request.id){throw 'Prepared release changed.'}
         $lock=Get-DeploymentLock (Join-Path $appRoot 'state\deployment.lock')
         Assert-PreviousCurrent
+        if($app -eq 'web-portfolio' -and $carry.Count){
+            # Fence the Telegram pull before the stop, so the stop cannot kill a pull that is writing carry-forward state.
+            $telegram=Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $telegramTask
+            $reenableTelegram=[bool]$telegram.Settings.Enabled
+            if($reenableTelegram){Disable-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $telegramTask|Out-Null}
+            $clock=[Diagnostics.Stopwatch]::StartNew()
+            do{
+                $pulls=@(Get-CimInstance Win32_Process|Where-Object {
+                    $_.ProcessId -ne $PID -and [string]$_.CommandLine -match 'Run-TelegramPull\.ps1|telegram_ingest'})
+                $running=(Get-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $telegramTask).State -eq 'Running'
+                if(-not $pulls.Count -and -not $running){break}
+                if($clock.Elapsed.TotalSeconds -ge 60){throw 'The Portfolio Telegram pull is still running after 60 s; the app was not stopped.'}
+                Start-Sleep -Seconds 2
+            }while($true)
+        }
         $stopped=$true
         Stop-HandPlacedApp
+        Assert-RequestCurrent
+        Assert-PreviousCurrent
+        # Carry-forward files are copied only now: the app is stopped, so its runtime files are quiet.
+        $result.carried=$carry
+        foreach($path in $carry){
+            $from=Join-Path $previous $path
+            $to=Join-Path $release $path
+            [IO.Directory]::CreateDirectory((Split-Path -Parent $to))|Out-Null
+            Copy-Item -LiteralPath $from -Destination $to -Recurse
+        }
+        # The request, previous release and identity can change while the copy runs, so they are checked again before the switch.
         Assert-RequestCurrent
         Assert-PreviousCurrent
         $current=Join-Path $appRoot 'current'
@@ -184,6 +211,10 @@ try{
     }elseif($switched){$result.recovery='New release is current. No automatic rollback was attempted.'}
     Write-Error -Message $result.error -ErrorAction Continue
 }finally{
+    if($reenableTelegram){
+        try{Enable-ScheduledTask -TaskPath '\JimlerTech\' -TaskName $telegramTask|Out-Null}
+        catch{$result.status='Failed';$result.telegramError="Could not re-enable ${telegramTask}: $($_.Exception.Message)"}
+    }
     if($lock){$lock.Dispose()}
     Write-DeploymentJson $resultPath $result
 }

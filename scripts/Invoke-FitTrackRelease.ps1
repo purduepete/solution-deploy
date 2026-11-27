@@ -19,6 +19,8 @@ if($operation -notmatch ('^'+[regex]::Escape($expectedRoot)+'\\[a-f0-9]{32}$') -
 $resultPath=Join-Path $operation ($Phase.ToLowerInvariant()+'-result.json')
 $result=@{phase=$Phase;requestSHA256=$RequestSHA256;status='Running';startedLocal=(Get-Date).ToString('o')}
 $lock=$null
+$stopped=$false
+$switched=$false
 function Wait-FitTrackRuntime {
     param([string]$AppRoot,[string]$Release,[hashtable]$Manifest,[string]$Runtime,[int]$TimeoutSeconds=90)
     $clock=[Diagnostics.Stopwatch]::StartNew()
@@ -90,10 +92,13 @@ try{
         Assert-PreviousRelease
         $oldManifest=Read-LifecycleManifest -Path (Join-Path $previous 'deploy\application.json') -AppRoot $appRoot -ReleasePath $previous
         $oldRuntime=Get-ReleaseRuntimePath -AppRoot $appRoot -ReleasePath $previous -Manifest $oldManifest
+        $stopped=$true
         Stop-ManagedApp -AppRoot $appRoot -ReleasePath $previous -Manifest $oldManifest -RuntimePath $oldRuntime -TimeoutSeconds 60|Out-Null
         Assert-PreviousRelease
-        Set-ActiveRelease -AppRoot $appRoot -ReleaseId $plan.releaseId -OperationId $plan.id -HostName jimbrownhome1 -PlanHash $plan.planHash
+        # Consent must still hold at the switch; a failure after it would leave the new release active with no recovery.
         Assert-RequestCurrent
+        Set-ActiveRelease -AppRoot $appRoot -ReleaseId $plan.releaseId -OperationId $plan.id -HostName jimbrownhome1 -PlanHash $plan.planHash
+        $switched=$true
         Clear-AppMaintenance -AppRoot $appRoot -Confirm:$false
         Start-ScheduledTask -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track
         $manifest=Read-LifecycleManifest -Path (Join-Path $release 'deploy\application.json') -AppRoot $appRoot -ReleasePath $release
@@ -109,6 +114,13 @@ try{
     $result.status='Succeeded';$result.completedLocal=(Get-Date).ToString('o')
 }catch{
     $result.status='Failed';$result.error=$_.Exception.Message
+    if($stopped -and -not $switched){
+        try{
+            Clear-AppMaintenance -AppRoot $appRoot -Confirm:$false
+            Start-ScheduledTask -TaskPath '\JimlerTech\' -TaskName SolutionDeploy-fit-track
+            $result.recovery='Previous release restarted.'
+        }catch{$result.recovery="Restart failed: $($_.Exception.Message)"}
+    }
     Write-Error -Message $result.error -ErrorAction Continue
 }finally{
     if($lock){$lock.Dispose()}

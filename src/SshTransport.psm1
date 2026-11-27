@@ -440,7 +440,8 @@ function Assert-DeploymentLease {
 # Proxies keep native parameter/pipeline behavior, including host-local execution and Pester mocks.
 $names=@('Test-Path','Get-Item','Get-ChildItem','Get-Content','Set-Content','Copy-Item','Remove-Item','New-Item','Rename-Item','Move-Item',
     'Get-FileHash','Get-Acl','Set-Acl','Get-CimInstance','Invoke-CimMethod','Get-NetTCPConnection',
-    'Get-ScheduledTask','Get-ScheduledTaskInfo','Start-ScheduledTask','Stop-ScheduledTask','Set-ScheduledTask','Export-ScheduledTask')
+    'Get-ScheduledTask','Get-ScheduledTaskInfo','Start-ScheduledTask','Stop-ScheduledTask','Disable-ScheduledTask','Enable-ScheduledTask',
+    'Set-ScheduledTask','Export-ScheduledTask')
 $script:NativeCommands=@{}
 foreach($name in $names){
     $module=if($name -like '*ScheduledTask*'){'ScheduledTasks'}elseif($name -like '*Cim*'){'CimCmdlets'}elseif($name -eq 'Get-NetTCPConnection'){'NetTCPIP'}elseif($name -like '*Acl'){'Microsoft.PowerShell.Security'}elseif($name -eq 'Get-FileHash'){'Microsoft.PowerShell.Utility'}else{'Microsoft.PowerShell.Management'}

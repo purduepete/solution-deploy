@@ -11,7 +11,8 @@ powershell.exe -NoProfile -File .\scripts\Update-DeploymentPowerShell.ps1 -Rollb
 [CmdletBinding(DefaultParameterSetName = 'Update')]
 param(
     [Parameter(ParameterSetName = 'Update')][ValidatePattern('^7\.\d+\.\d+$')][string]$Version,
-    [Parameter(Mandatory, ParameterSetName = 'Rollback')][switch]$Rollback
+    [Parameter(Mandatory, ParameterSetName = 'Rollback')][switch]$Rollback,
+    [switch]$AllowMarketHours
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -32,6 +33,7 @@ foreach ($entry in @(@('S-1-5-18','FullControl'), @('S-1-5-32-544','FullControl'
 }
 Set-Acl -LiteralPath $root -AclObject $acl
 $lock = $null
+$fence = $null
 $archive = $null
 $staging = $null
 try {
@@ -68,9 +70,11 @@ try {
         }
     }
     Write-Host "Verifying and selecting PowerShell $Version. Existing processes keep their retained runtime."
+    $fence = Enter-ManagedPowerShellLockFence -AllowMarketHours:$AllowMarketHours
     Set-ManagedPowerShellVersion -Root $root -Version $Version
     [pscustomobject]@{ Version = $Version; Executable = Get-ManagedPowerShellPath; Previous = (Join-Path $root 'previous'); AutomaticUpdates = $false }
 } finally {
+    if ($fence) { Exit-ManagedPowerShellLockFence -Fence $fence }
     if ($archive -and (Test-Path -LiteralPath $archive)) { Remove-Item -LiteralPath $archive -Force }
     if ($staging -and (Test-Path -LiteralPath $staging)) { Remove-Item -LiteralPath $staging -Recurse -Force }
     if ($lock) { $lock.Dispose() }

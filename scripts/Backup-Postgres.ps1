@@ -6,7 +6,11 @@ param(
     [string]$ToolDirectory='C:\Program Files\PostgreSQL\18\bin',
     [string]$PassFile='C:\ProgramData\JimlerTech\PostgreSQL\postgres.pgpass',
     [string]$ShareCredential='C:\ProgramData\JimlerTech\PostgreSQL\backup-share.credential.xml',
-    [ValidateRange(2,365)][int]$RetentionDays=14
+    [ValidateRange(2,365)][int]$RetentionDays=14,
+    [string]$ExpectedDataDirectory='D:\data\postgres',
+    [string]$ExpectedClusterId,
+    # Holds the pinned system_identifier for unattended runs when -ExpectedClusterId is not passed.
+    [string]$ClusterIdFile='C:\ProgramData\JimlerTech\PostgreSQL\cluster-id.txt'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
@@ -70,6 +74,43 @@ function Save-Manifest {
     $manifest|ConvertTo-Json -Depth 12|Set-Content -LiteralPath (Join-Path $run 'manifest.json') -Encoding utf8
 }
 
+# Refuses to dump a cluster that is not the expected one or whose pg_dump major version differs from the server.
+function Assert-PostgresBackupIdentity {
+    param(
+        [Parameter(Mandatory)][scriptblock]$Query,
+        [Parameter(Mandatory)][string]$PgDumpVersion,
+        [Parameter(Mandatory)][string]$ExpectedDataDirectory,
+        [string]$ExpectedClusterId,
+        [string]$ClusterIdFile
+    )
+    $dataDirectory=([string](& $Query 'SHOW data_directory;')).Trim()
+    $actualFolder=$dataDirectory.Replace('/','\').TrimEnd('\')
+    $expectedFolder=$ExpectedDataDirectory.Replace('/','\').TrimEnd('\')
+    if($actualFolder -ine $expectedFolder){
+        throw "PostgreSQL is serving '$actualFolder', not '$expectedFolder'. An installer may have reset the service to the default data folder."
+    }
+    $systemIdentifier=([string](& $Query 'SELECT system_identifier FROM pg_control_system();')).Trim()
+    if($systemIdentifier -notmatch '^\d+$'){throw "system_identifier could not be read: '$systemIdentifier'."}
+    $pinned=if($ExpectedClusterId){$ExpectedClusterId.Trim()}
+        elseif($ClusterIdFile -and (Test-Path -LiteralPath $ClusterIdFile -PathType Leaf)){([string](Get-Content -LiteralPath $ClusterIdFile -Raw)).Trim()}
+        else{''}
+    if(-not $pinned){
+        throw "No expected cluster ID is pinned. The server reports system_identifier $systemIdentifier. Write it to $ClusterIdFile or pass -ExpectedClusterId before unattended backups run."
+    }
+    if($systemIdentifier -cne $pinned){
+        throw "system_identifier $systemIdentifier does not match the expected cluster $pinned."
+    }
+    $serverVersionNum=([string](& $Query 'SHOW server_version_num;')).Trim()
+    if($serverVersionNum -notmatch '^\d+$'){throw "server_version_num could not be read: '$serverVersionNum'."}
+    $serverMajor=[int][Math]::Floor([int]$serverVersionNum/10000)
+    if($PgDumpVersion -notmatch 'pg_dump \(PostgreSQL\) (\d+)'){throw "pg_dump --version was not recognized: '$PgDumpVersion'."}
+    $dumpMajor=[int]$Matches[1]
+    if($serverMajor -ne $dumpMajor){
+        throw "Server is PostgreSQL $serverMajor but pg_dump is $dumpMajor. Use the matching pg_dump before backing up."
+    }
+    [pscustomobject]@{dataDirectory=$actualFolder;systemIdentifier=$systemIdentifier;serverVersionNum=$serverVersionNum;serverMajor=$serverMajor;pgDumpMajor=$dumpMajor}
+}
+
 try {
     if($env:COMPUTERNAME -ine 'jimbrownhome1'){throw 'Run this job on jimbrownhome1 only.'}
     if(-not (Test-Path -LiteralPath $Root -PathType Container)){throw 'The protected backup directory must be installed first.'}
@@ -78,6 +119,12 @@ try {
     $env:PGPASSFILE=$PassFile
     $env:PGCONNECT_TIMEOUT='15'
     $env:PGOPTIONS='-c statement_timeout=540000 -c lock_timeout=30000'
+    $identity=Assert-PostgresBackupIdentity -Query {param([string]$Sql) Invoke-PgQuery 'postgres' $Sql} -PgDumpVersion (Invoke-PgTool 'pg_dump.exe' @('--version')) -ExpectedDataDirectory $ExpectedDataDirectory -ExpectedClusterId $ExpectedClusterId -ClusterIdFile $ClusterIdFile
+    $manifest.dataDirectory=$identity.dataDirectory
+    $manifest.systemIdentifier=$identity.systemIdentifier
+    $manifest.serverVersionNum=$identity.serverVersionNum
+    $manifest.pgDumpMajor=$identity.pgDumpMajor
+    Write-ProgressLog "Verified data directory and cluster $($identity.systemIdentifier); PostgreSQL $($identity.serverMajor) with matching pg_dump"
     Write-ProgressLog "Starting $runName"
     Save-Manifest
     $databases=@((Invoke-PgQuery 'postgres' "SELECT datname FROM pg_database WHERE datallowconn AND NOT datistemplate ORDER BY datname;") -split '\r?\n')

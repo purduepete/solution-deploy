@@ -25,9 +25,19 @@ preview releases are rejected. A downgrade requires the rollback command below.
 
 The command downloads the official Windows x64 ZIP, checks its SHA256 against
 GitHub's release asset digest, checks Microsoft's executable and engine
-signatures, and tests the runtime with Task Scheduler before selecting it.
+signatures, and tests the candidate with Task Scheduler, the `ScheduledTasks`
+and `CimCmdlets` modules, an exact JSON timestamp round-trip, and a report of its
+own version. The version must match exactly before the runtime is selected.
 An exclusive lock prevents simultaneous updates. Downloads have a 3-minute
 timeout. A failed download or preflight leaves the active runtime unchanged.
+
+Before the switch, the updater refuses to proceed while a deployment or backup
+lock is held (`apps\*\state\common-controller.lock`, `deployment.lock`,
+`directory-install.lock`, `JimlerTech\PostgreSQL\backups\backup.lock`, or the host
+executor's `control\execution.lock`, so active Stage operations also block it). It also
+refuses during US market hours (Monday to Friday, 09:30 to 16:00 Eastern). Run it
+after the close, or add `-AllowMarketHours` to override that refusal knowingly.
+Lock and market-hours refusals occur before any junction moves.
 
 Only the runtime junction changes. Task arguments, service accounts, triggers,
 working directories and running applications stay unchanged. There is a brief
@@ -56,6 +66,21 @@ processes retain their loaded version.
 Version folders and verification receipts are retained intentionally. Do not
 delete a version while a process uses it, or while `7` or `previous` points at
 it. The updater removes its download and failed staging folder automatically.
+
+## Verify the host after an update
+
+Run the read-only verifier on jimbrownhome1 before and after an update:
+
+```powershell
+pwsh.exe -NoProfile -File .\scripts\Test-HostDependencies.ps1 -CheckSignature -CheckApps -ExpectedClusterId <system_identifier>
+```
+
+It checks that the managed `7` and `previous` junctions point to `versions\7.x.y`,
+that the sshd `powershell` subsystem uses `C:/ProgramData/SolutionDeploy/runtime/powershell/7/pwsh.exe`,
+that every `\JimlerTech\` task launching `pwsh.exe` uses that same executable, and
+that the controller and host share a PowerShell Major.Minor version. Its JSON
+result lists each check; it exits 1 when any check fails. See
+[PostgreSQL](PostgreSQL.md#after-a-postgresql-update) for the database checks.
 
 ## Initial installation and existing tasks
 

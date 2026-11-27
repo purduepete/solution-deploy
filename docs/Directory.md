@@ -44,9 +44,11 @@ The directory needs no database of its own.
     & C:\Files\Dev\main\solution-deploy\scripts\Install-Directory.ps1
     ```
 
-    The installer updates only this directory service. It checks the recorded
+    The installer holds `state\directory-install.lock` for the whole run. It updates only this directory service. It checks the recorded
     process identity before stopping it, installs permanent files, starts the
-    task, and verifies the exact served inventory and private URL.
+    task, and verifies the exact served inventory and private URL. If a step fails
+    after the old service is stopped, it restores the saved files and restarts the
+    previous task.
 
 5. Verify both published URLs and refresh the browser. Assets use `no-store`.
    The inventory is loaded at process start, so edits need redeployment.

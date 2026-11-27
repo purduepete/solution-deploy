@@ -195,6 +195,27 @@ After every update, before releasing anything:
    the new hash. After the update is checked, rerun with
    `-ApprovedPsqlSHA256 <hash>`; that release records the hash. Do not release
    apps solely to update the hash.
+6. Run the read-only host verifier before and after the update:
+   `pwsh.exe -NoProfile -File .\scripts\Test-HostDependencies.ps1 -CheckSignature -CheckApps -ExpectedClusterId <system_identifier>`.
+   It checks the service `-D` path, `data_directory`, `system_identifier`, the
+   `psql.exe` signature and SHA-256, the `pg_dump` and server major versions,
+   `password authentication failed` entries from the last 24 hours, the latest
+   successful backup (within 36 hours), the managed PowerShell junctions and sshd
+   subsystem, `JimlerTech` task executables, controller and host PowerShell
+   Major.Minor parity, each app's `/health` and the collector snapshot. It writes
+   nothing and exits 1 when any check fails. Omit `-CheckSignature` or `-CheckApps`
+   to skip those checks; the report marks them `Skipped`.
+
+`scripts\Backup-Postgres.ps1` also guards itself before it lists databases. It
+throws when `SHOW data_directory;` differs from `-ExpectedDataDirectory`
+(default `D:\data\postgres`), when `SELECT system_identifier FROM pg_control_system();`
+differs from the pinned cluster, or when `pg_dump.exe --version`
+and `SHOW server_version_num;` report different PostgreSQL major versions. The
+pinned cluster is `-ExpectedClusterId` when passed, otherwise the trimmed contents of
+`C:\ProgramData\JimlerTech\PostgreSQL\cluster-id.txt` (`-ClusterIdFile`). With neither
+present, the backup refuses to run and its error names the observed `system_identifier`,
+so pin it once by writing that value to `cluster-id.txt`. The manifest records the
+observed `systemIdentifier`, so a backup always names the cluster it came from.
 
 ## Data authority and rollback
 

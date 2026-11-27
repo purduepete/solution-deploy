@@ -87,9 +87,26 @@ $script:Builds=@{
     }
 }
 
+# Only these extensions are compared as text (CRLF and LF are equal). Anything else is hashed as raw bytes,
+# so binary files that decode to the same replacement characters can never look identical.
+$script:TextFileExtensions=@('.ps1','.psm1','.psd1','.json','.mjs','.js','.cjs','.ts','.tsx','.jsx','.html','.htm',
+    '.css','.sql','.py','.md','.txt','.yml','.yaml','.vbs','.xml','.ini','.cfg','.env','.csv','.svg','.gitignore',
+    '.cmd','.bat','.sh')
+
 function Get-NormalizedFileDigest {
     param([Parameter(Mandatory)][string]$Path)
-    Get-Sha256Text ((Invoke-DeploymentFileOperation ReadAllText @($Path)).Replace("`r`n","`n"))
+    $bytes=[byte[]](Invoke-DeploymentFileOperation ReadAllBytes @($Path))
+    if($null -eq $bytes){$bytes=[byte[]]::new(0)}
+    if([IO.Path]::GetExtension($Path).ToLowerInvariant() -in $script:TextFileExtensions){
+        $offset=if($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF){3}else{0}
+        try{
+            $text=[Text.UTF8Encoding]::new($false,$true).GetString($bytes,$offset,$bytes.Length-$offset)
+            return Get-Sha256Text $text.Replace("`r`n","`n")
+        }catch [Text.DecoderFallbackException]{
+            # Invalid UTF-8 cannot be compared as text, so its exact bytes decide.
+        }
+    }
+    [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
 function Assert-HandPlacedDatabaseInputs {

@@ -137,17 +137,31 @@ function Invoke-PinnedJobAccessPreflight {
 function Set-VerifiedPinnedJobActions {
     param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][string]$App,[Parameter(Mandatory)][object[]]$Tasks,
         [Parameter(Mandatory)]$Current,[Parameter(Mandatory)][string]$ReleasePath,[Parameter(Mandatory)]$Receipt,
-        [Parameter(Mandatory)][string]$Id,[int]$TimeoutSeconds=180)
+        [Parameter(Mandatory)][string]$Id,[int]$TimeoutSeconds=180,
+        [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)))
+    Assert-ReleaseConsentCurrent $ExpiresLocal
     $Receipt.access=Invoke-PinnedJobAccessPreflight -Session $Session -App $App -Tasks $Tasks `
         -ReleasePath $ReleasePath -Id $Id -TimeoutSeconds $TimeoutSeconds
+    $repointedAt=@{}
     foreach($task in $Tasks){
+        Assert-ReleaseConsentCurrent $ExpiresLocal
         Set-PinnedJobTaskAction $Session $task.TaskName (New-PinnedJobAction $task.Actions[0] $Current.path $ReleasePath)
+        # Runs before this moment belong to the old release; only later runs prove the new one.
+        $repointedAt[$task.TaskName]=Get-Date
         $Receipt.repointed+=$task.TaskName
     }
+    $Receipt.repointedAt=$repointedAt
 }
 
 function Wait-PinnedJobRuns {
-    param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][object[]]$Tasks,[Parameter(Mandatory)][datetime]$Since,[int]$TimeoutSeconds=180)
+    param([Parameter(Mandatory)]$Session,[Parameter(Mandatory)][object[]]$Tasks,
+        [System.Collections.IDictionary]$SinceByTask,[datetime]$Since,[string]$ReleasePath,[int]$TimeoutSeconds=180)
+    if(-not $SinceByTask -and $Since -eq [datetime]::MinValue){throw 'Wait-PinnedJobRuns needs the repoint time of each task.'}
+    $sinceFor={param($name)
+        if($SinceByTask -and $SinceByTask.Contains($name)){return [datetime]$SinceByTask[$name]}
+        if($Since -ne [datetime]::MinValue){return $Since}
+        throw "No repoint time recorded for $name."
+    }
     $results=@{}
     $repeating=@($Tasks|Where-Object {@($_.Triggers|Where-Object {$_.Repetition -and $_.Repetition.Interval}).Count})
     foreach($task in @($Tasks|Where-Object {$_ -notin $repeating})){
@@ -159,8 +173,13 @@ function Wait-PinnedJobRuns {
         $pending=@($repeating|Where-Object {-not $results.ContainsKey($_.TaskName)})
         if(-not $pending.Count){break}
         foreach($task in $pending){
+            $taskSince=& $sinceFor $task.TaskName
             $info=Get-ScheduledTaskInfo -CimSession $Session -TaskPath $script:TaskPath -TaskName $task.TaskName
-            if($info.LastRunTime -gt $Since -and $info.LastTaskResult -ne 0x41301){
+            if($info.LastRunTime -gt $taskSince -and $info.LastTaskResult -ne 0x41301){
+                if($ReleasePath){
+                    $live=Get-ScheduledTask -CimSession $Session -TaskPath $script:TaskPath -TaskName $task.TaskName
+                    if($live.Actions[0].Arguments -notlike "*`"$ReleasePath`"*"){throw "$($task.TaskName) no longer points at $ReleasePath."}
+                }
                 if($info.LastTaskResult -ne 0){throw "$($task.TaskName) ran on the new release and returned 0x$('{0:x}' -f $info.LastTaskResult)."}
                 $results[$task.TaskName]="Ran $($info.LastRunTime.ToString('HH:mm:ss')), result 0"
             }
@@ -178,7 +197,9 @@ function Invoke-PinnedJobRelease {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$App,[Parameter(Mandatory)][hashtable]$Entry,[Parameter(Mandatory)][string]$Component,
         [string]$Commit='HEAD',[Parameter(Mandatory)][string]$Repository,[Parameter(Mandatory)][string]$ApprovalReason,
-        [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),[int]$TimeoutSeconds=300)
+        [string]$OutputDirectory=(Join-Path (Split-Path -Parent $PSScriptRoot) '.local'),[int]$TimeoutSeconds=300,
+        [DateTimeOffset]$ExpiresLocal=([DateTimeOffset]::Now.AddMinutes(60)))
+    Assert-ReleaseConsentCurrent $ExpiresLocal
     $job=$Entry['jobs'][$Component]
     if(-not $job){throw "No pinned-job entry for $App $Component."}
     $commitId=Resolve-CommonReleaseSource $Repository $Commit
@@ -237,6 +258,7 @@ function Invoke-PinnedJobRelease {
             $existing=@(Compare-PinnedJobTree $builtTree (Get-PinnedJobTree $destination))
             if($existing.Count){throw "$name already exists on the host with different files. Remove or inspect it first."}
         }else{
+            Assert-ReleaseConsentCurrent $ExpiresLocal
             Assert-DeploymentLease @($lock)
             $staging="$destination.staging-$($id.Substring(0,8))"
             Copy-Item -LiteralPath $built -Destination $staging -Recurse
@@ -253,11 +275,10 @@ function Invoke-PinnedJobRelease {
         $hostPath=Join-Path $script:HostAppRoot "$App\releases\$name"
         $before=@{}
         foreach($task in $tasks){$before[$task.TaskName]=@{enabled=$task.Settings.Enabled;user=$task.Principal.UserId;triggers=@($task.Triggers).Count}}
-        $since=Get-Date
         $receipt.repointed=@()
         Assert-DeploymentLease @($lock)
         Set-VerifiedPinnedJobActions -Session $session -App $App -Tasks $tasks -Current $current -ReleasePath $hostPath `
-            -Receipt $receipt -Id $id -TimeoutSeconds ([Math]::Min(180,$TimeoutSeconds))
+            -Receipt $receipt -Id $id -TimeoutSeconds ([Math]::Min(180,$TimeoutSeconds)) -ExpiresLocal $ExpiresLocal
         $repointed=$receipt.repointed
         $after=Get-PinnedJobTasks $session @($job.tasks)
         foreach($task in $after){
@@ -272,7 +293,7 @@ function Invoke-PinnedJobRelease {
             release=$name;previousRelease=$current.name;tasks=$repointed;completedLocal=(Get-Date).ToString('o')}
         $receipt.status='Repointed'
         Write-DeploymentJson $receiptPath $receipt
-        $receipt.runs=Wait-PinnedJobRuns $session $after $since $TimeoutSeconds
+        $receipt.runs=Wait-PinnedJobRuns $session $after -SinceByTask $receipt.repointedAt -ReleasePath $hostPath -TimeoutSeconds $TimeoutSeconds
         $receipt.status='Succeeded';$receipt.completedLocal=(Get-Date).ToString('o')
         Write-DeploymentJson $receiptPath $receipt
         $receipt

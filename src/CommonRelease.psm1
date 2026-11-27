@@ -28,6 +28,11 @@ function Assert-CommonReleaseWindow {
     }
 }
 
+function Assert-ReleaseConsentCurrent {
+    param([Parameter(Mandatory)][DateTimeOffset]$ExpiresLocal,[DateTimeOffset]$Now=[DateTimeOffset]::Now)
+    if($ExpiresLocal -le $Now){throw 'Release consent expired.'}
+}
+
 function Get-CommonReleaseRecords {
     param([Parameter(Mandatory)][string]$App,[AllowNull()][object[]]$Result)
     @(foreach($item in @($Result)){
@@ -161,6 +166,7 @@ function Invoke-CommonRelease {
         throw 'Release consent must expire within 1 hour.'
     }
     $arguments.Repository=$route.repository
+    $arguments.ExpiresLocal=$ExpiresLocal
     $results=@()
     if($route.procedure -ne 'none'){
         $arguments.Component=if($Component -or $route.entry.ContainsKey('defaultComponents')){@($route.webComponents)}else{$null}
@@ -170,7 +176,7 @@ function Invoke-CommonRelease {
         Import-Module (Join-Path $PSScriptRoot 'PinnedJobRelease.psm1') -DisableNameChecking
         foreach($job in $route.jobs){
             $results+=@(Invoke-PinnedJobRelease -App $App -Entry $route.entry -Component $job -Commit $Commit -Repository $route.repository `
-                -ApprovalReason $ApprovalReason -OutputDirectory $OutputDirectory -TimeoutSeconds $TimeoutSeconds)
+                -ApprovalReason $ApprovalReason -OutputDirectory $OutputDirectory -TimeoutSeconds $TimeoutSeconds -ExpiresLocal $ExpiresLocal)
         }
     }
     $recordApp=if($route.entry.ContainsKey('releaseRecordApp')){$route.entry.releaseRecordApp}else{$App}
@@ -190,13 +196,13 @@ function Invoke-CommonWebRelease {
     if($Route.procedure -eq 'directory'){
         Import-Module (Join-Path $PSScriptRoot 'DirectoryRelease.psm1') -DisableNameChecking
         $directoryArguments=@{Repository=$Arguments.Repository;ApprovalReason=$Arguments.ApprovalReason}
-        foreach($key in 'Commit','OutputDirectory','TimeoutSeconds'){if($Arguments.ContainsKey($key)){$directoryArguments[$key]=$Arguments[$key]}}
+        foreach($key in 'Commit','OutputDirectory','TimeoutSeconds','ExpiresLocal'){if($Arguments.ContainsKey($key)){$directoryArguments[$key]=$Arguments[$key]}}
         return Invoke-DirectoryRelease @directoryArguments
     }
     if($Route.procedure -eq 'file-set'){
         Import-Module (Join-Path $PSScriptRoot 'FileSetRelease.psm1') -DisableNameChecking
         $fileArguments=@{Repository=$Arguments.Repository;Entry=$Route.entry;Component=$Route.webComponents;ApprovalReason=$Arguments.ApprovalReason}
-        foreach($key in 'Commit','OutputDirectory'){if($Arguments.ContainsKey($key)){$fileArguments[$key]=$Arguments[$key]}}
+        foreach($key in 'Commit','OutputDirectory','ExpiresLocal'){if($Arguments.ContainsKey($key)){$fileArguments[$key]=$Arguments[$key]}}
         return Invoke-FileSetRelease @fileArguments
     }
     if($Route.procedure -ne 'fit-track'){throw 'No implemented release procedure for this inventory entry.'}
@@ -205,4 +211,4 @@ function Invoke-CommonWebRelease {
     Invoke-FitTrackRelease @Arguments
 }
 
-Export-ModuleMember -Function Test-MarketHours,Assert-CommonReleaseWindow,Get-CommonReleaseRoute,Resolve-CommonReleaseSource,Get-CommonReleaseChanges,Invoke-CommonRelease,Get-CommonReleaseRecords,Write-CommonReleaseRecords
+Export-ModuleMember -Function Test-MarketHours,Assert-CommonReleaseWindow,Assert-ReleaseConsentCurrent,Get-CommonReleaseRoute,Resolve-CommonReleaseSource,Get-CommonReleaseChanges,Invoke-CommonRelease,Get-CommonReleaseRecords,Write-CommonReleaseRecords
