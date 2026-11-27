@@ -4,10 +4,19 @@ Import-Module (Join-Path $root 'src\Deployment.psm1') -Force -DisableNameCheckin
 
 Describe 'SSH transport addressing and authentication' {
     It 'uses a logical drive address for the new host and LAN legacy address for the old host' {
-        Get-DeploymentRemotePath jimbrownhome1 'D:\Folder with spaces\file.txt' |
-            Should Be 'C:\.solution-deploy-ssh\jimbrownhome1.local\D\Folder with spaces\file.txt'
-        Get-DeploymentRemotePath jimbrownhome 'C:\ProgramData\SolutionDeploy' |
-            Should Be '\\jimbrownhome.local\C$\ProgramData\SolutionDeploy'
+        $computerName=$env:COMPUTERNAME
+        try {
+            $env:COMPUTERNAME='test-controller'
+            Get-DeploymentRemotePath jimbrownhome1 'D:\Folder with spaces\file.txt' |
+                Should Be 'C:\.solution-deploy-ssh\jimbrownhome1.local\D\Folder with spaces\file.txt'
+            Get-DeploymentRemotePath jimbrownhome 'C:\ProgramData\SolutionDeploy' |
+                Should Be '\\jimbrownhome.local\C$\ProgramData\SolutionDeploy'
+            $env:COMPUTERNAME='jimbrownhome'
+            Get-DeploymentRemotePath jimbrownhome 'C:\ProgramData\SolutionDeploy' |
+                Should Be 'C:\ProgramData\SolutionDeploy'
+        } finally {
+            $env:COMPUTERNAME=$computerName
+        }
         $remote=Resolve-DeploymentSshPath 'C:\.solution-deploy-ssh\jimbrownhome1.local\D\Folder with spaces\file.txt'
         $remote.hostName|Should Be 'jimbrownhome1.local'
         $remote.path|Should Be 'D:\Folder with spaces\file.txt'
