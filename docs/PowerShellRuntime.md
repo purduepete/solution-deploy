@@ -72,7 +72,7 @@ it. The updater removes its download and failed staging folder automatically.
 Run the read-only verifier on jimbrownhome1 before and after an update:
 
 ```powershell
-pwsh.exe -NoProfile -File .\scripts\Test-HostDependencies.ps1 -CheckSignature -CheckApps -ExpectedClusterId <system_identifier>
+pwsh.exe -NoProfile -File .\scripts\Test-HostDependencies.ps1 -CheckSignature -CheckApps -ExpectedClusterId <system_identifier> -ControllerVersion 7.7.0
 ```
 
 It checks that the managed `7` and `previous` junctions point to `versions\7.x.y`,
@@ -81,6 +81,41 @@ that every `\JimlerTech\` task launching `pwsh.exe` uses that same executable, a
 that the controller and host share a PowerShell Major.Minor version. Its JSON
 result lists each check; it exits 1 when any check fails. See
 [PostgreSQL](PostgreSQL.md#after-a-postgresql-update) for the database checks.
+
+## Controller (jimbrownhome)
+
+`jimbrownhome` uses the same managed runtime under
+`C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe` so controller and
+host stay on the same `Major.Minor` version and update with the same command.
+
+Run the updater in **64-bit Windows PowerShell (`powershell.exe`) as
+administrator** (add `-AllowMarketHours` if updating during US market hours):
+
+```powershell
+powershell.exe -NoProfile -File C:\ProgramData\SolutionDeploy\runtime\powershell\management\scripts\Update-DeploymentPowerShell.ps1
+```
+
+Controller-specific wiring that follows every update and `-Rollback`:
+
+- `HKLM:\SOFTWARE\OpenSSH\DefaultShell` points to
+  `C:\ProgramData\SolutionDeploy\runtime\powershell\7\pwsh.exe`, so SSH logins
+  (including `jimbrown-local`) always find a valid shell.
+- `C:\Program Files\PowerShell\7` is a directory junction to
+  `C:\ProgramData\SolutionDeploy\runtime\powershell\7`, so Windows Terminal's
+  `Windows.Terminal.PowershellCore` profile, VS Code, and tools expecting the
+  default install path track the managed runtime automatically.
+- `C:\ProgramData\SolutionDeploy\runtime\powershell\7` is on Machine `PATH`.
+
+Do not install or upgrade PowerShell via `winget` or the Microsoft Store on
+`jimbrownhome`. Starting with PowerShell 7.7, Microsoft dropped the `.msi`
+installer in favor of a per-user MSIX under `WindowsApps`, which does not
+provide a stable machine-wide path for `sshd` and can shadow the managed
+`pwsh.exe` on User `PATH`.
+
+When `scripts\Update-DeploymentPowerShell.ps1` or `src\PowerShellRuntime.psm1`
+changes in this repository, copy the updated files into
+`C:\ProgramData\SolutionDeploy\runtime\powershell\management\` on both
+`jimbrownhome` and `jimbrownhome1`.
 
 ## Initial installation and existing tasks
 
