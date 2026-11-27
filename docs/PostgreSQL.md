@@ -112,7 +112,7 @@ The activation approval requires:
 - For `Mode=Remote` only: `postgresSslRootCert`, the root certificate file used for `verify-full`, and `postgresSslRootCertSHA256`, its SHA-256. Loopback approvals must not depend on them.
 - `databaseEvidencePath`, relative to administrator-owned `state`, plus `databaseEvidenceSHA256`.
 - An explicitly reviewed `expectedSchemaFingerprint` and `migrationSqlSHA256`.
-- Import, restored-backup, isolation, schema-compatibility, and independent-review gates.
+- Restored-backup, isolation, schema-compatibility, and independent-review gates. Legacy imports also require import parity.
 
 `plan.solutionDatabases` lists every managed solution database. Live evidence passes it to `Get-PostgresDatabaseEvidence -SolutionDatabases`, and the runtime role must have CONNECT to none of them except its own.
 
@@ -132,10 +132,12 @@ Every record contains `planHash`, `database`, `sourceTransferSHA256`, `migration
 | ------------------ | ----------------------- | -------------------------------------------- | ------------------------------- |
 | `LegacyConversion` | `true`                  | Must equal the approved source transfer hash | None                            |
 | `ManagedMove`      | `false`                 | `null`                                       | `centralDatabasePreserved=true` |
-| `ManagedDeploy`    | `false`                 | `null`                                       | None                            |
+| `ManagedDeploy`    | `false`                 | `null`                                       | See managed state validation below |
 | `FirstInstall`     | `false`                 | `null`                                       | None                            |
 
 A managed move relocates the app between app hosts. The database stays on the central host, so there is no import, and the record must claim that the existing database was preserved. These claims require the actual reviewed validation results, not manually invented success values.
+
+For a same-host `ManagedDeploy` with no import parity comparison, set `parityValidated=false` and `postgresStateValidated=true` in the evidence record, and approve the `postgresStateValidated` gate. This records reviewed checks of the existing database without claiming a new import or parity result. Restore, role-isolation, schema and independent-review requirements still apply. Other transitions retain their existing parity requirement.
 
 The fingerprint covers public table/view column definitions, constraints, views, and indexes from PostgreSQL catalogs. Activation compares it to the reviewed fingerprint and the live runtime-role view of the schema. Live evidence also records `endpoint` (`mode`, `hostName`, `hostAddress`, `port`, `sslMode`, `endpointSHA256`). Remote evidence fails unless the server reports TLS for the session (`pg_stat_ssl`) and answers on the approved address (`inet_server_addr()`).
 

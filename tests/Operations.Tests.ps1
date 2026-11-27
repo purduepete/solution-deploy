@@ -91,6 +91,60 @@ Describe 'Database activation evidence gates with no database access' {
                 $SolutionDatabases.Count -eq 3 -and 'site_dock' -in $SolutionDatabases
             }
         }
+        It 'accepts validated managed state without claiming import parity' {
+            $script:plan.operation='Deploy'
+            $script:plan.transitionKind='ManagedDeploy'
+            $script:record.transitionKind='ManagedDeploy'
+            $script:record.parityValidated=$false
+            $script:record.postgresStateValidated=$true
+            $script:approval.gates=@{postgresStateValidated=$true}
+            $path=Join-Path $script:appRoot 'state\database-proof.json'
+            Write-DeploymentJson $path $script:record
+            $script:approval.databaseEvidenceSHA256=(Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()
+            (Assert-DatabaseActivationEvidence $script:plan $script:approval $script:appRoot).database|Should Be 'ferry_tracker'
+        }
+        It 'requires both recorded and approved managed state validation without import parity' {
+            $script:plan.operation='Deploy'
+            $script:plan.transitionKind='ManagedDeploy'
+            $script:record.transitionKind='ManagedDeploy'
+            $script:record.parityValidated=$false
+            $script:record.postgresStateValidated=$true
+            $script:approval.gates=@{postgresStateValidated=$true}
+            $path=Join-Path $script:appRoot 'state\database-proof.json'
+            foreach($missing in @('record','approval','recordKey','approvalGates')){
+                $script:record.postgresStateValidated=($missing -ne 'record')
+                $script:approval.gates=@{postgresStateValidated=($missing -ne 'approval')}
+                if($missing -eq 'recordKey'){$script:record.Remove('postgresStateValidated')}
+                if($missing -eq 'approvalGates'){$script:approval.Remove('gates')}
+                Write-DeploymentJson $path $script:record
+                $script:approval.databaseEvidenceSHA256=(Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()
+                Assert-Throws {Assert-DatabaseActivationEvidence $script:plan $script:approval $script:appRoot}
+            }
+            Assert-MockCalled Get-PostgresDatabaseEvidence -ModuleName Operations -Times 0 -Exactly -Scope It
+        }
+        It 'does not waive import parity for a managed move' {
+            $script:record.parityValidated=$false
+            $script:record.postgresStateValidated=$true
+            $script:approval.gates=@{postgresStateValidated=$true}
+            $path=Join-Path $script:appRoot 'state\database-proof.json'
+            Write-DeploymentJson $path $script:record
+            $script:approval.databaseEvidenceSHA256=(Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()
+            Assert-Throws {Assert-DatabaseActivationEvidence $script:plan $script:approval $script:appRoot}
+            Assert-MockCalled Get-PostgresDatabaseEvidence -ModuleName Operations -Times 0 -Exactly -Scope It
+        }
+        It 'does not waive import parity for an older plan schema' {
+            $script:plan.schemaVersion=1
+            $script:plan.operation='Deploy'
+            $script:plan.transitionKind='ManagedDeploy'
+            $script:record.parityValidated=$false
+            $script:record.postgresStateValidated=$true
+            $script:approval.gates=@{postgresStateValidated=$true}
+            $path=Join-Path $script:appRoot 'state\database-proof.json'
+            Write-DeploymentJson $path $script:record
+            $script:approval.databaseEvidenceSHA256=(Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant()
+            Assert-Throws {Assert-DatabaseActivationEvidence $script:plan $script:approval $script:appRoot}
+            Assert-MockCalled Get-PostgresDatabaseEvidence -ModuleName Operations -Times 0 -Exactly -Scope It
+        }
         It 'propagates the approved remote endpoint and certificate to live evidence' {
             $script:plan.target=@{host='jimbrownhome';address='192.168.2.11'}
             $script:plan.hostSnapshot=@{host='jimbrownhome';address='192.168.2.11';identity='app-uuid';verified=$true}

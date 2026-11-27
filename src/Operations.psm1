@@ -73,8 +73,13 @@ function Assert-DatabaseActivationEvidence {
     foreach($key in @('planHash','database','sourceTransferSHA256','migrationSqlSHA256','schemaFingerprint','parityValidated','backupRestoredAndValidated','independentReview')){
         if(-not $record.ContainsKey($key)){throw "Database evidence missing $key."}
     }
+    $managedStateValidated=$Plan.ContainsKey('schemaVersion') -and $Plan.schemaVersion -eq 2 -and
+        $Plan.ContainsKey('transitionKind') -and $Plan.transitionKind -eq 'ManagedDeploy' -and $Plan.operation -eq 'Deploy' -and
+        $record.parityValidated -is [bool] -and $record.parityValidated -eq $false -and
+        $record.ContainsKey('postgresStateValidated') -and $record.postgresStateValidated -is [bool] -and $record.postgresStateValidated -eq $true -and
+        $Approval.ContainsKey('gates') -and $Approval.gates.ContainsKey('postgresStateValidated') -and $Approval.gates.postgresStateValidated -eq $true
     if($record.planHash -ne $Plan.planHash -or $record.database -ne $Plan.manifest.database.name -or
-        $record.parityValidated -ne $true -or $record.backupRestoredAndValidated -ne $true -or
+        ($record.parityValidated -ne $true -and -not $managedStateValidated) -or $record.backupRestoredAndValidated -ne $true -or
         $record.schemaFingerprint -notmatch '^[a-f0-9]{64}$' -or [string]::IsNullOrWhiteSpace($record.independentReview)){
         throw 'Database import, schema fingerprint, independent review, or restore validation is incomplete.'
     }
